@@ -67,3 +67,43 @@ export async function deletePhase(id: string) {
     revalidatePath("/admin/catalog");
   });
 }
+
+// ---------- Giá trị danh mục Level 2/3/5 (sheet Data) ----------
+
+const VALID_LEVELS = [2, 3, 5];
+
+export async function addCatalogValue(workGroupId: string, level: number, value: string) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    const v = value.trim();
+    if (!v) throw new Error("Nhập giá trị");
+    if (!VALID_LEVELS.includes(level)) throw new Error("Cấp không hợp lệ");
+    await prisma.catalogItem.upsert({
+      where: { workGroupId_level_value: { workGroupId, level, value: v } },
+      update: {},
+      create: { workGroupId, level, value: v },
+    });
+    revalidatePath(`/admin/catalog/${workGroupId}`);
+    revalidatePath("/tasks");
+  });
+}
+
+export async function updateCatalogValue(id: string, value: string) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    const v = value.trim();
+    if (!v) throw new Error("Nhập giá trị");
+    await prisma.catalogItem.update({ where: { id }, data: { value: v } });
+    revalidatePath("/admin/catalog");
+    revalidatePath("/tasks");
+  });
+}
+
+export async function deleteCatalogValue(id: string) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    await prisma.catalogItem.delete({ where: { id } });
+    revalidatePath("/admin/catalog");
+    revalidatePath("/tasks");
+  });
+}

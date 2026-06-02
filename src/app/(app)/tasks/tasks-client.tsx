@@ -25,6 +25,7 @@ import { deleteTask, saveTask, updateTaskStatus } from "@/server/actions/tasks";
 
 type Opt = { id: string; name: string };
 type UserOpt = { id: string; fullName: string };
+type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[] }>;
 
 export type TaskRow = {
   id: string;
@@ -65,6 +66,7 @@ export function TasksClient({
   phases,
   projects,
   users,
+  catalog,
 }: {
   currentUserId: string;
   canManage: boolean;
@@ -74,6 +76,7 @@ export function TasksClient({
   phases: Opt[];
   projects: Opt[];
   users: UserOpt[];
+  catalog: Catalog;
 }) {
   const [f, setF] = React.useState({
     projectId: "",
@@ -441,6 +444,7 @@ export function TasksClient({
           phases={phases}
           projects={projects}
           users={users}
+          catalog={catalog}
           onClose={() => {
             setCreating(false);
             setEditing(null);
@@ -459,6 +463,7 @@ function TaskDialog({
   phases,
   projects,
   users,
+  catalog,
   onClose,
 }: {
   task?: TaskRow;
@@ -468,10 +473,14 @@ function TaskDialog({
   phases: Opt[];
   projects: Opt[];
   users: UserOpt[];
+  catalog: Catalog;
   onClose: () => void;
 }) {
   const [pending, setPending] = React.useState(false);
   const [assigneeIds, setAssigneeIds] = React.useState<string[]>(task?.assigneeIds ?? []);
+  // Nhóm chọn hiện tại → quyết định gợi ý Level 2/3/5.
+  const [wgId, setWgId] = React.useState(task?.workGroupId ?? defaultWorkGroupId ?? "");
+  const sug = catalog[wgId] ?? { l2: [], l3: [], l5: [] };
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -516,7 +525,8 @@ function TaskDialog({
             <Select
               id="workGroupId"
               name="workGroupId"
-              defaultValue={task?.workGroupId ?? defaultWorkGroupId ?? ""}
+              value={wgId}
+              onChange={(e) => setWgId(e.target.value)}
               required
             >
               <option value="">— Chọn —</option>
@@ -543,18 +553,33 @@ function TaskDialog({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="level2">Hạng mục (L2)</Label>
-            <Input id="level2" name="level2" defaultValue={task?.level2 ?? ""} />
+            <Input id="level2" name="level2" list="dl-l2" defaultValue={task?.level2 ?? ""} />
+            <datalist id="dl-l2">
+              {sug.l2.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="level3">Chi tiết (L3)</Label>
-            <Input id="level3" name="level3" defaultValue={task?.level3 ?? ""} />
+            <Input id="level3" name="level3" list="dl-l3" defaultValue={task?.level3 ?? ""} />
+            <datalist id="dl-l3">
+              {sug.l3.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="level5">Đầu việc (L5)</Label>
-            <Input id="level5" name="level5" defaultValue={task?.level5 ?? ""} />
+            <Input id="level5" name="level5" list="dl-l5" defaultValue={task?.level5 ?? ""} />
+            <datalist id="dl-l5">
+              {sug.l5.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="name">Tên hiển thị (để trống → tự lấy đầu việc)</Label>

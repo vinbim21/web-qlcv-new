@@ -35,6 +35,18 @@ export default async function TasksPage() {
     }),
   ]);
 
+  const catalogItems = await prisma.catalogItem.findMany({
+    orderBy: [{ order: "asc" }, { value: "asc" }],
+  });
+  // Gợi ý Level 2/3/5 theo nhóm: { [workGroupId]: { l2:[], l3:[], l5:[] } }
+  const catalog: Record<string, { l2: string[]; l3: string[]; l5: string[] }> = {};
+  for (const c of catalogItems) {
+    const e = (catalog[c.workGroupId] ??= { l2: [], l3: [], l5: [] });
+    if (c.level === 2) e.l2.push(c.value);
+    else if (c.level === 3) e.l3.push(c.value);
+    else if (c.level === 5) e.l5.push(c.value);
+  }
+
   return (
     <TasksClient
       currentUserId={session.user.id}
@@ -68,6 +80,7 @@ export default async function TasksPage() {
       phases={phases.map((p) => ({ id: p.id, name: p.name }))}
       projects={projects.map((p) => ({ id: p.id, name: `${p.code} — ${p.name}` }))}
       users={users.map((u) => ({ id: u.id, fullName: u.fullName }))}
+      catalog={catalog}
     />
   );
 }

@@ -29,6 +29,7 @@ type TaskJson = {
   end: string | null;
 };
 type TsJson = { person: string; taskSum: string; date: string; hours: number; note: string };
+type CatalogJson = { wg: string; level: number; value: string };
 
 function usernameFromName(fullName: string): string {
   const noTone = fullName
@@ -103,9 +104,10 @@ async function main() {
     throw new Error("Chưa có data.json. Chạy trước: python prisma/import/extract.py");
   }
   demoHash = await bcrypt.hash("Qlcv@12345", 10);
-  const { tasks, timesheets } = JSON.parse(fs.readFileSync(DATA, "utf-8")) as {
+  const { tasks, timesheets, catalog } = JSON.parse(fs.readFileSync(DATA, "utf-8")) as {
     tasks: TaskJson[];
     timesheets: TsJson[];
+    catalog?: CatalogJson[];
   };
 
   const wgByCode = new Map((await prisma.workGroup.findMany()).map((w) => [w.code, w.id]));
@@ -197,13 +199,31 @@ async function main() {
     tsCount++;
   }
 
+  // Danh mục Level 2/3/5 từ sheet Data
+  let catCount = 0;
+  if (catalog?.length) {
+    console.log(`Nạp ${catalog.length} giá trị danh mục (Level 2/3/5)...`);
+    for (const c of catalog) {
+      const workGroupId = wgByCode.get(c.wg);
+      const value = c.value?.trim();
+      if (!workGroupId || !value || ![2, 3, 5].includes(c.level)) continue;
+      await prisma.catalogItem.upsert({
+        where: { workGroupId_level_value: { workGroupId, level: c.level, value } },
+        update: {},
+        create: { workGroupId, level: c.level, value },
+      });
+      catCount++;
+    }
+  }
+
   const summary = {
     users: await prisma.user.count(),
     projects: await prisma.project.count(),
     tasks: await prisma.task.count(),
     timesheets: await prisma.timeSheetEntry.count(),
+    catalogItems: await prisma.catalogItem.count(),
   };
-  console.log(`Đã nạp ${taskCount} task, ${tsCount} nhật ký`);
+  console.log(`Đã nạp ${taskCount} task, ${tsCount} nhật ký, ${catCount} giá trị danh mục`);
   console.log("Tổng DB:", summary);
 }
 

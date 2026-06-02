@@ -51,7 +51,23 @@ model WorkGroup {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tasks Task[]
+  tasks        Task[]
+  catalogItems CatalogItem[]
+}
+
+/// Giá trị danh mục Level 2/3/5 theo từng Nhóm (nguồn gợi ý khi tạo công việc — sheet Data).
+model CatalogItem {
+  id          String   @id @default(cuid())
+  workGroupId String
+  level       Int // 2, 3, 5
+  value       String
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  workGroup WorkGroup @relation(fields: [workGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([workGroupId, level, value])
+  @@index([workGroupId, level])
 }
 
 /// Bộ môn / Tổ — Level 4 (BIM, KT, KC, MEPF, HT, IT, DI, DN...)

@@ -64,8 +64,21 @@ export async function saveTask(input: unknown) {
       void created;
     }
 
+    // Tự thêm giá trị Level 2/3/5 vào danh mục của nhóm (nếu là giá trị mới).
+    const ensure = async (level: number, value?: string | null) => {
+      const v = value?.trim();
+      if (!v) return;
+      await prisma.catalogItem.upsert({
+        where: { workGroupId_level_value: { workGroupId: data.workGroupId, level, value: v } },
+        update: {},
+        create: { workGroupId: data.workGroupId, level, value: v },
+      });
+    };
+    await Promise.all([ensure(2, data.level2), ensure(3, data.level3), ensure(5, data.level5)]);
+
     revalidatePath("/tasks");
     revalidatePath("/reports");
+    revalidatePath("/admin/catalog");
   });
 }
 

@@ -23,6 +23,18 @@ TASK_SHEETS = [
 ]
 TS_SHEETS = ["XD", "MEPF", "IT"]
 
+# Sheet "Data": cột Level 2/3/5 theo từng nhóm (1-indexed). data từ dòng 4.
+# (wg, {2: colL2, 3: colL3, 5: colL5})  — nhóm nào thiếu cấp thì bỏ qua.
+DATA_COLS = [
+    ("1", {2: 2, 3: 3, 5: 4}),     # Xây dựng HTTC BIM
+    ("2", {2: 5, 3: 6, 5: 7}),     # Đào tạo BIM
+    ("3", {2: 8, 3: 9, 5: 11}),    # Quản lý BIM (cột 10=Quy mô, bỏ)
+    ("4", {5: 12}),                # Thanh tra BIM (chỉ Level 5)
+    ("5", {2: 13, 3: 14, 5: 15}),  # Phát triển BIM Tools
+    ("6", {2: 16, 3: 17, 5: 18}),  # Quản lý phần mềm
+    ("7", {2: 19, 3: 20, 5: 21}),  # Công việc khác
+]
+
 def sval(v):
     if v is None: return ""
     if isinstance(v, (datetime, date)): return v.isoformat()[:10]
@@ -84,10 +96,24 @@ def main():
                     timesheets.append({"person": person, "taskSum": taskSum, "date": d, "hours": hours, "note": content})
                 c += 3
 
+    # Danh mục Level 2/3/5 từ sheet "Data"
+    catalog = []
+    if "Data" in wb.sheetnames:
+        ws = wb["Data"]
+        seen = set()
+        for row in ws.iter_rows(min_row=4):
+            for wg, cols in DATA_COLS:
+                for level, col in cols.items():
+                    idx = col - 1
+                    val = sval(row[idx].value) if idx < len(row) else ""
+                    if val and (wg, level, val) not in seen:
+                        seen.add((wg, level, val))
+                        catalog.append({"wg": wg, "level": level, "value": val})
+
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
-        json.dump({"tasks": tasks, "timesheets": timesheets}, f, ensure_ascii=False)
-    print("tasks=%d timesheets=%d -> %s" % (len(tasks), len(timesheets), OUT))
+        json.dump({"tasks": tasks, "timesheets": timesheets, "catalog": catalog}, f, ensure_ascii=False)
+    print("tasks=%d timesheets=%d catalog=%d -> %s" % (len(tasks), len(timesheets), len(catalog), OUT))
 
 if __name__ == "__main__":
     main()

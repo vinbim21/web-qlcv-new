@@ -1,9 +1,10 @@
 "use client";
 
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,6 +62,7 @@ export function CatalogManager({
           onAdd={() => setDialog({ kind: "wg" })}
           onEdit={(item) => setDialog({ kind: "wg", item })}
           onDelete={(item) => onDelete("wg", item)}
+          detailHref={(item) => `/admin/catalog/${item.id}`}
         />
         <CatalogTable
           title="Giai đoạn"
@@ -84,12 +86,14 @@ function CatalogTable({
   onAdd,
   onEdit,
   onDelete,
+  detailHref,
 }: {
   title: string;
   items: Item[];
   onAdd: () => void;
   onEdit: (item: Item) => void;
   onDelete: (item: Item) => void;
+  detailHref?: (item: Item) => string;
 }) {
   return (
     <Card>
@@ -115,9 +119,19 @@ function CatalogTable({
                 <TableCell className="font-medium">{it.name}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button size="icon" variant="ghost" onClick={() => onEdit(it)} title="Sửa">
-                      <Pencil className="size-4" />
-                    </Button>
+                    {detailHref ? (
+                      <Link
+                        href={detailHref(it)}
+                        title="Sửa danh mục Level 2/3/5"
+                        className={buttonVariants({ variant: "ghost", size: "icon" })}
+                      >
+                        <Pencil className="size-4" />
+                      </Link>
+                    ) : (
+                      <Button size="icon" variant="ghost" onClick={() => onEdit(it)} title="Sửa">
+                        <Pencil className="size-4" />
+                      </Button>
+                    )}
                     <Button size="icon" variant="ghost" onClick={() => onDelete(it)} title="Xóa">
                       <Trash2 className="size-4" />
                     </Button>
