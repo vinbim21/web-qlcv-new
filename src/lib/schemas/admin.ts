@@ -37,3 +37,12 @@ export const catalogItemSchema = z.object({
   name: z.string().min(1, "Nhập tên"),
   order: z.coerce.number().int().min(0).optional(),
 });
+
+// Nhóm công việc (Level 1) & Giai đoạn — CRUD đầy đủ (mã + tên + thứ tự)
+export const catalogCrudSchema = z.object({
+  id: z.string().optional(),
+  code: z.string().min(1, "Nhập mã"),
+  name: z.string().min(1, "Nhập tên"),
+  order: z.coerce.number().int().min(0).optional(),
+});
+export type CatalogCrudInput = z.infer<typeof catalogCrudSchema>;
