@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="33.831 -0.5 22.38 22.682" role="img" aria-label="Vinhomes bird symbol">
+  
+
+  <defs>
+    <linearGradient id="vinhomes-bird-gradient" x1="53.2354" y1="15.0034" x2="44.0444" y2="5.36254" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FDB913"></stop>
+      <stop offset="0.2233" stop-color="#E5A521"></stop>
+      <stop offset="0.5065" stop-color="#CE9130"></stop>
+      <stop offset="0.7721" stop-color="#C08538"></stop>
+      <stop offset="1" stop-color="#BB813B"></stop>
+    </linearGradient>
+  </defs>
+
+  <g id="bird-symbol" fill="url(#vinhomes-bird-gradient)">
+    <path d="M55.5764 0.00176998C49.7269 0.703767 43.747 2.63116 43.3504 8.46463C43.1665 11.193 44.0059 13.2425 44.9526 15.2211C42.5753 12.88 39.1424 11.0021 34.3306 11.46C37.2616 12.2911 40.7213 13.8808 42.5806 15.9815C42.9736 16.4288 43.5487 17.2033 43.413 17.8611C43.1879 18.9698 41.1464 18.7435 39.9104 18.8036C42.4735 19.831 45.3384 21.6823 48.9928 21.5621C50.82 21.5037 52.1614 20.3933 52.0202 18.3332C51.763 14.6323 49.0392 11.4689 48.7534 7.28698C48.4355 2.56928 51.7487 0.838149 55.4621 0.0636545C55.5371 0.0866418 55.655 0.0636627 55.6853 0.0389072C55.7104 0.0212247 55.6871 0 55.5853 0H55.5764V0.00176998Z"></path>
+  </g>
+</svg>

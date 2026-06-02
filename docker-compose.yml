@@ -1,0 +1,18 @@
+# Postgres local cho phát triển (giống Supabase Postgres).
+# Dùng: docker compose up -d   |   tắt: docker compose down
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: qlcv-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qlcv
+      POSTGRES_PASSWORD: qlcv
+      POSTGRES_DB: qlcv
+    ports:
+      - "5432:5432"
+    volumes:
+      - qlcv-pgdata:/var/lib/postgresql/data
+
+volumes:
+  qlcv-pgdata:

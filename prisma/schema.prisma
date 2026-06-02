@@ -1,0 +1,214 @@
+// Prisma schema — Web QLCV phòng BIM
+// Postgres (Supabase). Tham khảo ../web-qlcv + WM_New.xlsx.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------- Enums ----------
+
+enum UserRole {
+  ADMIN // Quản trị
+  MANAGER // Quản lý / Trưởng nhóm (PM)
+  MEMBER // Nhân viên
+  VIEWER // Chỉ xem
+}
+
+enum TaskStatus {
+  CHUA_LAM // Chưa làm
+  DANG_LAM // Đang thực hiện
+  HOAN_THANH // Hoàn thành
+  TAM_DUNG // Tạm dừng
+  // "Quá hạn" KHÔNG lưu — suy ra từ plannedEnd < hôm nay AND status != HOAN_THANH
+}
+
+enum TaskPriority {
+  CAO // Cao
+  TRUNG_BINH // Trung bình
+  THAP // Thấp
+}
+
+enum ProjectStatus {
+  DANG_THUC_HIEN // Đang thực hiện
+  TAM_DUNG // Tạm dừng
+  HOAN_THANH // Hoàn thành
+}
+
+// ---------- Danh mục (lookup) ----------
+
+/// Nhóm công việc chính — Level 1 (6 nhóm: HTTC BIM, Đào tạo, Quản lý, Thanh tra, BIM Tools, QL phần mềm)
+model WorkGroup {
+  id        String   @id @default(cuid())
+  code      String   @unique // "1".."6"
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks Task[]
+}
+
+/// Bộ môn / Tổ — Level 4 (BIM, KT, KC, MEPF, HT, IT, DI, DN...)
+model Discipline {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+  tasks Task[]
+}
+
+/// Giai đoạn dự án (Concept, TKCS, FEED, TKKT, TKBVTC, Thi công, Hoàn công, Vận hành)
+model Phase {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks Task[]
+}
+
+/// Dự án (mã như B.DSHNQN.DMF)
+model Project {
+  id          String        @id @default(cuid())
+  code        String        @unique
+  name        String
+  status      ProjectStatus @default(DANG_THUC_HIEN)
+  startDate   DateTime?
+  endDate     DateTime?
+  description String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  tasks      Task[]
+  timeSheets TimeSheetEntry[]
+
+  @@index([status])
+}
+
+// ---------- Người dùng ----------
+
+model User {
+  id                 String    @id @default(cuid())
+  username           String    @unique
+  email              String    @unique
+  fullName           String
+  passwordHash       String
+  mustChangePassword Boolean   @default(false)
+  role               UserRole  @default(MEMBER)
+  disciplineId       String?
+  isActive           Boolean   @default(true)
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  discipline  Discipline?      @relation(fields: [disciplineId], references: [id])
+  assignments TaskAssignee[]
+  timeSheets  TimeSheetEntry[]
+
+  @@index([disciplineId])
+}
+
+// ---------- Công việc (WBS) ----------
+
+model Task {
+  id        String  @id @default(cuid())
+  // Phân loại
+  workGroupId String // Level 1 (bắt buộc)
+  projectId   String? // Dự án (nullable — nhóm HTTC/Đào tạo không gắn dự án)
+  disciplineId String? // Level 4 (Bộ môn)
+  phaseId      String? // Giai đoạn
+
+  // Mã & cấp WBS
+  sumId   String? // "3.B.DSHNQN.DMF.101"
+  subId   String? // "101"
+  wbsPath String // materialized path "01.02.03"
+  level   Int     @default(1) // 1..5
+  parentId String?
+
+  // Nội dung các cấp
+  level2 String? // Hạng mục
+  level3 String? // Chi tiết / tên hạng mục / tên dự án con
+  level5 String? // Đầu việc cụ thể
+  name   String // tên hiển thị (= level5 hoặc level3...)
+
+  // Thuộc tính
+  priority        TaskPriority @default(TRUNG_BINH)
+  status          TaskStatus   @default(CHUA_LAM)
+  progressPercent Int          @default(0)
+  plannedStart    DateTime?
+  plannedEnd      DateTime?
+  actualEnd       DateTime?
+  note            String?
+
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  workGroup  WorkGroup      @relation(fields: [workGroupId], references: [id])
+  project    Project?       @relation(fields: [projectId], references: [id])
+  discipline Discipline?    @relation(fields: [disciplineId], references: [id])
+  phase      Phase?         @relation(fields: [phaseId], references: [id])
+  parent     Task?          @relation("TaskTree", fields: [parentId], references: [id])
+  children   Task[]         @relation("TaskTree")
+  assignees  TaskAssignee[]
+  timeSheets TimeSheetEntry[]
+
+  @@index([workGroupId])
+  @@index([projectId])
+  @@index([disciplineId])
+  @@index([status])
+  @@index([wbsPath])
+  @@index([sumId])
+}
+
+/// Bảng nối nhiều-nhiều: 1 công việc có thể có nhiều người (Nhân sự 01/02/03)
+model TaskAssignee {
+  id     String @id @default(cuid())
+  taskId String
+  userId String
+  roleNo Int    @default(1) // 1 = chính, 2/3 = phối hợp
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([userId])
+}
+
+// ---------- Nhật ký công việc (Timesheet) ----------
+
+model TimeSheetEntry {
+  id        String    @id @default(cuid())
+  userId    String
+  taskId    String?
+  projectId String?
+  date      DateTime  @db.Date
+  hours     Decimal   @db.Decimal(4, 2)
+  note      String?
+  lockedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user    User     @relation(fields: [userId], references: [id])
+  task    Task?    @relation(fields: [taskId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([userId, date])
+  @@index([taskId])
+}

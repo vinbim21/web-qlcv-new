@@ -1,0 +1,12 @@
+import { z } from "zod";
+
+export const projectSchema = z.object({
+  id: z.string().optional(),
+  code: z.string().min(1, "Nhập mã dự án"),
+  name: z.string().min(1, "Nhập tên dự án"),
+  status: z.enum(["DANG_THUC_HIEN", "TAM_DUNG", "HOAN_THANH"]).optional(),
+  startDate: z.string().optional().nullable(),
+  endDate: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+});
+export type ProjectInput = z.infer<typeof projectSchema>;
