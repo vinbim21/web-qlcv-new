@@ -76,13 +76,13 @@ export function TasksClient({
   users: UserOpt[];
 }) {
   const [f, setF] = React.useState({
-    workGroupId: "",
     projectId: "",
     disciplineId: "",
     status: "",
     priority: "",
     mine: false,
   });
+  const [activeWg, setActiveWg] = React.useState(""); // "" = Tất cả (tab Bảng)
   const [search, setSearch] = React.useState("");
   // Gõ tới đâu ô phản hồi ngay; việc lọc dùng giá trị "trễ" nên không giật (React 19).
   const deferredSearch = React.useDeferredValue(search);
@@ -105,10 +105,10 @@ export function TasksClient({
     return m;
   }, [tasks]);
 
-  const filtered = React.useMemo(() => {
+  // Lọc theo MỌI tiêu chí TRỪ nhóm (để đếm số việc mỗi tab Bảng theo bộ lọc hiện tại).
+  const base = React.useMemo(() => {
     const q = removeVietnameseTones(deferredSearch.trim());
     return tasks.filter((t) => {
-      if (f.workGroupId && t.workGroupId !== f.workGroupId) return false;
       if (f.projectId && t.projectId !== f.projectId) return false;
       if (f.disciplineId && t.disciplineId !== f.disciplineId) return false;
       if (f.status === "QUA_HAN" ? !isOverdue(t) : f.status && t.status !== f.status) return false;
@@ -118,6 +118,17 @@ export function TasksClient({
       return true;
     });
   }, [tasks, f, deferredSearch, haystacks, currentUserId]);
+
+  const wgCounts = React.useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of base) m.set(t.workGroupId, (m.get(t.workGroupId) ?? 0) + 1);
+    return m;
+  }, [base]);
+
+  const filtered = React.useMemo(
+    () => (activeWg ? base.filter((t) => t.workGroupId === activeWg) : base),
+    [base, activeWg],
+  );
 
   // ---- Sắp xếp ----
   type SortKey = "sumId" | "name" | "project" | "assignee" | "priority" | "status" | "deadline";
@@ -252,16 +263,39 @@ export function TasksClient({
         ) : null}
       </div>
 
+      {/* Tab theo Bảng giao việc (Nhóm công việc 1-7) */}
+      <div className="flex flex-wrap gap-1.5 border-b pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveWg("")}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+            activeWg === ""
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-muted",
+          )}
+        >
+          Tất cả <span className="opacity-70">({base.length})</span>
+        </button>
+        {workGroups.map((w) => (
+          <button
+            key={w.id}
+            type="button"
+            onClick={() => setActiveWg(w.id)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              activeWg === w.id
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted",
+            )}
+          >
+            {w.name} <span className="opacity-70">({wgCounts.get(w.id) ?? 0})</span>
+          </button>
+        ))}
+      </div>
+
       {/* Bộ lọc */}
       <div className="grid gap-2 rounded-lg border bg-card p-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Select value={f.workGroupId} onChange={(e) => setF({ ...f, workGroupId: e.target.value })}>
-          <option value="">— Nhóm công việc —</option>
-          {workGroups.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </Select>
         <Select value={f.projectId} onChange={(e) => setF({ ...f, projectId: e.target.value })}>
           <option value="">— Dự án —</option>
           {projects.map((p) => (
@@ -306,15 +340,9 @@ export function TasksClient({
         <Button
           variant="outline"
           onClick={() => {
-            setF({
-              workGroupId: "",
-              projectId: "",
-              disciplineId: "",
-              status: "",
-              priority: "",
-              mine: false,
-            });
+            setF({ projectId: "", disciplineId: "", status: "", priority: "", mine: false });
             setSearch("");
+            setActiveWg("");
           }}
         >
           Xóa lọc
@@ -407,6 +435,7 @@ export function TasksClient({
       {(creating || editing) && canManage ? (
         <TaskDialog
           task={editing ?? undefined}
+          defaultWorkGroupId={activeWg}
           workGroups={workGroups}
           disciplines={disciplines}
           phases={phases}
@@ -424,6 +453,7 @@ export function TasksClient({
 
 function TaskDialog({
   task,
+  defaultWorkGroupId,
   workGroups,
   disciplines,
   phases,
@@ -432,6 +462,7 @@ function TaskDialog({
   onClose,
 }: {
   task?: TaskRow;
+  defaultWorkGroupId?: string;
   workGroups: Opt[];
   disciplines: Opt[];
   phases: Opt[];
@@ -482,7 +513,12 @@ function TaskDialog({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="workGroupId">Nhóm công việc (L1) *</Label>
-            <Select id="workGroupId" name="workGroupId" defaultValue={task?.workGroupId ?? ""} required>
+            <Select
+              id="workGroupId"
+              name="workGroupId"
+              defaultValue={task?.workGroupId ?? defaultWorkGroupId ?? ""}
+              required
+            >
               <option value="">— Chọn —</option>
               {workGroups.map((w) => (
                 <option key={w.id} value={w.id}>
