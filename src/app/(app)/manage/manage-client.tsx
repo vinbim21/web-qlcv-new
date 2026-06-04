@@ -6,6 +6,8 @@ import {
   ArrowDown,
   ArrowUp,
   Calendar,
+  ChevronDown,
+  ChevronRight,
   ChevronsUpDown,
   Clock,
   Pencil,
@@ -132,6 +134,10 @@ export function ManageClient({
   const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">(
     "",
   );
+  // Chế độ xem: gom theo người (mặc định) hoặc bảng phẳng.
+  const [viewMode, setViewMode] = React.useState<"people" | "table">("people");
+  // Nhóm người đang thu gọn (mặc định mở hết).
+  const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
   // Chọn nhiều việc để thao tác hàng loạt.
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   // Modal giao lại / đổi hạn (chụp lại danh sách id lúc mở).
@@ -269,6 +275,58 @@ export function ManageClient({
     );
   }
 
+  // ---- Gom theo người ----
+  // Việc nhiều người -> xuất hiện ở mỗi người (số là "lần tham gia", không phải unique).
+  // Việc chưa giao gom vào bucket "⚠ Chưa giao" ghim trên cùng.
+  const NONE_KEY = "__none__";
+  const groups = React.useMemo(() => {
+    if (viewMode !== "people") return [];
+    const map = new Map<string, { key: string; name: string; tasks: TaskRow[] }>();
+    for (const t of filtered) {
+      if (t.assigneeIds.length === 0) {
+        const g = map.get(NONE_KEY) ?? { key: NONE_KEY, name: "⚠ Chưa giao", tasks: [] };
+        g.tasks.push(t);
+        map.set(NONE_KEY, g);
+      } else {
+        t.assigneeIds.forEach((uid, i) => {
+          const g = map.get(uid) ?? { key: uid, name: t.assigneeNames[i] ?? "?", tasks: [] };
+          g.tasks.push(t);
+          map.set(uid, g);
+        });
+      }
+    }
+    const arr = [...map.values()].map((g) => {
+      // Trong nhóm: quá hạn lên đầu, rồi theo hạn tăng dần.
+      g.tasks.sort((a, b) => {
+        const oa = isOverdue(a) ? 0 : 1;
+        const ob = isOverdue(b) ? 0 : 1;
+        if (oa !== ob) return oa - ob;
+        return (a.plannedEnd || "9999-12-31").localeCompare(b.plannedEnd || "9999-12-31");
+      });
+      return { ...g, overdue: g.tasks.filter(isOverdue).length };
+    });
+    // Sắp nhóm: "Chưa giao" trước, rồi nhiều quá hạn trước, rồi theo tên.
+    arr.sort((a, b) => {
+      if (a.key === NONE_KEY) return -1;
+      if (b.key === NONE_KEY) return 1;
+      if (b.overdue !== a.overdue) return b.overdue - a.overdue;
+      return a.name.localeCompare(b.name, "vi");
+    });
+    return arr;
+  }, [viewMode, filtered]);
+
+  function toggleGroup(key: string) {
+    setCollapsed((s) => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  }
+  function toggleAllGroups() {
+    setCollapsed((s) => (s.size === 0 ? new Set(groups.map((g) => g.key)) : new Set()));
+  }
+
   // Hàm render (không phải component) để tránh tạo component trong render.
   const renderSortHead = (label: string, sortKey: SortKey, className?: string) => {
     const active = sort?.key === sortKey;
@@ -364,6 +422,98 @@ export function ManageClient({
       "Đã giao lại",
     );
     setReassign(null);
+  }
+
+  // Một dòng việc — dùng chung cho cả view Bảng và view Gom theo người.
+  // keyExtra để key duy nhất khi 1 việc hiện ở nhiều nhóm người.
+  function renderRow(t: TaskRow, keyExtra = "") {
+    const overdue = isOverdue(t);
+    return (
+      <TableRow key={`${keyExtra}${t.id}`} className={cn(selected.has(t.id) && "bg-muted/40")}>
+        {canManage ? (
+          <TableCell className="w-8">
+            <input
+              type="checkbox"
+              checked={selected.has(t.id)}
+              onChange={() => toggleOne(t.id)}
+              aria-label="Chọn việc"
+            />
+          </TableCell>
+        ) : null}
+        <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
+        <TableCell className="max-w-xs">
+          <div className="font-medium">{t.name}</div>
+          <div className="text-xs text-muted-foreground">
+            {[t.workGroupName, t.level2, t.level3].filter(Boolean).join(" › ")}
+          </div>
+        </TableCell>
+        <TableCell className="text-xs">
+          {t.projectName ?? "—"}
+          {t.disciplineName ? (
+            <span className="text-muted-foreground"> · {t.disciplineName}</span>
+          ) : null}
+        </TableCell>
+        <TableCell className="text-xs">{t.assigneeNames.join(", ") || "—"}</TableCell>
+        <TableCell>
+          <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
+        </TableCell>
+        <TableCell>
+          <Select
+            className="h-7 w-32 text-xs"
+            value={t.status}
+            onChange={(e) => quickStatus(t, e.target.value)}
+            disabled={!canManage && !t.assigneeIds.includes(currentUserId)}
+          >
+            {TASK_STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {TASK_STATUS_LABEL[s]}
+              </option>
+            ))}
+          </Select>
+        </TableCell>
+        <TableCell className="text-xs">
+          {overdue ? (
+            <Badge variant={statusVariant("QUA_HAN")}>Quá hạn</Badge>
+          ) : (
+            t.plannedEnd || "—"
+          )}
+        </TableCell>
+        {canManage ? (
+          <TableCell className="text-right">
+            <div className="flex justify-end gap-1">
+              <Button size="icon" variant="ghost" onClick={() => setEditing(t)} title="Sửa">
+                <Pencil className="size-4" />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={() => onDelete(t)} title="Xóa">
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          </TableCell>
+        ) : null}
+      </TableRow>
+    );
+  }
+
+  // Dòng tiêu đề nhóm người (chiếm hết chiều ngang, bấm để gập/mở).
+  function groupHeaderRow(g: { key: string; name: string; overdue: number; tasks: TaskRow[] }) {
+    const Chevron = collapsed.has(g.key) ? ChevronRight : ChevronDown;
+    return (
+      <TableRow key={`grp-${g.key}`} className="bg-muted/60 hover:bg-muted/60">
+        <TableCell colSpan={canManage ? 9 : 7} className="py-2">
+          <button
+            type="button"
+            onClick={() => toggleGroup(g.key)}
+            className="flex items-center gap-2 text-sm font-medium"
+          >
+            <Chevron className="size-4 text-muted-foreground" />
+            {g.name}
+            <span className="font-normal text-muted-foreground">
+              ({g.tasks.length} việc{g.overdue ? ` · ${g.overdue} quá hạn` : ""})
+            </span>
+          </button>
+        </TableCell>
+      </TableRow>
+    );
   }
 
   return (
@@ -528,6 +678,37 @@ export function ManageClient({
         </label>
       </div>
 
+      {/* Chuyển chế độ xem */}
+      <div className="flex items-center justify-between">
+        <div className="inline-flex rounded-md border p-0.5">
+          {(
+            [
+              { key: "people", label: "Gom theo người" },
+              { key: "table", label: "Bảng" },
+            ] as const
+          ).map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => setViewMode(v.key)}
+              className={cn(
+                "rounded px-3 py-1 text-sm font-medium transition-colors",
+                viewMode === v.key
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+        {viewMode === "people" ? (
+          <Button variant="ghost" size="sm" onClick={toggleAllGroups}>
+            {collapsed.size === 0 ? "Thu gọn tất cả" : "Mở tất cả"}
+          </Button>
+        ) : null}
+      </div>
+
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
@@ -553,73 +734,13 @@ export function ManageClient({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sorted.map((t) => {
-              const overdue = isOverdue(t);
-              return (
-                <TableRow key={t.id} className={cn(selected.has(t.id) && "bg-muted/40")}>
-                  {canManage ? (
-                    <TableCell className="w-8">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(t.id)}
-                        onChange={() => toggleOne(t.id)}
-                        aria-label="Chọn việc"
-                      />
-                    </TableCell>
-                  ) : null}
-                  <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
-                  <TableCell className="max-w-xs">
-                    <div className="font-medium">{t.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {[t.workGroupName, t.level2, t.level3].filter(Boolean).join(" › ")}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {t.projectName ?? "—"}
-                    {t.disciplineName ? (
-                      <span className="text-muted-foreground"> · {t.disciplineName}</span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell className="text-xs">{t.assigneeNames.join(", ") || "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      className="h-7 w-32 text-xs"
-                      value={t.status}
-                      onChange={(e) => quickStatus(t, e.target.value)}
-                      disabled={!canManage && !t.assigneeIds.includes(currentUserId)}
-                    >
-                      {TASK_STATUS_OPTIONS.map((s) => (
-                        <option key={s} value={s}>
-                          {TASK_STATUS_LABEL[s]}
-                        </option>
-                      ))}
-                    </Select>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {overdue ? (
-                      <Badge variant={statusVariant("QUA_HAN")}>Quá hạn</Badge>
-                    ) : (
-                      t.plannedEnd || "—"
-                    )}
-                  </TableCell>
-                  {canManage ? (
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="ghost" onClick={() => setEditing(t)} title="Sửa">
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" onClick={() => onDelete(t)} title="Xóa">
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              );
-            })}
+            {viewMode === "people"
+              ? groups.flatMap((g) =>
+                  collapsed.has(g.key)
+                    ? [groupHeaderRow(g)]
+                    : [groupHeaderRow(g), ...g.tasks.map((t) => renderRow(t, `${g.key}-`))],
+                )
+              : sorted.map((t) => renderRow(t))}
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={canManage ? 9 : 7} className="py-8 text-center text-muted-foreground">
