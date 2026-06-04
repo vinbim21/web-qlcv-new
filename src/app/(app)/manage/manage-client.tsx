@@ -8,6 +8,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
   ChevronsUpDown,
   Clock,
   Pencil,
@@ -341,8 +342,11 @@ export function ManageClient({
       return n;
     });
   }
-  function toggleAllGroups() {
-    setCollapsed((s) => (s.size === 0 ? new Set(groups.map((g) => g.key)) : new Set()));
+  function collapseAllGroups() {
+    setCollapsed(new Set(groups.map((g) => g.key)));
+  }
+  function expandAllGroups() {
+    setCollapsed(new Set());
   }
 
   // Hàm render (không phải component) để tránh tạo component trong render.
@@ -823,7 +827,7 @@ export function ManageClient({
       </div>
 
       {/* Chuyển chế độ xem */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex rounded-md border p-0.5">
           {(
             [
@@ -848,9 +852,26 @@ export function ManageClient({
           ))}
         </div>
         {viewMode === "people" ? (
-          <Button variant="ghost" size="sm" onClick={toggleAllGroups}>
-            {collapsed.size === 0 ? "Thu gọn tất cả" : "Mở tất cả"}
-          </Button>
+          <div className="inline-flex gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={collapseAllGroups}
+              disabled={groups.length > 0 && collapsed.size === groups.length}
+              title="Thu gọn tất cả nhóm"
+            >
+              <ChevronsDownUp className="size-4" /> Collapse
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={expandAllGroups}
+              disabled={collapsed.size === 0}
+              title="Mở rộng tất cả nhóm"
+            >
+              <ChevronsUpDown className="size-4" /> Expand
+            </Button>
+          </div>
         ) : null}
       </div>
 
