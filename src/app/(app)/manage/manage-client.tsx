@@ -106,9 +106,9 @@ function deadlineLabel(t: TaskRow): string {
   return `Còn ${n} ngày · ${t.plannedEnd}`;
 }
 
-// Thứ tự cột Kanban + ngưỡng số việc tối đa được render dạng Kanban.
+// Thứ tự cột Kanban + số thẻ tối đa hiển thị mỗi cột trước khi gập (bấm "xem thêm").
 const KANBAN_ORDER = ["CHUA_LAM", "DANG_LAM", "TAM_DUNG", "HOAN_THANH"] as const;
-const KANBAN_MAX = 150;
+const KANBAN_COL_LIMIT = 40;
 
 export function ManageClient({
   currentUserId,
@@ -154,6 +154,8 @@ export function ManageClient({
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
   // Cột Kanban đang được kéo card vào (để tô viền).
   const [dragCol, setDragCol] = React.useState<string | null>(null);
+  // Cột Kanban đã bấm "xem thêm" (hiện hết thẻ thay vì giới hạn).
+  const [expandedCols, setExpandedCols] = React.useState<Set<string>>(() => new Set());
   // Chọn nhiều việc để thao tác hàng loạt.
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   // Modal giao lại / đổi hạn (chụp lại danh sách id lúc mở).
@@ -584,41 +586,76 @@ export function ManageClient({
     );
   }
 
+  function toggleExpandCol(s: string) {
+    setExpandedCols((prev) => {
+      const n = new Set(prev);
+      if (n.has(s)) n.delete(s);
+      else n.add(s);
+      return n;
+    });
+  }
+
   function renderKanban() {
-    if (filtered.length > KANBAN_MAX) {
-      return (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-800">
-          Đang có <b>{filtered.length}</b> việc — quá nhiều để xem dạng Kanban. Hãy chọn một{" "}
-          <b>Nhóm</b> / <b>Dự án</b> hoặc lọc bớt (≤{KANBAN_MAX} việc) rồi xem lại.
-        </div>
-      );
-    }
+    const byStatus = KANBAN_ORDER.map((s) => ({
+      s,
+      items: filtered.filter((t) => t.status === s),
+    }));
+    const overflow = byStatus.some(({ items }) => items.length > KANBAN_COL_LIMIT);
     return (
-      <div className="flex gap-3 overflow-x-auto pb-2">
-        {KANBAN_ORDER.map((s) => {
-          const items = filtered.filter((t) => t.status === s);
-          return (
-            <div
-              key={s}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragCol(s);
-              }}
-              onDragLeave={() => setDragCol((c) => (c === s ? null : c))}
-              onDrop={(e) => onDropStatus(s, e)}
-              className={cn(
-                "flex w-72 shrink-0 flex-col rounded-lg border bg-muted/30",
-                dragCol === s && "ring-2 ring-primary",
-              )}
-            >
-              <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-medium">
-                <span>{TASK_STATUS_LABEL[s]}</span>
-                <span className="text-xs text-muted-foreground">{items.length}</span>
+      <div className="space-y-2">
+        {overflow ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Đang hiển thị tối đa {KANBAN_COL_LIMIT} thẻ/cột — lọc Nhóm/Dự án hoặc dùng ô tìm để xem
+            đầy đủ.
+          </div>
+        ) : null}
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {byStatus.map(({ s, items }) => {
+            const expanded = expandedCols.has(s);
+            const shown = expanded ? items : items.slice(0, KANBAN_COL_LIMIT);
+            const hidden = items.length - shown.length;
+            return (
+              <div
+                key={s}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragCol(s);
+                }}
+                onDragLeave={() => setDragCol((c) => (c === s ? null : c))}
+                onDrop={(e) => onDropStatus(s, e)}
+                className={cn(
+                  "flex w-72 shrink-0 flex-col rounded-lg border bg-muted/30",
+                  dragCol === s && "ring-2 ring-primary",
+                )}
+              >
+                <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-medium">
+                  <span>{TASK_STATUS_LABEL[s]}</span>
+                  <span className="text-xs text-muted-foreground">{items.length}</span>
+                </div>
+                <div className="flex min-h-16 flex-col gap-2 p-2">
+                  {shown.map(kanbanCard)}
+                  {hidden > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleExpandCol(s)}
+                      className="rounded-md border border-dashed py-1.5 text-xs text-muted-foreground hover:bg-muted"
+                    >
+                      + {hidden} việc nữa
+                    </button>
+                  ) : expanded && items.length > KANBAN_COL_LIMIT ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleExpandCol(s)}
+                      className="rounded-md border border-dashed py-1.5 text-xs text-muted-foreground hover:bg-muted"
+                    >
+                      Thu gọn
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              <div className="flex min-h-16 flex-col gap-2 p-2">{items.map(kanbanCard)}</div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     );
   }
