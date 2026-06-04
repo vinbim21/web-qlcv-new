@@ -96,6 +96,20 @@ function isDueSoon(t: TaskRow): boolean {
   return n !== null && n >= 0 && n <= 3;
 }
 
+// Nhãn hạn ngắn gọn cho card Kanban.
+function deadlineLabel(t: TaskRow): string {
+  if (!t.plannedEnd) return "Không hạn";
+  const n = daysUntil(t.plannedEnd);
+  if (n === null) return t.plannedEnd;
+  if (n < 0) return `Quá hạn ${-n} ngày`;
+  if (n === 0) return "Hạn hôm nay";
+  return `Còn ${n} ngày · ${t.plannedEnd}`;
+}
+
+// Thứ tự cột Kanban + ngưỡng số việc tối đa được render dạng Kanban.
+const KANBAN_ORDER = ["CHUA_LAM", "DANG_LAM", "TAM_DUNG", "HOAN_THANH"] as const;
+const KANBAN_MAX = 150;
+
 export function ManageClient({
   currentUserId,
   canManage,
@@ -134,10 +148,12 @@ export function ManageClient({
   const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">(
     "",
   );
-  // Chế độ xem: gom theo người (mặc định) hoặc bảng phẳng.
-  const [viewMode, setViewMode] = React.useState<"people" | "table">("people");
+  // Chế độ xem: gom theo người (mặc định) / bảng phẳng / Kanban.
+  const [viewMode, setViewMode] = React.useState<"people" | "table" | "kanban">("people");
   // Nhóm người đang thu gọn (mặc định mở hết).
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
+  // Cột Kanban đang được kéo card vào (để tô viền).
+  const [dragCol, setDragCol] = React.useState<string | null>(null);
   // Chọn nhiều việc để thao tác hàng loạt.
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   // Modal giao lại / đổi hạn (chụp lại danh sách id lúc mở).
@@ -516,6 +532,97 @@ export function ManageClient({
     );
   }
 
+  // ---- Kanban (kéo-thả đổi trạng thái) ----
+  async function onDropStatus(status: string, e: React.DragEvent) {
+    e.preventDefault();
+    setDragCol(null);
+    const id = e.dataTransfer.getData("text/plain");
+    if (!id) return;
+    const t = tasks.find((x) => x.id === id);
+    if (!t || t.status === status) return;
+    const res = await updateTaskStatus({ id, status });
+    if (res.ok) toast.success(`Chuyển sang "${TASK_STATUS_LABEL[status]}"`);
+    else toast.error(res.error);
+  }
+
+  function kanbanCard(t: TaskRow) {
+    const overdue = isOverdue(t);
+    return (
+      <div
+        key={t.id}
+        draggable={canManage}
+        onDragStart={(e) => e.dataTransfer.setData("text/plain", t.id)}
+        onClick={() => (canManage ? setEditing(t) : undefined)}
+        className={cn(
+          "rounded-md border bg-card p-2 text-xs shadow-sm",
+          canManage && "cursor-grab active:cursor-grabbing",
+          overdue ? "border-red-400 ring-1 ring-red-200" : "",
+        )}
+      >
+        <div className="flex items-center justify-between gap-1">
+          <span className="font-mono text-[11px] text-muted-foreground">{t.sumId ?? "—"}</span>
+          <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
+        </div>
+        <div className="mt-1 font-medium leading-snug">{t.name}</div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-1 text-[11px] text-muted-foreground">
+          <span className="rounded bg-muted px-1">{t.workGroupName}</span>
+          {t.assigneeNames.length ? (
+            <span>· {t.assigneeNames.join(", ")}</span>
+          ) : (
+            <span className="text-amber-600">· chưa giao</span>
+          )}
+        </div>
+        <div
+          className={cn(
+            "mt-1 text-[11px]",
+            overdue ? "font-medium text-red-600" : "text-muted-foreground",
+          )}
+        >
+          {deadlineLabel(t)}
+        </div>
+      </div>
+    );
+  }
+
+  function renderKanban() {
+    if (filtered.length > KANBAN_MAX) {
+      return (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-800">
+          Đang có <b>{filtered.length}</b> việc — quá nhiều để xem dạng Kanban. Hãy chọn một{" "}
+          <b>Nhóm</b> / <b>Dự án</b> hoặc lọc bớt (≤{KANBAN_MAX} việc) rồi xem lại.
+        </div>
+      );
+    }
+    return (
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {KANBAN_ORDER.map((s) => {
+          const items = filtered.filter((t) => t.status === s);
+          return (
+            <div
+              key={s}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragCol(s);
+              }}
+              onDragLeave={() => setDragCol((c) => (c === s ? null : c))}
+              onDrop={(e) => onDropStatus(s, e)}
+              className={cn(
+                "flex w-72 shrink-0 flex-col rounded-lg border bg-muted/30",
+                dragCol === s && "ring-2 ring-primary",
+              )}
+            >
+              <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-medium">
+                <span>{TASK_STATUS_LABEL[s]}</span>
+                <span className="text-xs text-muted-foreground">{items.length}</span>
+              </div>
+              <div className="flex min-h-16 flex-col gap-2 p-2">{items.map(kanbanCard)}</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 pb-24">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -685,6 +792,7 @@ export function ManageClient({
             [
               { key: "people", label: "Gom theo người" },
               { key: "table", label: "Bảng" },
+              { key: "kanban", label: "Kanban" },
             ] as const
           ).map((v) => (
             <button
@@ -709,7 +817,10 @@ export function ManageClient({
         ) : null}
       </div>
 
-      <div className="rounded-lg border">
+      {viewMode === "kanban" ? (
+        renderKanban()
+      ) : (
+        <div className="rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -750,7 +861,8 @@ export function ManageClient({
             ) : null}
           </TableBody>
         </Table>
-      </div>
+        </div>
+      )}
 
       {/* Thanh thao tác hàng loạt — dính đáy khi đã chọn việc */}
       {canManage && selected.size > 0 ? (
