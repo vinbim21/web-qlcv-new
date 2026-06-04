@@ -18,10 +18,27 @@ export const taskSchema = z.object({
   plannedStart: z.string().optional().nullable(),
   plannedEnd: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
-  // tối đa 3 người thực hiện; roleNo = vị trí + 1
-  assigneeIds: z.array(z.string()).max(3).optional(),
+  // nhiều người thực hiện; roleNo = vị trí + 1
+  assigneeIds: z.array(z.string()).optional(),
 });
 export type TaskInput = z.infer<typeof taskSchema>;
+
+// Một dòng trên lưới Giao việc: trường phân loại (WBS) + người/ưu tiên/ngày (theo cột Excel từng bảng).
+export const taskBatchRowSchema = taskSchema.pick({
+  workGroupId: true,
+  projectId: true,
+  disciplineId: true,
+  phaseId: true,
+  level2: true,
+  level3: true,
+  level5: true,
+  priority: true,
+  plannedStart: true,
+  plannedEnd: true,
+  assigneeIds: true,
+});
+export const taskBatchSchema = z.array(taskBatchRowSchema).min(1).max(200);
+export type TaskBatchRow = z.infer<typeof taskBatchRowSchema>;
 
 export const taskStatusSchema = z.object({
   id: z.string().min(1),

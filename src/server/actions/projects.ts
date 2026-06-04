@@ -14,7 +14,7 @@ function toDate(v?: string | null): Date | null {
 
 export async function saveProject(input: unknown) {
   return runAction(async () => {
-    await requireRole("ADMIN", "MANAGER");
+    await requireRole("ADMIN", "LEVEL_1");
     const data = projectSchema.parse(input);
     const payload = {
       code: data.code,

@@ -126,7 +126,7 @@ async function main() {
         email: `${uname}@qlcv.local`,
         fullName: name,
         passwordHash: demoHash,
-        role: UserRole.MEMBER,
+        role: UserRole.LEVEL_2,
         disciplineId: bimDept?.id ?? null,
         mustChangePassword: true,
       },

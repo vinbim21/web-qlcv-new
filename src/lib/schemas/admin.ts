@@ -7,7 +7,7 @@ export const userCreateSchema = z.object({
     .regex(/^[a-z0-9._-]+$/, "Chỉ chữ thường, số, . _ -"),
   fullName: z.string().min(1, "Nhập họ tên"),
   email: z.string().email("Email không hợp lệ"),
-  role: z.enum(["ADMIN", "MANAGER", "MEMBER", "VIEWER"]),
+  role: z.enum(["ADMIN", "LEVEL_1", "LEVEL_2", "LEVEL_3"]),
   disciplineId: z.string().optional().nullable(),
   password: z.string().min(8, "Mật khẩu tối thiểu 8 ký tự").optional(),
   isActive: z.boolean().optional(),
@@ -19,7 +19,7 @@ export const userUpdateSchema = z.object({
   id: z.string().min(1),
   fullName: z.string().min(1, "Nhập họ tên"),
   email: z.string().email("Email không hợp lệ"),
-  role: z.enum(["ADMIN", "MANAGER", "MEMBER", "VIEWER"]),
+  role: z.enum(["ADMIN", "LEVEL_1", "LEVEL_2", "LEVEL_3"]),
   disciplineId: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
 });
@@ -39,10 +39,17 @@ export const catalogItemSchema = z.object({
 });
 
 // Nhóm công việc (Level 1) & Giai đoạn — CRUD đầy đủ (mã + tên + thứ tự)
+// `abbr` (viết tắt) chỉ dùng cho Nhóm công việc — làm tiền tố Id (vd "XD" → XD-001).
 export const catalogCrudSchema = z.object({
   id: z.string().optional(),
   code: z.string().min(1, "Nhập mã"),
   name: z.string().min(1, "Nhập tên"),
+  abbr: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9]{2,6}$/, "2–6 ký tự chữ/số")
+    .optional()
+    .or(z.literal("")),
   order: z.coerce.number().int().min(0).optional(),
 });
 export type CatalogCrudInput = z.infer<typeof catalogCrudSchema>;

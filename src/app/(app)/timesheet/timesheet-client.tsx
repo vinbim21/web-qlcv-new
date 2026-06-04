@@ -59,7 +59,7 @@ export function TimesheetClient({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Nhật ký công việc</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Timesheet</h1>
           <p className="text-sm text-muted-foreground">
             Tuần {ws.format("DD/MM")} – {ws.add(6, "day").format("DD/MM/YYYY")} · Tổng{" "}
             <strong>{total} h</strong>

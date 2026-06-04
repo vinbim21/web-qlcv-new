@@ -12,17 +12,19 @@ export async function saveWorkGroup(input: unknown) {
   return runAction(async () => {
     await requireRole("ADMIN");
     const data = catalogCrudSchema.parse(input);
+    const abbr = data.abbr ? data.abbr.trim().toUpperCase() : null;
     if (data.id) {
       await prisma.workGroup.update({
         where: { id: data.id },
-        data: { code: data.code, name: data.name, order: data.order ?? 0 },
+        data: { code: data.code, name: data.name, abbr, order: data.order ?? 0 },
       });
     } else {
       await prisma.workGroup.create({
-        data: { code: data.code, name: data.name, order: data.order ?? 0 },
+        data: { code: data.code, name: data.name, abbr, order: data.order ?? 0 },
       });
     }
     revalidatePath("/admin/catalog");
+    revalidatePath("/assign");
     revalidatePath("/tasks");
   });
 }

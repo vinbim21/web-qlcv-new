@@ -14,10 +14,10 @@ datasource db {
 // ---------- Enums ----------
 
 enum UserRole {
-  ADMIN // Quản trị
-  MANAGER // Quản lý / Trưởng nhóm (PM)
-  MEMBER // Nhân viên
-  VIEWER // Chỉ xem
+  ADMIN // Admin
+  LEVEL_1 // Cấp 1 — quản lý việc/dự án
+  LEVEL_2 // Cấp 2 — tự cập nhật việc được giao
+  LEVEL_3 // Cấp 3 — chỉ xem
 }
 
 enum TaskStatus {
@@ -46,8 +46,10 @@ enum ProjectStatus {
 model WorkGroup {
   id        String   @id @default(cuid())
   code      String   @unique // "1".."6"
+  abbr      String?  @unique // Viết tắt làm tiền tố Id công việc (vd "XD" → XD-001)
   name      String
   order     Int      @default(0)
+  lastSeq   Int      @default(0) // Bộ đếm Id theo nhóm — cấp nguyên tử khi giao việc
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -123,7 +125,7 @@ model User {
   fullName           String
   passwordHash       String
   mustChangePassword Boolean   @default(false)
-  role               UserRole  @default(MEMBER)
+  role               UserRole  @default(LEVEL_2)
   disciplineId       String?
   isActive           Boolean   @default(true)
   lastLoginAt        DateTime?
@@ -151,6 +153,7 @@ model Task {
   // Mã & cấp WBS
   sumId   String? // "3.B.DSHNQN.DMF.101"
   subId   String? // "101"
+  seq     Int?    // Số chạy Id theo nhóm công việc (hiển thị "XD-001" ở Giao việc)
   wbsPath String // materialized path "01.02.03"
   level   Int     @default(1) // 1..5
   parentId String?
@@ -184,6 +187,7 @@ model Task {
   assignees  TaskAssignee[]
   timeSheets TimeSheetEntry[]
 
+  @@unique([workGroupId, seq])
   @@index([workGroupId])
   @@index([projectId])
   @@index([disciplineId])

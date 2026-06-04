@@ -23,6 +23,9 @@ export default async function CatalogDetailPage({
     <CatalogDetail
       workGroupId={wg.id}
       workGroupName={wg.name}
+      workGroupCode={wg.code}
+      workGroupAbbr={wg.abbr}
+      workGroupOrder={wg.order}
       level2={byLevel(2)}
       level3={byLevel(3)}
       level5={byLevel(5)}

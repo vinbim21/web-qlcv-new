@@ -18,7 +18,7 @@ import {
 } from "@/server/actions/catalog";
 import type { Result } from "@/server/actions/_helpers";
 
-type Item = { id: string; code: string; name: string; order: number };
+type Item = { id: string; code: string; name: string; order: number; abbr?: string | null };
 type Kind = "wg" | "phase";
 
 const SAVE: Record<Kind, (input: unknown) => Promise<Result<unknown>>> = {
@@ -49,7 +49,7 @@ export function CatalogManager({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Danh mục</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Khai báo danh mục</h1>
         <p className="text-sm text-muted-foreground">
           Nhóm công việc (Level 1) và Giai đoạn dự án
         </p>
@@ -59,6 +59,7 @@ export function CatalogManager({
         <CatalogTable
           title="Nhóm công việc"
           items={workGroups}
+          showAbbr
           onAdd={() => setDialog({ kind: "wg" })}
           onEdit={(item) => setDialog({ kind: "wg", item })}
           onDelete={(item) => onDelete("wg", item)}
@@ -83,6 +84,7 @@ export function CatalogManager({
 function CatalogTable({
   title,
   items,
+  showAbbr = false,
   onAdd,
   onEdit,
   onDelete,
@@ -90,6 +92,7 @@ function CatalogTable({
 }: {
   title: string;
   items: Item[];
+  showAbbr?: boolean;
   onAdd: () => void;
   onEdit: (item: Item) => void;
   onDelete: (item: Item) => void;
@@ -108,6 +111,7 @@ function CatalogTable({
           <TableHeader>
             <TableRow>
               <TableHead className="w-20">Mã</TableHead>
+              {showAbbr ? <TableHead className="w-24">Viết tắt</TableHead> : null}
               <TableHead>Tên</TableHead>
               <TableHead className="w-24 text-right">Thao tác</TableHead>
             </TableRow>
@@ -116,6 +120,9 @@ function CatalogTable({
             {items.map((it) => (
               <TableRow key={it.id}>
                 <TableCell className="font-mono">{it.code}</TableCell>
+                {showAbbr ? (
+                  <TableCell className="font-mono">{it.abbr || "—"}</TableCell>
+                ) : null}
                 <TableCell className="font-medium">{it.name}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
@@ -141,7 +148,7 @@ function CatalogTable({
             ))}
             {items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={showAbbr ? 4 : 3} className="py-6 text-center text-muted-foreground">
                   Chưa có mục nào
                 </TableCell>
               </TableRow>
@@ -173,6 +180,7 @@ function EditDialog({
       id: item?.id,
       code: String(fd.get("code") || ""),
       name: String(fd.get("name") || ""),
+      abbr: kind === "wg" ? String(fd.get("abbr") || "") : undefined,
       order: Number(fd.get("order") || 0),
     });
     setPending(false);
@@ -195,6 +203,19 @@ function EditDialog({
             <Input id="name" name="name" defaultValue={item?.name} required autoFocus />
           </div>
         </div>
+        {kind === "wg" ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="abbr">Viết tắt (tiền tố Id, vd XD → XD-001)</Label>
+            <Input
+              id="abbr"
+              name="abbr"
+              defaultValue={item?.abbr ?? ""}
+              placeholder="XD"
+              maxLength={6}
+              className="uppercase"
+            />
+          </div>
+        ) : null}
         <div className="space-y-1.5">
           <Label htmlFor="order">Thứ tự hiển thị</Label>
           <Input id="order" name="order" type="number" defaultValue={item?.order ?? 0} />

@@ -80,7 +80,7 @@ async function getUser(fullName: string): Promise<string | null> {
       email: `${username}@qlcv.local`,
       fullName: name,
       passwordHash: demoHash,
-      role: UserRole.MEMBER,
+      role: UserRole.LEVEL_2,
       mustChangePassword: true,
     },
   });

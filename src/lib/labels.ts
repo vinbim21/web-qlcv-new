@@ -1,12 +1,12 @@
 // Nhãn tiếng Việt + màu cho các enum.
 
 export const ROLE_LABEL: Record<string, string> = {
-  ADMIN: "Quản trị",
-  MANAGER: "Quản lý",
-  MEMBER: "Nhân viên",
-  VIEWER: "Khách",
+  ADMIN: "Admin",
+  LEVEL_1: "Cấp 1",
+  LEVEL_2: "Cấp 2",
+  LEVEL_3: "Cấp 3",
 };
-export const ROLE_OPTIONS = ["ADMIN", "MANAGER", "MEMBER", "VIEWER"] as const;
+export const ROLE_OPTIONS = ["ADMIN", "LEVEL_1", "LEVEL_2", "LEVEL_3"] as const;
 
 export const TASK_STATUS_LABEL: Record<string, string> = {
   CHUA_LAM: "Chưa làm",

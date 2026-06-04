@@ -1,6 +1,6 @@
 import { auth } from "./config";
 
-export type Role = "ADMIN" | "MANAGER" | "MEMBER" | "VIEWER";
+export type Role = "ADMIN" | "LEVEL_1" | "LEVEL_2" | "LEVEL_3";
 
 /** Lấy session, ném lỗi nếu chưa đăng nhập. Dùng trong Server Action. */
 export async function requireUser() {
@@ -22,7 +22,12 @@ export function isAdmin(role?: string) {
   return role === "ADMIN";
 }
 
-/** ADMIN và MANAGER được quản lý công việc/dự án; MEMBER tự cập nhật việc của mình. */
+/** ADMIN và LEVEL_1 được quản lý công việc/dự án; LEVEL_2 tự cập nhật việc của mình. */
 export function canManage(role?: string) {
-  return role === "ADMIN" || role === "MANAGER";
+  return role === "ADMIN" || role === "LEVEL_1";
+}
+
+/** Được tạo & giao việc mới: ADMIN, LEVEL_1, LEVEL_2 (LEVEL_3 chỉ xem). */
+export function canAssign(role?: string) {
+  return role === "ADMIN" || role === "LEVEL_1" || role === "LEVEL_2";
 }

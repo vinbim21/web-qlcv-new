@@ -9,34 +9,54 @@ import { buttonVariants } from "@/components/ui/button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Modal } from "@/components/ui/modal";
 import { removeVietnameseTones } from "@/lib/utils";
-import { addCatalogValue, deleteCatalogValue, updateCatalogValue } from "@/server/actions/catalog";
+import {
+  addCatalogValue,
+  deleteCatalogValue,
+  saveWorkGroup,
+  updateCatalogValue,
+} from "@/server/actions/catalog";
 
 type Item = { id: string; value: string };
 
 export function CatalogDetail({
   workGroupId,
   workGroupName,
+  workGroupCode,
+  workGroupAbbr,
+  workGroupOrder,
   level2,
   level3,
   level5,
 }: {
   workGroupId: string;
   workGroupName: string;
+  workGroupCode: string;
+  workGroupAbbr?: string | null;
+  workGroupOrder: number;
   level2: Item[];
   level3: Item[];
   level5: Item[];
 }) {
+  const [editOpen, setEditOpen] = React.useState(false);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Link href="/admin/catalog" className={buttonVariants({ variant: "outline", size: "icon" })}>
           <ArrowLeft className="size-4" />
         </Link>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{workGroupName}</h1>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">{workGroupName}</h1>
+            <Button size="icon" variant="ghost" onClick={() => setEditOpen(true)} title="Sửa nhóm">
+              <Pencil className="size-4" />
+            </Button>
+          </div>
           <p className="text-sm text-muted-foreground">
-            Danh mục Level 2 / Level 3 / Level 5 (nguồn gợi ý khi tạo công việc)
+            Viết tắt: <span className="font-mono">{workGroupAbbr || "—"}</span> · Danh mục Level 2 / Level 3 / Level 5 (nguồn gợi ý khi tạo công việc)
           </p>
         </div>
       </div>
@@ -46,7 +66,92 @@ export function CatalogDetail({
         <LevelColumn title="Level 3 — Chi tiết" workGroupId={workGroupId} level={3} items={level3} />
         <LevelColumn title="Level 5 — Đầu việc" workGroupId={workGroupId} level={5} items={level5} />
       </div>
+
+      {editOpen ? (
+        <EditGroupDialog
+          id={workGroupId}
+          code={workGroupCode}
+          name={workGroupName}
+          abbr={workGroupAbbr}
+          order={workGroupOrder}
+          onClose={() => setEditOpen(false)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function EditGroupDialog({
+  id,
+  code,
+  name,
+  abbr,
+  order,
+  onClose,
+}: {
+  id: string;
+  code: string;
+  name: string;
+  abbr?: string | null;
+  order: number;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [pending, setPending] = React.useState(false);
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setPending(true);
+    const fd = new FormData(e.currentTarget);
+    const res = await saveWorkGroup({
+      id,
+      code: String(fd.get("code") || ""),
+      name: String(fd.get("name") || ""),
+      abbr: String(fd.get("abbr") || ""),
+      order,
+    });
+    setPending(false);
+    if (res.ok) {
+      toast.success("Đã lưu");
+      onClose();
+      router.refresh();
+    } else toast.error(res.error);
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Sửa nhóm công việc">
+      <form onSubmit={onSubmit} className="space-y-3">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="code">Mã</Label>
+            <Input id="code" name="code" defaultValue={code} required />
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label htmlFor="name">Tên</Label>
+            <Input id="name" name="name" defaultValue={name} required autoFocus />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="abbr">Viết tắt (tiền tố Id, vd XD → XD-001)</Label>
+          <Input
+            id="abbr"
+            name="abbr"
+            defaultValue={abbr ?? ""}
+            placeholder="XD"
+            maxLength={6}
+            className="uppercase"
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Hủy
+          </Button>
+          <Button type="submit" disabled={pending}>
+            {pending ? "Đang lưu..." : "Lưu"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

@@ -2,13 +2,13 @@ import { auth } from "@/server/auth/config";
 import { prisma } from "@/server/db/client";
 import { canManage } from "@/server/auth/permissions";
 import { getTaskLookups } from "@/server/data/task-lookups";
-import { TasksClient } from "./tasks-client";
+import { ManageClient } from "./manage-client";
 
 function iso(d: Date | null): string {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
-export default async function TasksPage() {
+export default async function ManagePage() {
   const session = await auth();
   if (!session?.user) return null;
   const manage = canManage(session.user.role);
@@ -30,7 +30,7 @@ export default async function TasksPage() {
   ]);
 
   return (
-    <TasksClient
+    <ManageClient
       currentUserId={session.user.id}
       canManage={manage}
       tasks={tasks.map((t) => ({

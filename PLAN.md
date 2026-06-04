@@ -15,7 +15,7 @@
 | Database | **Supabase PostgreSQL** (free) | Đổi Prisma provider `mysql` → `postgresql` |
 | Lưu ảnh | **Supabase Storage** (free) | Thay cho local FS của gốc |
 | Đăng nhập | **NextAuth v5 (credentials) + bcryptjs** | Thay `argon2` (native, lỗi trên Vercel) |
-| Phân quyền | RBAC 4 role: ADMIN / MANAGER / MEMBER / VIEWER | |
+| Phân quyền | RBAC 4 role: ADMIN / LEVEL_1 / LEVEL_2 / LEVEL_3 (Admin / Cấp 1 / Cấp 2 / Cấp 3) | |
 | Mô hình việc | **Nhiều người/việc** + đủ thuộc tính Excel | Bộ môn, Giai đoạn, Ưu tiên, Trạng thái |
 | Ngôn ngữ UI | **Tiếng Việt** (theo gốc) | Dashboard / Dự án / Công việc / Nhật ký / Báo cáo |
 

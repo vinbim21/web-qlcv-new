@@ -2,13 +2,14 @@
 
 import {
   Building2,
+  ClipboardCheck,
   ClipboardList,
   Clock,
-  FolderTree,
   LayoutDashboard,
   type LucideIcon,
   PieChart,
   SlidersHorizontal,
+  UserPlus,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -21,15 +22,18 @@ type NavItem = { href: string; label: string; icon: LucideIcon };
 const MAIN_NAV: NavItem[] = [
   { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
   { href: "/tasks", label: "Công việc của tôi", icon: ClipboardList },
-  { href: "/timesheet", label: "Nhật ký công việc", icon: Clock },
+  { href: "/manage", label: "Quản lý công việc", icon: ClipboardCheck },
+  { href: "/timesheet", label: "Timesheet", icon: Clock },
   { href: "/reports", label: "Báo cáo", icon: PieChart },
 ];
 
+// Hiển thị cho người được giao việc (Admin / Cấp 1 / Cấp 2), đặt ngay dưới "Công việc của tôi".
+const ASSIGN_NAV: NavItem = { href: "/assign", label: "Giao việc", icon: UserPlus };
+
 const ADMIN_NAV: NavItem[] = [
   { href: "/admin/users", label: "Người dùng", icon: Users },
-  { href: "/admin/projects", label: "Dự án", icon: FolderTree },
-  { href: "/admin/disciplines", label: "Bộ môn", icon: Building2 },
-  { href: "/admin/catalog", label: "Danh mục", icon: SlidersHorizontal },
+  { href: "/admin/disciplines", label: "Khai báo bộ môn", icon: Building2 },
+  { href: "/admin/catalog", label: "Khai báo danh mục", icon: SlidersHorizontal },
 ];
 
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
@@ -51,12 +55,16 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
-export function SidebarNav({ isAdmin }: { isAdmin: boolean }) {
+export function SidebarNav({ isAdmin, canAssign }: { isAdmin: boolean; canAssign: boolean }) {
   const pathname = usePathname();
+  // Chèn "Giao việc" ngay sau "Quản lý công việc" nếu có quyền.
+  const mainNav = canAssign
+    ? [MAIN_NAV[0], MAIN_NAV[1], MAIN_NAV[2], ASSIGN_NAV, ...MAIN_NAV.slice(3)]
+    : MAIN_NAV;
   return (
     <div className="space-y-3">
       <div className="space-y-0.5">
-        {MAIN_NAV.map((item) => (
+        {mainNav.map((item) => (
           <NavLink key={item.href} item={item} pathname={pathname} />
         ))}
       </div>

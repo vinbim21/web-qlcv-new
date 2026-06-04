@@ -3,8 +3,8 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db/client";
-import { canManage, requireUser } from "@/server/auth/permissions";
-import { taskSchema, taskStatusSchema } from "@/lib/schemas/task";
+import { canAssign, canManage, requireUser } from "@/server/auth/permissions";
+import { taskBatchSchema, taskSchema, taskStatusSchema } from "@/lib/schemas/task";
 import { runAction } from "./_helpers";
 
 function toDate(v?: string | null): Date | null {
@@ -13,14 +13,41 @@ function toDate(v?: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+// Tên hiển thị mặc định khi để trống: lấy theo cấp cụ thể nhất.
+function defaultTaskName(r: {
+  name?: string | null;
+  level5?: string | null;
+  level3?: string | null;
+  level2?: string | null;
+}): string {
+  return r.name || r.level5 || r.level3 || r.level2 || "Công việc";
+}
+
+// Tự thêm giá trị Level 2/3/5 vào danh mục của nhóm (nếu là giá trị mới).
+async function ensureCatalog(workGroupId: string, level: number, value?: string | null) {
+  const v = value?.trim();
+  if (!v) return;
+  await prisma.catalogItem.upsert({
+    where: { workGroupId_level_value: { workGroupId, level, value: v } },
+    update: {},
+    create: { workGroupId, level, value: v },
+  });
+}
+
 export async function saveTask(input: unknown) {
   return runAction(async () => {
     const user = await requireUser();
-    if (!canManage(user.role)) throw new Error("Chỉ Quản lý/Quản trị được tạo & sửa công việc");
     const data = taskSchema.parse(input);
 
-    const name = data.name || data.level5 || data.level3 || data.level2 || "Công việc";
-    const assigneeIds = (data.assigneeIds ?? []).filter(Boolean).slice(0, 3);
+    // Sửa việc có sẵn: chỉ Quản trị/Cấp 1. Tạo & giao việc mới: thêm cả Cấp 2.
+    if (data.id) {
+      if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được sửa công việc");
+    } else {
+      if (!canAssign(user.role)) throw new Error("Bạn không có quyền giao việc");
+    }
+
+    const name = defaultTaskName(data);
+    const assigneeIds = [...new Set((data.assigneeIds ?? []).filter(Boolean))];
 
     const payload = {
       workGroupId: data.workGroupId,
@@ -64,21 +91,96 @@ export async function saveTask(input: unknown) {
       void created;
     }
 
-    // Tự thêm giá trị Level 2/3/5 vào danh mục của nhóm (nếu là giá trị mới).
-    const ensure = async (level: number, value?: string | null) => {
-      const v = value?.trim();
-      if (!v) return;
-      await prisma.catalogItem.upsert({
-        where: { workGroupId_level_value: { workGroupId: data.workGroupId, level, value: v } },
-        update: {},
-        create: { workGroupId: data.workGroupId, level, value: v },
-      });
-    };
-    await Promise.all([ensure(2, data.level2), ensure(3, data.level3), ensure(5, data.level5)]);
+    await Promise.all([
+      ensureCatalog(data.workGroupId, 2, data.level2),
+      ensureCatalog(data.workGroupId, 3, data.level3),
+      ensureCatalog(data.workGroupId, 5, data.level5),
+    ]);
 
     revalidatePath("/tasks");
     revalidatePath("/reports");
     revalidatePath("/admin/catalog");
+  });
+}
+
+/**
+ * Giao việc hàng loạt từ lưới (trang /assign): mỗi dòng tạo 1 việc với các trường
+ * phân loại, dùng ưu tiên/trạng thái mặc định và chưa gán người thực hiện.
+ */
+export async function saveTasksBatch(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canAssign(user.role)) throw new Error("Bạn không có quyền giao việc");
+
+    const rows = taskBatchSchema.parse(input).filter((r) => r.workGroupId);
+    if (rows.length === 0) throw new Error("Chưa có dòng nào để giao (cần chọn Nhóm công việc)");
+
+    // Cấp seq (Id "abbr-001" theo nhóm) một cách nguyên tử + tạo việc trong 1 transaction.
+    await prisma.$transaction(async (tx) => {
+      // Gom dòng theo nhóm để cấp 1 dải seq liên tục cho mỗi nhóm.
+      const byGroup = new Map<string, number[]>();
+      rows.forEach((r, i) => {
+        const list = byGroup.get(r.workGroupId);
+        if (list) list.push(i);
+        else byGroup.set(r.workGroupId, [i]);
+      });
+
+      const seqByIndex = new Array<number>(rows.length);
+      for (const [workGroupId, idxs] of byGroup) {
+        // Tăng lastSeq một lần cho cả nhóm → khóa dòng WorkGroup, không bị đua.
+        const wg = await tx.workGroup.update({
+          where: { id: workGroupId },
+          data: { lastSeq: { increment: idxs.length } },
+          select: { lastSeq: true },
+        });
+        const firstSeq = wg.lastSeq - idxs.length + 1;
+        idxs.forEach((idx, k) => {
+          seqByIndex[idx] = firstSeq + k;
+        });
+      }
+
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        // Bỏ trùng người (TaskAssignee unique theo [taskId, userId]).
+        const assigneeIds = [...new Set((r.assigneeIds ?? []).filter(Boolean))];
+        await tx.task.create({
+          data: {
+            workGroupId: r.workGroupId,
+            projectId: r.projectId || null,
+            disciplineId: r.disciplineId || null,
+            phaseId: r.phaseId || null,
+            level2: r.level2 || null,
+            level3: r.level3 || null,
+            level5: r.level5 || null,
+            name: defaultTaskName(r),
+            priority: r.priority ?? "TRUNG_BINH",
+            plannedStart: toDate(r.plannedStart),
+            plannedEnd: toDate(r.plannedEnd),
+            seq: seqByIndex[i],
+            wbsPath: randomUUID(),
+            level: 5,
+            assignees: {
+              create: assigneeIds.map((userId, k) => ({ userId, roleNo: k + 1 })),
+            },
+          },
+        });
+      }
+    });
+
+    // Bổ sung danh mục Level 2/3/5 mới cho từng nhóm.
+    await Promise.all(
+      rows.flatMap((r) => [
+        ensureCatalog(r.workGroupId, 2, r.level2),
+        ensureCatalog(r.workGroupId, 3, r.level3),
+        ensureCatalog(r.workGroupId, 5, r.level5),
+      ]),
+    );
+
+    revalidatePath("/tasks");
+    revalidatePath("/reports");
+    revalidatePath("/admin/catalog");
+    revalidatePath("/assign");
+    return rows.length;
   });
 }
 
@@ -87,7 +189,7 @@ export async function updateTaskStatus(input: unknown) {
     const user = await requireUser();
     const data = taskStatusSchema.parse(input);
 
-    // MEMBER chỉ cập nhật việc được giao; MANAGER/ADMIN cập nhật mọi việc
+    // LEVEL_2 chỉ cập nhật việc được giao; LEVEL_1/ADMIN cập nhật mọi việc
     if (!canManage(user.role)) {
       const assigned = await prisma.taskAssignee.findFirst({
         where: { taskId: data.id, userId: user.id },

@@ -27,7 +27,7 @@ export function DisciplinesManager({ items }: { items: Item[] }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Bộ môn</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Khai báo bộ môn</h1>
           <p className="text-sm text-muted-foreground">Danh mục bộ môn / tổ (Level 4)</p>
         </div>
         <Button onClick={() => setCreating(true)}>

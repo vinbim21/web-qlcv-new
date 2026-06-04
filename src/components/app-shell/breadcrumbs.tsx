@@ -5,13 +5,15 @@ import { usePathname } from "next/navigation";
 const LABELS: Record<string, string> = {
   dashboard: "Tổng quan",
   tasks: "Công việc của tôi",
-  timesheet: "Nhật ký công việc",
+  manage: "Quản lý công việc",
+  assign: "Giao việc",
+  timesheet: "Timesheet",
   reports: "Báo cáo",
   admin: "Quản trị",
   users: "Người dùng",
   projects: "Dự án",
-  disciplines: "Bộ môn",
-  catalog: "Danh mục",
+  disciplines: "Khai báo bộ môn",
+  catalog: "Khai báo danh mục",
 };
 
 export function Breadcrumbs() {

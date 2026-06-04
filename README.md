@@ -8,7 +8,7 @@ Hệ thống quản lý công việc nội bộ, build bằng **Next.js 16 + Pri
 Next.js 16 (App Router) · React 19 · TypeScript · Prisma 6 · PostgreSQL · NextAuth v5 (bcryptjs) · Tailwind v4 · Recharts · ExcelJS · dayjs.
 
 ## Tính năng
-- Đăng nhập + phân quyền 4 mức (ADMIN / MANAGER / MEMBER / VIEWER), đổi mật khẩu.
+- Đăng nhập + phân quyền 4 mức (Admin / Cấp 1 / Cấp 2 / Cấp 3), đổi mật khẩu.
 - Quản trị: Người dùng, Bộ môn, Dự án, Danh mục (Nhóm CV / Giai đoạn).
 - Công việc: phân cấp Level 1-5, **nhiều người/việc**, đủ thuộc tính (Bộ môn, Giai đoạn, Ưu tiên, Trạng thái), bộ lọc + cập nhật trạng thái nhanh.
 - Nhật ký công việc (timesheet) theo ngày/tuần, khóa sửa sau 2 ngày.

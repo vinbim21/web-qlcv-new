@@ -1,14 +1,8 @@
 import { ClipboardList, Clock, FolderTree, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ROLE_LABEL } from "@/lib/labels";
 import { auth } from "@/server/auth/config";
 import { prisma } from "@/server/db/client";
-
-const ROLE_LABEL: Record<string, string> = {
-  ADMIN: "Quản trị",
-  MANAGER: "Quản lý",
-  MEMBER: "Nhân viên",
-  VIEWER: "Khách",
-};
 
 export default async function DashboardPage() {
   const session = await auth();

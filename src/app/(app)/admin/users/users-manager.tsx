@@ -161,7 +161,7 @@ function UserDialog({
       username: String(fd.get("username") || ""),
       fullName: String(fd.get("fullName") || ""),
       email: String(fd.get("email") || ""),
-      role: String(fd.get("role") || "MEMBER") as "ADMIN" | "MANAGER" | "MEMBER" | "VIEWER",
+      role: String(fd.get("role") || "LEVEL_2") as "ADMIN" | "LEVEL_1" | "LEVEL_2" | "LEVEL_3",
       disciplineId: (fd.get("disciplineId") as string) || null,
       isActive: fd.get("isActive") === "on",
       ...(user ? {} : { password: (fd.get("password") as string) || undefined }),
@@ -202,7 +202,7 @@ function UserDialog({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="role">Quyền</Label>
-            <Select id="role" name="role" defaultValue={user?.role ?? "MEMBER"}>
+            <Select id="role" name="role" defaultValue={user?.role ?? "LEVEL_2"}>
               {ROLE_OPTIONS.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABEL[r]}

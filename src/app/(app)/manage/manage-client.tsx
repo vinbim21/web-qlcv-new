@@ -55,7 +55,7 @@ function isOverdue(t: TaskRow): boolean {
   return new Date(t.plannedEnd) < new Date(new Date().toDateString());
 }
 
-export function TasksClient({
+export function ManageClient({
   currentUserId,
   canManage,
   tasks,
@@ -224,7 +224,7 @@ export function TasksClient({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Công việc</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Quản lý công việc</h1>
           <p className="text-sm text-muted-foreground">
             {filtered.length} / {tasks.length} công việc
           </p>
