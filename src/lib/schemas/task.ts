@@ -45,3 +45,25 @@ export const taskStatusSchema = z.object({
   status: z.enum(["CHUA_LAM", "DANG_LAM", "HOAN_THANH", "TAM_DUNG"]),
   progressPercent: z.coerce.number().int().min(0).max(100).optional(),
 });
+
+// ---- Thao tác hàng loạt (tab Quản lý công việc) ----
+const taskIds = z.array(z.string().min(1)).min(1, "Chưa chọn công việc").max(500);
+
+export const bulkStatusSchema = z.object({
+  ids: taskIds,
+  status: z.enum(["CHUA_LAM", "DANG_LAM", "HOAN_THANH", "TAM_DUNG"]),
+});
+export const bulkPrioritySchema = z.object({
+  ids: taskIds,
+  priority: z.enum(["CAO", "TRUNG_BINH", "THAP"]),
+});
+export const bulkDeadlineSchema = z.object({
+  ids: taskIds,
+  plannedEnd: z.string().min(1, "Chọn ngày hạn"),
+});
+export const bulkReassignSchema = z.object({
+  ids: taskIds,
+  assigneeIds: z.array(z.string()).max(50),
+  // replace = thay toàn bộ người cũ (mặc định); add = thêm vào danh sách hiện có.
+  mode: z.enum(["replace", "add"]).default("replace"),
+});

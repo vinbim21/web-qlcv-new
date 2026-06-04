@@ -1,9 +1,25 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ChevronsUpDown, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  Calendar,
+  ChevronsUpDown,
+  Clock,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  UserX,
+  Users,
+  X,
+} from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { TaskForm } from "@/components/task-form";
+import { UserMultiSelect } from "@/components/user-multi-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +35,14 @@ import {
   statusVariant,
 } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
-import { deleteTask, updateTaskStatus } from "@/server/actions/tasks";
+import {
+  bulkReassign,
+  bulkSetDeadline,
+  bulkSetPriority,
+  bulkSetStatus,
+  deleteTask,
+  updateTaskStatus,
+} from "@/server/actions/tasks";
 
 type Opt = { id: string; name: string };
 type UserOpt = { id: string; fullName: string };
@@ -53,6 +76,22 @@ export type TaskRow = {
 function isOverdue(t: TaskRow): boolean {
   if (!t.plannedEnd || t.status === "HOAN_THANH") return false;
   return new Date(t.plannedEnd) < new Date(new Date().toDateString());
+}
+
+// Số ngày từ hôm nay đến hạn (âm = đã quá hạn). null nếu không có hạn / sai định dạng.
+function daysUntil(end: string): number | null {
+  if (!end) return null;
+  const d = new Date(end);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date(new Date().toDateString());
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
+}
+
+// Sắp đến hạn: còn 0..3 ngày, chưa hoàn thành, chưa quá hạn.
+function isDueSoon(t: TaskRow): boolean {
+  if (t.status === "HOAN_THANH") return false;
+  const n = daysUntil(t.plannedEnd);
+  return n !== null && n >= 0 && n <= 3;
 }
 
 export function ManageClient({
@@ -89,6 +128,19 @@ export function ManageClient({
   const deferredSearch = React.useDeferredValue(search);
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
   const [creating, setCreating] = React.useState(false);
+  // Lọc nhanh từ dải KPI (riêng với dropdown Trạng thái để không xung đột).
+  const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">(
+    "",
+  );
+  // Chọn nhiều việc để thao tác hàng loạt.
+  const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
+  // Modal giao lại / đổi hạn (chụp lại danh sách id lúc mở).
+  const [reassign, setReassign] = React.useState<{
+    ids: string[];
+    mode: "replace" | "add";
+    users: string[];
+  } | null>(null);
+  const [deadline, setDeadline] = React.useState<{ ids: string[]; date: string } | null>(null);
 
   // Chỉ mục tìm kiếm: chuẩn-hóa bỏ dấu MỘT LẦN cho mỗi công việc (không tính lại mỗi phím gõ).
   const haystacks = React.useMemo(() => {
@@ -106,19 +158,53 @@ export function ManageClient({
     return m;
   }, [tasks]);
 
-  // Lọc theo MỌI tiêu chí TRỪ nhóm (để đếm số việc mỗi tab Bảng theo bộ lọc hiện tại).
-  const base = React.useMemo(() => {
+  // Nền KPI: lọc theo dự án/bộ môn/ưu tiên/của-tôi/tìm-kiếm, NHƯNG bỏ qua trạng thái,
+  // lọc nhanh KPI và tab nhóm → số trên dải KPI ổn định khi bấm vào một KPI.
+  const kpiBase = React.useMemo(() => {
     const q = removeVietnameseTones(deferredSearch.trim());
     return tasks.filter((t) => {
       if (f.projectId && t.projectId !== f.projectId) return false;
       if (f.disciplineId && t.disciplineId !== f.disciplineId) return false;
-      if (f.status === "QUA_HAN" ? !isOverdue(t) : f.status && t.status !== f.status) return false;
       if (f.priority && t.priority !== f.priority) return false;
       if (f.mine && !t.assigneeIds.includes(currentUserId)) return false;
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       return true;
     });
-  }, [tasks, f, deferredSearch, haystacks, currentUserId]);
+  }, [tasks, f.projectId, f.disciplineId, f.priority, f.mine, deferredSearch, haystacks, currentUserId]);
+
+  const kpi = React.useMemo(() => {
+    let overdue = 0;
+    let soon = 0;
+    let unassigned = 0;
+    let doing = 0;
+    let progSum = 0;
+    for (const t of kpiBase) {
+      if (isOverdue(t)) overdue++;
+      else if (isDueSoon(t)) soon++;
+      if (t.assigneeIds.length === 0) unassigned++;
+      if (t.status === "DANG_LAM") doing++;
+      progSum += t.progressPercent;
+    }
+    return {
+      overdue,
+      soon,
+      unassigned,
+      doing,
+      avg: kpiBase.length ? Math.round(progSum / kpiBase.length) : 0,
+    };
+  }, [kpiBase]);
+
+  // Áp thêm dropdown Trạng thái + lọc nhanh KPI (vẫn TRỪ tab nhóm để đếm theo tab).
+  const base = React.useMemo(() => {
+    return kpiBase.filter((t) => {
+      if (f.status === "QUA_HAN" ? !isOverdue(t) : f.status && t.status !== f.status) return false;
+      if (quick === "QUA_HAN" && !isOverdue(t)) return false;
+      if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
+      if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0) return false;
+      if (quick === "DANG_LAM" && t.status !== "DANG_LAM") return false;
+      return true;
+    });
+  }, [kpiBase, f.status, quick]);
 
   const wgCounts = React.useMemo(() => {
     const m = new Map<string, number>();
@@ -220,8 +306,68 @@ export function ManageClient({
     else toast.error(res.error);
   }
 
+  // ---- Chọn nhiều + thao tác hàng loạt ----
+  const allVisibleSelected = sorted.length > 0 && sorted.every((t) => selected.has(t.id));
+  function toggleOne(id: string) {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+  function toggleAllVisible() {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (sorted.every((t) => n.has(t.id))) sorted.forEach((t) => n.delete(t.id));
+      else sorted.forEach((t) => n.add(t.id));
+      return n;
+    });
+  }
+  function clearSel() {
+    setSelected(new Set());
+  }
+
+  async function applyBatch(promise: ReturnType<typeof bulkSetStatus>, okMsg: string) {
+    const res = await promise;
+    if (res.ok) {
+      toast.success(`${okMsg} ${res.data ?? ""} việc`.replace("  ", " "));
+      clearSel();
+    } else {
+      toast.error(res.error);
+    }
+  }
+  async function batchStatus(status: string) {
+    if (!status) return;
+    if (!confirm(`Đổi trạng thái ${selected.size} công việc?`)) return;
+    await applyBatch(bulkSetStatus({ ids: [...selected], status }), "Đã đổi trạng thái");
+  }
+  async function batchPriority(priority: string) {
+    if (!priority) return;
+    if (!confirm(`Đổi ưu tiên ${selected.size} công việc?`)) return;
+    await applyBatch(bulkSetPriority({ ids: [...selected], priority }), "Đã đổi ưu tiên");
+  }
+  async function submitDeadline() {
+    if (!deadline?.date) return;
+    await applyBatch(
+      bulkSetDeadline({ ids: deadline.ids, plannedEnd: deadline.date }),
+      "Đã đổi hạn",
+    );
+    setDeadline(null);
+  }
+  async function submitReassign() {
+    if (!reassign) return;
+    if (reassign.mode === "replace" && !confirm(`Thay toàn bộ người của ${reassign.ids.length} việc?`))
+      return;
+    await applyBatch(
+      bulkReassign({ ids: reassign.ids, assigneeIds: reassign.users, mode: reassign.mode }),
+      "Đã giao lại",
+    );
+    setReassign(null);
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-24">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Quản lý công việc</h1>
@@ -234,6 +380,35 @@ export function ManageClient({
             <Plus className="size-4" /> Thêm công việc
           </Button>
         ) : null}
+      </div>
+
+      {/* Dải KPI cảnh báo — bấm để lọc nhanh */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {(
+          [
+            { key: "QUA_HAN", label: "Quá hạn", n: kpi.overdue, Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
+            { key: "SAP_HAN", label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon, Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
+            { key: "CHUA_GIAO", label: "Chưa giao người", n: kpi.unassigned, Icon: UserX, tone: "border-slate-200 bg-slate-50 text-slate-700" },
+            { key: "DANG_LAM", label: `Đang làm · TB ${kpi.avg}%`, n: kpi.doing, Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
+          ] as const
+        ).map(({ key, label, n, Icon, tone }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setQuick((q) => (q === key ? "" : key))}
+            className={cn(
+              "flex items-center gap-3 rounded-lg border p-3 text-left transition",
+              tone,
+              quick === key ? "ring-2 ring-primary ring-offset-1" : "hover:brightness-95",
+            )}
+          >
+            <Icon className="size-5 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xl font-semibold leading-none">{n}</div>
+              <div className="truncate text-xs opacity-80">{label}</div>
+            </div>
+          </button>
+        ))}
       </div>
 
       {/* Ô tìm kiếm nổi bật trên đầu */}
@@ -336,6 +511,8 @@ export function ManageClient({
               setF({ projectId: "", disciplineId: "", status: "", priority: "", mine: false });
               setSearch("");
               setActiveWg("");
+              setQuick("");
+              clearSel();
             }}
           >
             <X />
@@ -355,6 +532,16 @@ export function ManageClient({
         <Table>
           <TableHeader>
             <TableRow>
+              {canManage ? (
+                <TableHead className="w-8">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    aria-label="Chọn tất cả việc đang hiển thị"
+                  />
+                </TableHead>
+              ) : null}
               {renderSortHead("Mã", "sumId")}
               {renderSortHead("Công việc", "name")}
               {renderSortHead("Dự án / Bộ môn", "project")}
@@ -369,7 +556,17 @@ export function ManageClient({
             {sorted.map((t) => {
               const overdue = isOverdue(t);
               return (
-                <TableRow key={t.id}>
+                <TableRow key={t.id} className={cn(selected.has(t.id) && "bg-muted/40")}>
+                  {canManage ? (
+                    <TableCell className="w-8">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(t.id)}
+                        onChange={() => toggleOne(t.id)}
+                        aria-label="Chọn việc"
+                      />
+                    </TableCell>
+                  ) : null}
                   <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
                   <TableCell className="max-w-xs">
                     <div className="font-medium">{t.name}</div>
@@ -425,7 +622,7 @@ export function ManageClient({
             })}
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={canManage ? 8 : 7} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={canManage ? 9 : 7} className="py-8 text-center text-muted-foreground">
                   Không có công việc phù hợp
                 </TableCell>
               </TableRow>
@@ -433,6 +630,128 @@ export function ManageClient({
           </TableBody>
         </Table>
       </div>
+
+      {/* Thanh thao tác hàng loạt — dính đáy khi đã chọn việc */}
+      {canManage && selected.size > 0 ? (
+        <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border bg-card p-2 shadow-lg">
+          <span className="px-2 text-sm font-medium">Đã chọn {selected.size}</span>
+          <Select
+            className="h-8 w-36 text-xs"
+            value=""
+            onChange={(e) => batchStatus(e.target.value)}
+          >
+            <option value="">Đổi trạng thái…</option>
+            {TASK_STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {TASK_STATUS_LABEL[s]}
+              </option>
+            ))}
+          </Select>
+          <Select
+            className="h-8 w-32 text-xs"
+            value=""
+            onChange={(e) => batchPriority(e.target.value)}
+          >
+            <option value="">Đổi ưu tiên…</option>
+            {PRIORITY_OPTIONS.map((p) => (
+              <option key={p} value={p}>
+                {PRIORITY_LABEL[p]}
+              </option>
+            ))}
+          </Select>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setDeadline({ ids: [...selected], date: "" })}
+          >
+            <Calendar className="size-4" /> Đổi hạn
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setReassign({ ids: [...selected], mode: "replace", users: [] })}
+          >
+            <Users className="size-4" /> Giao lại
+          </Button>
+          <Button size="icon" variant="ghost" onClick={clearSel} title="Bỏ chọn" aria-label="Bỏ chọn">
+            <X className="size-4" />
+          </Button>
+        </div>
+      ) : null}
+
+      {/* Modal giao lại người hàng loạt */}
+      {reassign ? (
+        <Modal
+          open
+          onClose={() => setReassign(null)}
+          title={`Giao lại ${reassign.ids.length} công việc`}
+          className="max-w-md"
+        >
+          <div className="space-y-3">
+            <div className="flex gap-4 text-sm">
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  checked={reassign.mode === "replace"}
+                  onChange={() => setReassign({ ...reassign, mode: "replace" })}
+                />
+                Thay toàn bộ
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  checked={reassign.mode === "add"}
+                  onChange={() => setReassign({ ...reassign, mode: "add" })}
+                />
+                Thêm người
+              </label>
+            </div>
+            <UserMultiSelect
+              users={users}
+              value={reassign.users}
+              onChange={(ids) => setReassign({ ...reassign, users: ids })}
+            />
+            <p className="text-xs text-muted-foreground">
+              {reassign.mode === "replace"
+                ? "Xóa hết người cũ rồi gán danh sách trên" +
+                  (reassign.users.length === 0 ? " (để trống = gỡ hết người)." : ".")
+                : "Giữ người cũ, chỉ thêm người mới vào danh sách."}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setReassign(null)}>
+                Hủy
+              </Button>
+              <Button onClick={submitReassign}>Áp dụng</Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {/* Modal đổi hạn hàng loạt */}
+      {deadline ? (
+        <Modal
+          open
+          onClose={() => setDeadline(null)}
+          title={`Đổi hạn ${deadline.ids.length} công việc`}
+          className="max-w-sm"
+        >
+          <div className="space-y-3">
+            <Input
+              type="date"
+              value={deadline.date}
+              onChange={(e) => setDeadline({ ...deadline, date: e.target.value })}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDeadline(null)}>
+                Hủy
+              </Button>
+              <Button disabled={!deadline.date} onClick={submitDeadline}>
+                Áp dụng
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
 
       {(creating || editing) && canManage ? (
         <TaskDialog

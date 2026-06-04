@@ -4,7 +4,15 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db/client";
 import { canAssign, canManage, requireUser } from "@/server/auth/permissions";
-import { taskBatchSchema, taskSchema, taskStatusSchema } from "@/lib/schemas/task";
+import {
+  bulkDeadlineSchema,
+  bulkPrioritySchema,
+  bulkReassignSchema,
+  bulkStatusSchema,
+  taskBatchSchema,
+  taskSchema,
+  taskStatusSchema,
+} from "@/lib/schemas/task";
 import { runAction } from "./_helpers";
 
 function toDate(v?: string | null): Date | null {
@@ -207,6 +215,129 @@ export async function updateTaskStatus(input: unknown) {
     });
     revalidatePath("/tasks");
     revalidatePath("/reports");
+  });
+}
+
+// ============================================================
+//  Thao tác hàng loạt — chỉ Quản trị/Cấp 1 (tab /manage)
+// ============================================================
+
+// Quy tắc đồng bộ status <-> progress, dùng chung cho mọi đường đổi trạng thái:
+//   HOAN_THANH => 100% + chốt actualEnd; CHUA_LAM => 0%; còn lại giữ nguyên progress.
+function statusSideEffects(status: "CHUA_LAM" | "DANG_LAM" | "HOAN_THANH" | "TAM_DUNG") {
+  return {
+    status,
+    actualEnd: status === "HOAN_THANH" ? new Date() : null,
+    ...(status === "HOAN_THANH" ? { progressPercent: 100 } : {}),
+    ...(status === "CHUA_LAM" ? { progressPercent: 0 } : {}),
+  };
+}
+
+function revalidateTaskViews() {
+  revalidatePath("/manage");
+  revalidatePath("/tasks");
+  revalidatePath("/reports");
+}
+
+/** Đổi trạng thái nhiều việc cùng lúc (đồng bộ progress theo quy tắc chung). */
+export async function bulkSetStatus(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được đổi trạng thái hàng loạt");
+    const { ids, status } = bulkStatusSchema.parse(input);
+    const res = await prisma.task.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: statusSideEffects(status),
+    });
+    revalidateTaskViews();
+    return res.count;
+  });
+}
+
+/** Đổi ưu tiên nhiều việc cùng lúc. */
+export async function bulkSetPriority(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được đổi ưu tiên hàng loạt");
+    const { ids, priority } = bulkPrioritySchema.parse(input);
+    const res = await prisma.task.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: { priority },
+    });
+    revalidateTaskViews();
+    return res.count;
+  });
+}
+
+/** Dời hạn (plannedEnd) nhiều việc cùng lúc. */
+export async function bulkSetDeadline(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được đổi hạn hàng loạt");
+    const { ids, plannedEnd } = bulkDeadlineSchema.parse(input);
+    const d = toDate(plannedEnd);
+    if (!d) throw new Error("Ngày hạn không hợp lệ");
+    const res = await prisma.task.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: { plannedEnd: d },
+    });
+    revalidateTaskViews();
+    return res.count;
+  });
+}
+
+/**
+ * Giao lại người thực hiện hàng loạt.
+ * - mode "replace" (mặc định): xóa hết người cũ rồi gán danh sách mới.
+ * - mode "add": chỉ thêm người chưa có, giữ nguyên người cũ (đánh số roleNo tiếp).
+ */
+export async function bulkReassign(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được giao lại hàng loạt");
+    const { ids, assigneeIds, mode } = bulkReassignSchema.parse(input);
+    const newIds = [...new Set(assigneeIds.filter(Boolean))];
+
+    const count = await prisma.$transaction(async (tx) => {
+      // Chỉ thao tác trên việc chưa xóa.
+      const tasks = await tx.task.findMany({
+        where: { id: { in: ids }, deletedAt: null },
+        select: { id: true },
+      });
+      const validIds = tasks.map((t) => t.id);
+      if (validIds.length === 0) return 0;
+
+      if (mode === "replace") {
+        await tx.taskAssignee.deleteMany({ where: { taskId: { in: validIds } } });
+        if (newIds.length > 0) {
+          await tx.taskAssignee.createMany({
+            data: validIds.flatMap((taskId) =>
+              newIds.map((userId, i) => ({ taskId, userId, roleNo: i + 1 })),
+            ),
+          });
+        }
+      } else {
+        // add: thêm vào sau danh sách hiện có, bỏ qua người đã có.
+        for (const taskId of validIds) {
+          const existing = await tx.taskAssignee.findMany({
+            where: { taskId },
+            select: { userId: true, roleNo: true },
+          });
+          const have = new Set(existing.map((e) => e.userId));
+          let next = existing.reduce((m, e) => Math.max(m, e.roleNo), 0) + 1;
+          const toAdd = newIds.filter((u) => !have.has(u));
+          if (toAdd.length > 0) {
+            await tx.taskAssignee.createMany({
+              data: toAdd.map((userId) => ({ taskId, userId, roleNo: next++ })),
+            });
+          }
+        }
+      }
+      return validIds.length;
+    });
+
+    revalidateTaskViews();
+    return count;
   });
 }
 
