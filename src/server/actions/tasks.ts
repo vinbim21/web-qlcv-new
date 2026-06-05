@@ -107,8 +107,7 @@ export async function saveTask(input: unknown) {
       ensureCatalog(data.workGroupId, 5, data.level5),
     ]);
 
-    revalidatePath("/tasks");
-    revalidatePath("/reports");
+    revalidateTaskViews();
     revalidatePath("/admin/catalog");
   });
 }
@@ -215,8 +214,7 @@ export async function updateTaskStatus(input: unknown) {
         actualEnd: data.status === "HOAN_THANH" ? new Date() : null,
       },
     });
-    revalidatePath("/tasks");
-    revalidatePath("/reports");
+    revalidateTaskViews();
   });
 }
 
@@ -363,7 +361,6 @@ export async function deleteTask(id: string) {
     const user = await requireUser();
     if (!canManage(user.role)) throw new Error("Không đủ quyền");
     await prisma.task.update({ where: { id }, data: { deletedAt: new Date() } });
-    revalidatePath("/tasks");
-    revalidatePath("/reports");
+    revalidateTaskViews();
   });
 }

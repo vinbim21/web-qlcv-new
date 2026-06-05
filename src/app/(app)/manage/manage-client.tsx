@@ -22,6 +22,7 @@ import {
 import * as React from "react";
 import { toast } from "sonner";
 import { SearchableCombobox } from "@/components/searchable-combobox";
+import { useRouter } from "next/navigation";
 import { TaskRowEditor } from "@/components/task-row-editor";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Badge } from "@/components/ui/badge";
@@ -205,6 +206,7 @@ export function ManageClient({
   users: UserOpt[];
   catalog: Catalog;
 }) {
+  const router = useRouter();
   const [f, setF] = React.useState({
     projectId: "",
     disciplineId: "",
@@ -550,15 +552,19 @@ export function ManageClient({
 
   async function quickStatus(t: TaskRow, status: string) {
     const res = await updateTaskStatus({ id: t.id, status });
-    if (res.ok) toast.success("Đã cập nhật trạng thái");
-    else toast.error(res.error);
+    if (res.ok) {
+      toast.success("Đã cập nhật trạng thái");
+      router.refresh();
+    } else toast.error(res.error);
   }
 
   async function onDelete(t: TaskRow) {
     if (!confirm(`Xóa công việc "${t.name}"?`)) return;
     const res = await deleteTask(t.id);
-    if (res.ok) toast.success("Đã xóa");
-    else toast.error(res.error);
+    if (res.ok) {
+      toast.success("Đã xóa");
+      router.refresh();
+    } else toast.error(res.error);
   }
 
   // ---- Chọn nhiều + thao tác hàng loạt ----
@@ -588,6 +594,7 @@ export function ManageClient({
     if (res.ok) {
       toast.success(`${okMsg} ${res.data ?? ""} việc`.replace("  ", " "));
       clearSel();
+      router.refresh();
     } else {
       toast.error(res.error);
     }
@@ -1300,6 +1307,7 @@ export function ManageClient({
           onClose={() => {
             setCreating(false);
             setEditing(null);
+            router.refresh();
           }}
         />
       ) : null}
