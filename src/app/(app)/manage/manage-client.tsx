@@ -921,7 +921,7 @@ export function ManageClient({
 
       {/* Chuyển chế độ xem */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-md border p-0.5">
+        <div className="inline-flex gap-1 rounded-md border p-0.5">
           {(
             [
               { key: "people", label: "Gom theo người" },
