@@ -212,7 +212,6 @@ export function ManageClient({
     disciplineId: "",
     status: "",
     priority: "",
-    mine: false,
     // Lọc theo thời gian (Hạn). datePreset: "" | TODAY | NEXT7 | MONTH | QUA_HAN | CUSTOM.
     datePreset: "",
     dateFrom: "",
@@ -305,7 +304,6 @@ export function ManageClient({
       if (f.projectId && t.projectId !== f.projectId) return false;
       if (f.disciplineId && t.disciplineId !== f.disciplineId) return false;
       if (f.priority && t.priority !== f.priority) return false;
-      if (f.mine && !t.assigneeIds.includes(currentUserId)) return false;
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       // Lọc theo thời gian (theo Hạn). "Quá hạn" dùng lại isOverdue.
       if (f.datePreset === "QUA_HAN") {
@@ -328,13 +326,11 @@ export function ManageClient({
     f.projectId,
     f.disciplineId,
     f.priority,
-    f.mine,
     f.datePreset,
     f.dateFrom,
     f.dateTo,
     deferredSearch,
     haystacks,
-    currentUserId,
   ]);
 
   const kpi = React.useMemo(() => {
@@ -1011,7 +1007,6 @@ export function ManageClient({
                 disciplineId: "",
                 status: "",
                 priority: "",
-                mine: false,
                 datePreset: "",
                 dateFrom: "",
                 dateTo: "",
@@ -1043,14 +1038,6 @@ export function ManageClient({
             />
           </div>
         ) : null}
-        <label className="flex items-center gap-1 text-sm">
-          <input
-            type="checkbox"
-            checked={f.mine}
-            onChange={(e) => setF({ ...f, mine: e.target.checked })}
-          />
-          Chỉ việc của tôi
-        </label>
       </div>
 
       {/* Chuyển chế độ xem */}
