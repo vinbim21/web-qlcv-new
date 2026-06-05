@@ -1,6 +1,8 @@
 "use client";
 
+import { Download } from "lucide-react";
 import * as React from "react";
+import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { NormReport, type NormRow } from "./norm-report";
 import { PivotReport, type ReportRow } from "./pivot-report";
@@ -35,9 +37,14 @@ export function ReportsTabs({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Báo cáo số liệu</h1>
-        <p className="text-sm text-muted-foreground">Module biểu diễn &amp; báo cáo công việc phòng BIM</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Báo cáo số liệu</h1>
+          <p className="text-sm text-muted-foreground">Module biểu diễn &amp; báo cáo công việc phòng BIM</p>
+        </div>
+        <a href="/api/export/reports" className={buttonVariants({ variant: "outline" })}>
+          <Download className="size-4" /> Xuất Excel{canViewPerson ? " (4 báo cáo)" : " (BC1-3)"}
+        </a>
       </div>
 
       <div className="flex flex-wrap items-center gap-1 border-b">
