@@ -934,7 +934,7 @@ export function ManageClient({
               type="button"
               onClick={() => setViewMode(v.key)}
               className={cn(
-                "rounded px-3 py-1 text-sm font-medium transition-colors",
+                "rounded-md px-3 py-1 text-sm font-medium transition-colors",
                 viewMode === v.key
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted",
