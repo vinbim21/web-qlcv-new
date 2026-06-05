@@ -55,6 +55,7 @@ export default async function ManagePage() {
         plannedStart: iso(t.plannedStart),
         plannedEnd: iso(t.plannedEnd),
         note: t.note,
+        measureNorm: t.measureNorm,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
       }))}

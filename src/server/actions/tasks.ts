@@ -6,6 +6,7 @@ import { prisma } from "@/server/db/client";
 import { canAssign, canManage, requireUser } from "@/server/auth/permissions";
 import {
   bulkDeadlineSchema,
+  bulkMeasureNormSchema,
   bulkPrioritySchema,
   bulkReassignSchema,
   bulkStatusSchema,
@@ -70,6 +71,7 @@ export async function saveTask(input: unknown) {
       name,
       priority: data.priority ?? "TRUNG_BINH",
       status: data.status ?? "CHUA_LAM",
+      measureNorm: data.measureNorm ?? false,
       progressPercent: data.progressPercent ?? 0,
       plannedStart: toDate(data.plannedStart),
       plannedEnd: toDate(data.plannedEnd),
@@ -263,6 +265,21 @@ export async function bulkSetPriority(input: unknown) {
     const res = await prisma.task.updateMany({
       where: { id: { in: ids }, deletedAt: null },
       data: { priority },
+    });
+    revalidateTaskViews();
+    return res.count;
+  });
+}
+
+/** Bật/tắt cờ "cần đo định mức" (*) nhiều việc cùng lúc — phục vụ Báo cáo định mức. */
+export async function bulkSetMeasureNorm(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được đánh dấu định mức hàng loạt");
+    const { ids, measureNorm } = bulkMeasureNormSchema.parse(input);
+    const res = await prisma.task.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: { measureNorm },
     });
     revalidateTaskViews();
     return res.count;

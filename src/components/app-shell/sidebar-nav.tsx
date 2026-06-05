@@ -33,6 +33,7 @@ const ASSIGN_NAV: NavItem = { href: "/assign", label: "Giao việc", icon: UserP
 const ADMIN_NAV: NavItem[] = [
   { href: "/admin/users", label: "Người dùng", icon: Users },
   { href: "/admin/disciplines", label: "Khai báo bộ môn", icon: Building2 },
+  { href: "/admin/construction-types", label: "Loại hình công trình", icon: Building2 },
   { href: "/admin/catalog", label: "Khai báo danh mục", icon: SlidersHorizontal },
 ];
 

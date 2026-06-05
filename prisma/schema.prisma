@@ -85,6 +85,18 @@ model Discipline {
   tasks Task[]
 }
 
+/// Loại hình công trình (Nhà ở, Hạ tầng, TTTM, Công nghiệp...) — dùng cho báo cáo định mức.
+model ConstructionType {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+}
+
 /// Giai đoạn dự án (Concept, TKCS, FEED, TKKT, TKBVTC, Thi công, Hoàn công, Vận hành)
 model Phase {
   id        String   @id @default(cuid())
@@ -99,21 +111,24 @@ model Phase {
 
 /// Dự án (mã như B.DSHNQN.DMF)
 model Project {
-  id          String        @id @default(cuid())
-  code        String        @unique
-  name        String
-  status      ProjectStatus @default(DANG_THUC_HIEN)
-  startDate   DateTime?
-  endDate     DateTime?
-  description String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  deletedAt   DateTime?
+  id                 String        @id @default(cuid())
+  code               String        @unique
+  name               String
+  status             ProjectStatus @default(DANG_THUC_HIEN)
+  constructionTypeId String? // Loại hình công trình (cho báo cáo định mức)
+  startDate          DateTime?
+  endDate            DateTime?
+  description        String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deletedAt          DateTime?
 
-  tasks      Task[]
-  timeSheets TimeSheetEntry[]
+  constructionType ConstructionType? @relation(fields: [constructionTypeId], references: [id])
+  tasks            Task[]
+  timeSheets       TimeSheetEntry[]
 
   @@index([status])
+  @@index([constructionTypeId])
 }
 
 // ---------- Người dùng ----------
@@ -167,6 +182,7 @@ model Task {
   // Thuộc tính
   priority        TaskPriority @default(TRUNG_BINH)
   status          TaskStatus   @default(CHUA_LAM)
+  measureNorm     Boolean      @default(false) // (*) việc cần đo định mức
   progressPercent Int          @default(0)
   plannedStart    DateTime?
   plannedEnd      DateTime?

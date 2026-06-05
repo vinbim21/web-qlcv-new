@@ -6,11 +6,14 @@ function toInput(d: Date | null): string {
 }
 
 export default async function ProjectsPage() {
-  const projects = await prisma.project.findMany({
-    where: { deletedAt: null },
-    include: { _count: { select: { tasks: true } } },
-    orderBy: { code: "asc" },
-  });
+  const [projects, constructionTypes] = await Promise.all([
+    prisma.project.findMany({
+      where: { deletedAt: null },
+      include: { _count: { select: { tasks: true } } },
+      orderBy: { code: "asc" },
+    }),
+    prisma.constructionType.findMany({ orderBy: { order: "asc" } }),
+  ]);
   return (
     <ProjectsManager
       items={projects.map((p) => ({
@@ -18,11 +21,13 @@ export default async function ProjectsPage() {
         code: p.code,
         name: p.name,
         status: p.status,
+        constructionTypeId: p.constructionTypeId ?? "",
         startDate: toInput(p.startDate),
         endDate: toInput(p.endDate),
         description: p.description ?? "",
         taskCount: p._count.tasks,
       }))}
+      constructionTypes={constructionTypes.map((c) => ({ id: c.id, name: c.name }))}
     />
   );
 }

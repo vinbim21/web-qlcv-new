@@ -20,6 +20,7 @@ export async function saveProject(input: unknown) {
       code: data.code,
       name: data.name,
       status: data.status ?? "DANG_THUC_HIEN",
+      constructionTypeId: data.constructionTypeId || null,
       startDate: toDate(data.startDate),
       endDate: toDate(data.endDate),
       description: data.description || null,

@@ -80,6 +80,7 @@ export function TaskRowEditor({
     note: task?.note ?? "",
   });
   const [assigneeIds, setAssigneeIds] = React.useState<string[]>(task?.assigneeIds ?? []);
+  const [measureNorm, setMeasureNorm] = React.useState<boolean>(task?.measureNorm ?? false);
   const set = (patch: Partial<typeof f>) => setF((s) => ({ ...s, ...patch }));
 
   const wg = workGroups.find((w) => w.id === wgId);
@@ -118,6 +119,7 @@ export function TaskRowEditor({
       plannedStart: f.plannedStart || null,
       plannedEnd: f.plannedEnd || null,
       note: f.note || null,
+      measureNorm,
       assigneeIds,
     });
     setPending(false);
@@ -239,6 +241,18 @@ export function TaskRowEditor({
       <Field label="Ghi chú">
         <Textarea value={f.note} onChange={(e) => set({ note: e.target.value })} />
       </Field>
+
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="size-4"
+          checked={measureNorm}
+          onChange={(e) => setMeasureNorm(e.target.checked)}
+        />
+        <span>
+          Việc <b>cần đo định mức</b> (*) — đưa vào báo cáo tính định mức theo loại hình công trình
+        </span>
+      </label>
 
       <div className="flex justify-end gap-2 pt-2">
         {onCancel ? (

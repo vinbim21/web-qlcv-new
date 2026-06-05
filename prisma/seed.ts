@@ -29,6 +29,15 @@ const DISCIPLINES = [
   { code: "PC", name: "Phòng cháy (PC)", order: 11 },
 ];
 
+const CONSTRUCTION_TYPES = [
+  { code: "NHA_O", name: "Nhà ở / Chung cư", order: 1 },
+  { code: "HA_TANG", name: "Hạ tầng kỹ thuật", order: 2 },
+  { code: "TTTM", name: "Trung tâm thương mại", order: 3 },
+  { code: "CONG_NGHIEP", name: "Công nghiệp / Nhà máy", order: 4 },
+  { code: "CONG_CONG", name: "Công cộng (trường, bệnh viện...)", order: 5 },
+  { code: "KHAC", name: "Khác", order: 9 },
+];
+
 const PHASES = [
   { code: "CONCEPT", name: "Concept", order: 1 },
   { code: "TKCS", name: "TKCS", order: 2 },
@@ -92,6 +101,13 @@ async function main() {
       where: { code: p.code },
       update: { name: p.name, order: p.order },
       create: p,
+    });
+  }
+  for (const c of CONSTRUCTION_TYPES) {
+    await prisma.constructionType.upsert({
+      where: { code: c.code },
+      update: { name: c.name, order: c.order },
+      create: c,
     });
   }
 

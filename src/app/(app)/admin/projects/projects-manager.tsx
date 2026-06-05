@@ -20,13 +20,16 @@ type Item = {
   code: string;
   name: string;
   status: string;
+  constructionTypeId: string;
   startDate: string;
   endDate: string;
   description: string;
   taskCount: number;
 };
 
-export function ProjectsManager({ items }: { items: Item[] }) {
+type CtOpt = { id: string; name: string };
+
+export function ProjectsManager({ items, constructionTypes }: { items: Item[]; constructionTypes: CtOpt[] }) {
   const [search, setSearch] = React.useState("");
   const [editing, setEditing] = React.useState<Item | null>(null);
   const [creating, setCreating] = React.useState(false);
@@ -108,6 +111,7 @@ export function ProjectsManager({ items }: { items: Item[] }) {
       {(creating || editing) ? (
         <ProjectDialog
           item={editing ?? undefined}
+          constructionTypes={constructionTypes}
           onClose={() => {
             setCreating(false);
             setEditing(null);
@@ -118,7 +122,15 @@ export function ProjectsManager({ items }: { items: Item[] }) {
   );
 }
 
-function ProjectDialog({ item, onClose }: { item?: Item; onClose: () => void }) {
+function ProjectDialog({
+  item,
+  constructionTypes,
+  onClose,
+}: {
+  item?: Item;
+  constructionTypes: CtOpt[];
+  onClose: () => void;
+}) {
   const [pending, setPending] = React.useState(false);
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -129,6 +141,7 @@ function ProjectDialog({ item, onClose }: { item?: Item; onClose: () => void }) 
       code: String(fd.get("code") || ""),
       name: String(fd.get("name") || ""),
       status: String(fd.get("status") || "DANG_THUC_HIEN"),
+      constructionTypeId: (fd.get("constructionTypeId") as string) || null,
       startDate: (fd.get("startDate") as string) || null,
       endDate: (fd.get("endDate") as string) || null,
       description: (fd.get("description") as string) || null,
@@ -171,6 +184,17 @@ function ProjectDialog({ item, onClose }: { item?: Item; onClose: () => void }) 
             <Label htmlFor="endDate">Kết thúc</Label>
             <Input id="endDate" name="endDate" type="date" defaultValue={item?.endDate} />
           </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="constructionTypeId">Loại hình công trình</Label>
+          <Select id="constructionTypeId" name="constructionTypeId" defaultValue={item?.constructionTypeId ?? ""}>
+            <option value="">— Chưa xác định —</option>
+            {constructionTypes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="description">Mô tả</Label>

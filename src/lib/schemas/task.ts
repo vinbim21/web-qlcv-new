@@ -14,6 +14,7 @@ export const taskSchema = z.object({
   name: z.string().optional().nullable(),
   priority: z.enum(["CAO", "TRUNG_BINH", "THAP"]).optional(),
   status: z.enum(["CHUA_LAM", "DANG_LAM", "HOAN_THANH", "TAM_DUNG"]).optional(),
+  measureNorm: z.boolean().optional(),
   progressPercent: z.coerce.number().int().min(0).max(100).optional(),
   plannedStart: z.string().optional().nullable(),
   plannedEnd: z.string().optional().nullable(),
@@ -56,6 +57,10 @@ export const bulkStatusSchema = z.object({
 export const bulkPrioritySchema = z.object({
   ids: taskIds,
   priority: z.enum(["CAO", "TRUNG_BINH", "THAP"]),
+});
+export const bulkMeasureNormSchema = z.object({
+  ids: taskIds,
+  measureNorm: z.boolean(),
 });
 export const bulkDeadlineSchema = z.object({
   ids: taskIds,

@@ -42,6 +42,7 @@ import { cn, removeVietnameseTones } from "@/lib/utils";
 import {
   bulkReassign,
   bulkSetDeadline,
+  bulkSetMeasureNorm,
   bulkSetPriority,
   bulkSetStatus,
   deleteTask,
@@ -588,6 +589,14 @@ export function ManageClient({
     if (!priority) return;
     if (!confirm(`Đổi ưu tiên ${selected.size} công việc?`)) return;
     await applyBatch(bulkSetPriority({ ids: [...selected], priority }), "Đã đổi ưu tiên");
+  }
+  async function batchMeasureNorm(v: string) {
+    if (!v) return;
+    const on = v === "on";
+    await applyBatch(
+      bulkSetMeasureNorm({ ids: [...selected], measureNorm: on }),
+      on ? "Đã bật cần đo định mức" : "Đã tắt cần đo định mức",
+    );
   }
   async function submitDeadline() {
     if (!deadline?.date) return;
@@ -1174,6 +1183,16 @@ export function ManageClient({
           >
             <Users className="size-4" /> Giao lại
           </Button>
+          <Select
+            className="h-8 w-36 text-xs"
+            value=""
+            onChange={(e) => batchMeasureNorm(e.target.value)}
+            title="Cờ cần đo định mức (*)"
+          >
+            <option value="">Định mức (*)…</option>
+            <option value="on">Bật cần đo ĐM</option>
+            <option value="off">Tắt cần đo ĐM</option>
+          </Select>
           <Button size="icon" variant="ghost" onClick={clearSel} title="Bỏ chọn" aria-label="Bỏ chọn">
             <X className="size-4" />
           </Button>

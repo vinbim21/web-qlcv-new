@@ -32,6 +32,14 @@ export const disciplineSchema = z.object({
 });
 export type DisciplineInput = z.infer<typeof disciplineSchema>;
 
+export const constructionTypeSchema = z.object({
+  id: z.string().optional(),
+  code: z.string().min(1, "Nhập mã"),
+  name: z.string().min(1, "Nhập tên"),
+  order: z.coerce.number().int().min(0).optional(),
+});
+export type ConstructionTypeInput = z.infer<typeof constructionTypeSchema>;
+
 export const catalogItemSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1, "Nhập tên"),

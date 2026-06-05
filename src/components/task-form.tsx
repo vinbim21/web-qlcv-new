@@ -41,6 +41,7 @@ export type TaskRow = {
   plannedStart: string;
   plannedEnd: string;
   note: string | null;
+  measureNorm?: boolean;
   assigneeIds: string[];
   assigneeNames: string[];
 };

@@ -5,6 +5,7 @@ export const projectSchema = z.object({
   code: z.string().min(1, "Nhập mã dự án"),
   name: z.string().min(1, "Nhập tên dự án"),
   status: z.enum(["DANG_THUC_HIEN", "TAM_DUNG", "HOAN_THANH"]).optional(),
+  constructionTypeId: z.string().optional().nullable(),
   startDate: z.string().optional().nullable(),
   endDate: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
