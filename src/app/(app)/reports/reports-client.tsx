@@ -43,19 +43,21 @@ function isOverdue(r: Row): boolean {
   return new Date(r.plannedEnd) < new Date(new Date().toDateString());
 }
 
+export type ReportsClientProps = {
+  tasks: Row[];
+  workGroups: Opt[];
+  disciplines: Opt[];
+  projects: Opt[];
+  hoursByUser: Bar[];
+};
+
 export function ReportsClient({
   tasks,
   workGroups,
   disciplines,
   projects,
   hoursByUser,
-}: {
-  tasks: Row[];
-  workGroups: Opt[];
-  disciplines: Opt[];
-  projects: Opt[];
-  hoursByUser: Bar[];
-}) {
+}: ReportsClientProps) {
   const [f, setF] = React.useState({ workGroupId: "", projectId: "", disciplineId: "" });
 
   const filtered = tasks.filter((t) => {
@@ -104,10 +106,7 @@ export function ReportsClient({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Báo cáo</h1>
-          <p className="text-sm text-muted-foreground">{filtered.length} công việc</p>
-        </div>
+        <p className="text-sm text-muted-foreground">{filtered.length} công việc</p>
         <a href={exportUrl} className={buttonVariants({ variant: "outline" })}>
           <Download className="size-4" /> Xuất Excel
         </a>

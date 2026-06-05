@@ -31,3 +31,8 @@ export function canManage(role?: string) {
 export function canAssign(role?: string) {
   return role === "ADMIN" || role === "LEVEL_1" || role === "LEVEL_2";
 }
+
+/** Được xem báo cáo nhạy cảm (theo nhân sự, định mức): ADMIN, LEVEL_1, LEVEL_2 (LEVEL_3 bị chặn). */
+export function canViewPersonReports(role?: string) {
+  return role === "ADMIN" || role === "LEVEL_1" || role === "LEVEL_2";
+}
