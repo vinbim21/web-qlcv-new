@@ -22,7 +22,7 @@ import {
 import * as React from "react";
 import { toast } from "sonner";
 import { SearchableCombobox } from "@/components/searchable-combobox";
-import { TaskForm } from "@/components/task-form";
+import { TaskRowEditor } from "@/components/task-row-editor";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,12 +49,15 @@ import {
 } from "@/server/actions/tasks";
 
 type Opt = { id: string; name: string };
+// Nhóm công việc kèm mã + tiền tố Id (abbr) + bộ đếm (lastSeq) cho editor.
+type WgOpt = Opt & { code?: string; abbr?: string | null; lastSeq?: number };
 type UserOpt = { id: string; fullName: string };
 type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[] }>;
 
 export type TaskRow = {
   id: string;
   sumId: string | null;
+  seq: number | null;
   workGroupId: string;
   workGroupName: string;
   projectId: string | null;
@@ -144,7 +147,7 @@ export function ManageClient({
   currentUserId: string;
   canManage: boolean;
   tasks: TaskRow[];
-  workGroups: Opt[];
+  workGroups: WgOpt[];
   disciplines: Opt[];
   phases: Opt[];
   projects: Opt[];
@@ -187,12 +190,15 @@ export function ManageClient({
   const draggingRef = React.useRef(false);
   const resizeStartRef = React.useRef<{ x: number; w: number; key: string } | null>(null);
   React.useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(MANAGE_WIDTH_KEY);
-      if (raw) setColWidths((w) => ({ ...w, ...(JSON.parse(raw) as Record<string, number>) }));
-    } catch {
-      /* bỏ qua localStorage lỗi */
+    function loadWidths() {
+      try {
+        const raw = window.localStorage.getItem(MANAGE_WIDTH_KEY);
+        if (raw) setColWidths((w) => ({ ...w, ...(JSON.parse(raw) as Record<string, number>) }));
+      } catch {
+        /* bỏ qua localStorage lỗi */
+      }
     }
+    loadWidths();
   }, []);
   const persistWidths = (w: Record<string, number>) => {
     try {
@@ -1175,7 +1181,7 @@ function TaskDialog({
 }: {
   task?: TaskRow;
   defaultWorkGroupId?: string;
-  workGroups: Opt[];
+  workGroups: WgOpt[];
   disciplines: Opt[];
   phases: Opt[];
   projects: Opt[];
@@ -1188,9 +1194,9 @@ function TaskDialog({
       open
       onClose={onClose}
       title={task ? "Sửa công việc" : "Thêm công việc"}
-      className="max-w-2xl"
+      className="max-w-3xl"
     >
-      <TaskForm
+      <TaskRowEditor
         task={task}
         defaultWorkGroupId={defaultWorkGroupId}
         workGroups={workGroups}

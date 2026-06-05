@@ -36,6 +36,7 @@ export default async function ManagePage() {
       tasks={tasks.map((t) => ({
         id: t.id,
         sumId: t.sumId,
+        seq: t.seq,
         workGroupId: t.workGroupId,
         workGroupName: t.workGroup.name,
         projectId: t.projectId,
