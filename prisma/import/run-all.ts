@@ -154,6 +154,7 @@ async function main() {
       priority: mapPriority(t.priority),
       plannedStart: toDate(t.start),
       plannedEnd: toDate(t.end),
+      deletedAt: null, // việc có trong file -> đảm bảo đang hoạt động (hồi sinh nếu từng xóa mềm)
     };
     const existing = t.sumId ? await prisma.task.findFirst({ where: { sumId: t.sumId } }) : null;
     let taskId: string;
@@ -174,6 +175,24 @@ async function main() {
     }
     taskCount++;
   }
+
+  // Đồng bộ đầy đủ: xóa mềm việc có sumId nhưng KHÔNG còn trong file mới.
+  // Giới hạn an toàn: chỉ đụng việc có sumId -> giữ nguyên việc tạo tay (sumId = null).
+  const importedSumIds = new Set(tasks.map((t) => t.sumId).filter(Boolean));
+  const orphans = await prisma.task.findMany({
+    where: { deletedAt: null, sumId: { not: null } },
+    select: { id: true, sumId: true },
+  });
+  const orphanIds = orphans
+    .filter((o) => o.sumId && !importedSumIds.has(o.sumId))
+    .map((o) => o.id);
+  if (orphanIds.length) {
+    await prisma.task.updateMany({
+      where: { id: { in: orphanIds } },
+      data: { deletedAt: new Date() },
+    });
+  }
+  console.log(`Xóa mềm ${orphanIds.length} việc mồ côi (sumId không còn trong file)`);
 
   console.log(`Nạp ${timesheets.length} dòng nhật ký...`);
   await prisma.timeSheetEntry.deleteMany({});

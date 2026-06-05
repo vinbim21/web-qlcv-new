@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Giữ template env (bỏ qua .env thật)
 !.env.example
+
+# Backup DB (dump JSON cục bộ — không đẩy lên git)
+/backup

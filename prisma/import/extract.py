@@ -15,7 +15,7 @@ OUT = os.path.join(ROOT, "prisma", "import", "data.json")
 TASK_SHEETS = [
     {"sheet": "Bảng 1", "wg": "1", "sumId":1,"subId":2,"l2":4,"l3":5,"l4":6,"l5":7,"priority":8,"phase":None,"assignees":[9,10,11],"start":12,"end":13},
     {"sheet": "Bảng 2", "wg": "2", "sumId":1,"subId":2,"l2":4,"l3":5,"l4":6,"l5":7,"priority":8,"phase":None,"assignees":[9,10,11],"start":12,"end":13},
-    {"sheet": "Bảng 3", "wg": "3", "sumId":1,"subId":2,"l2":4,"l3":5,"l4":6,"l5":7,"priority":9,"phase":8,"assignees":[10,11,12],"start":13,"end":14},
+    {"sheet": "Bảng 3", "wg": "3", "sumId":1,"subId":2,"l2":4,"l3":5,"l4":6,"l5":7,"priority":9,"phase":8,"assignees":[10,11,12,13],"start":14,"end":15},
     {"sheet": "Bảng 4", "wg": "4", "sumId":1,"subId":2,"l2":4,"l3":5,"l4":6,"l5":7,"priority":8,"phase":None,"assignees":[9,10,11],"start":12,"end":13},
     {"sheet": "Bảng 5", "wg": "5", "sumId":1,"subId":2,"l2":4,"l3":5,"l4":6,"l5":7,"priority":8,"phase":None,"assignees":[9,10,11],"start":12,"end":13},
     {"sheet": "Bảng 6", "wg": "6", "sumId":1,"subId":2,"l2":4,"l3":5,"l4":6,"l5":7,"priority":8,"phase":None,"assignees":[9],"start":10,"end":11},
