@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { Eye, EyeOff } from "lucide-react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ function SubmitButton() {
 
 export function LoginForm() {
   const [state, formAction] = useActionState(loginAction, {});
+  const [show, setShow] = useState(false);
 
   return (
     <Card>
@@ -30,13 +32,26 @@ export function LoginForm() {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="password">Mật khẩu</Label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                name="password"
+                type={show ? "text" : "password"}
+                autoComplete="current-password"
+                required
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShow((v) => !v)}
+                tabIndex={-1}
+                aria-label={show ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                title={show ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:text-foreground"
+              >
+                {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
           </div>
           {state.error ? (
             <p className="text-sm text-destructive">{state.error}</p>
