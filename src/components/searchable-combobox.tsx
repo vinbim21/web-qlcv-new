@@ -17,6 +17,7 @@ export function SearchableCombobox({
   placeholder = "—",
   className,
   creatable = true,
+  disabled = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -25,6 +26,8 @@ export function SearchableCombobox({
   className?: string;
   /** Cho phép nhập giá trị mới ngoài `options`. Mặc định true. */
   creatable?: boolean;
+  /** Khóa (không mở được, làm mờ). Mặc định false. */
+  disabled?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -80,8 +83,9 @@ export function SearchableCombobox({
       ) : (
         <button
           type="button"
+          disabled={disabled}
           className={cn(
-            "flex h-9 w-full items-center rounded-md border border-input bg-background px-3 py-1 pr-8 text-left text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "flex h-9 w-full items-center rounded-md border border-input bg-background px-3 py-1 pr-8 text-left text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
             className,
           )}
           onClick={() => {

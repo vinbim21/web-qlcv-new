@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
+import { SearchableCombobox } from "@/components/searchable-combobox";
 import { TaskForm } from "@/components/task-form";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Badge } from "@/components/ui/badge";
@@ -111,6 +112,24 @@ function deadlineLabel(t: TaskRow): string {
 const KANBAN_ORDER = ["CHUA_LAM", "DANG_LAM", "TAM_DUNG", "HOAN_THANH"] as const;
 const KANBAN_COL_LIMIT = 40;
 
+// Kéo giãn cột bảng /manage (theo SortKey). Checkbox + Thao tác cố định, không giãn.
+const MANAGE_MIN_W = 80;
+const MANAGE_MAX_W = 600;
+const MANAGE_WIDTH_KEY = "manage-col-widths-v1";
+const clampManageW = (n: number) => Math.min(MANAGE_MAX_W, Math.max(MANAGE_MIN_W, Math.round(n)));
+const MANAGE_SEL_PX = 36; // cột checkbox
+const MANAGE_ACT_PX = 88; // cột thao tác
+const MANAGE_COL_PX: Record<string, number> = {
+  sumId: 150,
+  name: 240,
+  project: 160,
+  assignee: 180,
+  priority: 90,
+  status: 140,
+  deadline: 110,
+};
+const MANAGE_SORT_KEYS = ["sumId", "name", "project", "assignee", "priority", "status", "deadline"] as const;
+
 export function ManageClient({
   currentUserId,
   canManage,
@@ -157,6 +176,38 @@ export function ManageClient({
   const [dragCol, setDragCol] = React.useState<string | null>(null);
   // Cột Kanban đã bấm "xem thêm" (hiện hết thẻ thay vì giới hạn).
   const [expandedCols, setExpandedCols] = React.useState<Set<string>>(() => new Set());
+  // Bề rộng cột bảng (kéo giãn) — nhớ bằng localStorage.
+  const [colWidths, setColWidths] = React.useState<Record<string, number>>(() => ({
+    ...MANAGE_COL_PX,
+  }));
+  const colWidthsRef = React.useRef(colWidths);
+  React.useEffect(() => {
+    colWidthsRef.current = colWidths;
+  }, [colWidths]);
+  const draggingRef = React.useRef(false);
+  const resizeStartRef = React.useRef<{ x: number; w: number; key: string } | null>(null);
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(MANAGE_WIDTH_KEY);
+      if (raw) setColWidths((w) => ({ ...w, ...(JSON.parse(raw) as Record<string, number>) }));
+    } catch {
+      /* bỏ qua localStorage lỗi */
+    }
+  }, []);
+  const persistWidths = (w: Record<string, number>) => {
+    try {
+      window.localStorage.setItem(MANAGE_WIDTH_KEY, JSON.stringify(w));
+    } catch {
+      /* bỏ qua localStorage lỗi */
+    }
+  };
+  const setColW = (k: string, px: number) => setColWidths((w) => ({ ...w, [k]: px }));
+  const endResize = () => persistWidths(colWidthsRef.current);
+  const resetColW = (k: string) => {
+    const nw = { ...colWidthsRef.current, [k]: MANAGE_COL_PX[k] };
+    setColWidths(nw);
+    persistWidths(nw);
+  };
   // Chọn nhiều việc để thao tác hàng loạt.
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   // Modal giao lại / đổi hạn (chụp lại danh sách id lúc mở).
@@ -349,26 +400,63 @@ export function ManageClient({
     setCollapsed(new Set());
   }
 
+  // Ô tiêu đề: bấm nhãn để sắp xếp (3 trạng thái) + kéo mép phải để giãn cột.
   // Hàm render (không phải component) để tránh tạo component trong render.
-  const renderSortHead = (label: string, sortKey: SortKey, className?: string) => {
+  const renderHeadCell = (label: string, sortKey: SortKey) => {
     const active = sort?.key === sortKey;
     return (
-      <TableHead
-        className={cn("cursor-pointer select-none hover:text-foreground", className)}
-        onClick={() => toggleSort(sortKey)}
-      >
-        <span className="inline-flex items-center gap-1">
-          {label}
+      <TableHead style={{ width: colWidths[sortKey] }} className="relative select-none">
+        <button
+          type="button"
+          className="flex w-full items-center gap-1 text-left hover:text-foreground"
+          onClick={() => {
+            if (draggingRef.current) return;
+            toggleSort(sortKey);
+          }}
+        >
+          <span className="truncate">{label}</span>
           {active ? (
             sort?.dir === "asc" ? (
-              <ArrowUp className="size-3" />
+              <ArrowUp className="size-3 shrink-0" />
             ) : (
-              <ArrowDown className="size-3" />
+              <ArrowDown className="size-3 shrink-0" />
             )
           ) : (
-            <ChevronsUpDown className="size-3 opacity-40" />
+            <ChevronsUpDown className="size-3 shrink-0 opacity-40" />
           )}
-        </span>
+        </button>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none hover:bg-primary/40"
+          title="Kéo để giãn cột · nhấp đúp để đặt lại"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+            resizeStartRef.current = { x: e.clientX, w: colWidths[sortKey], key: sortKey };
+            draggingRef.current = true;
+          }}
+          onPointerMove={(e) => {
+            const s = resizeStartRef.current;
+            if (!s) return;
+            setColW(s.key, clampManageW(s.w + (e.clientX - s.x)));
+          }}
+          onPointerUp={(e) => {
+            if (!resizeStartRef.current) return;
+            resizeStartRef.current = null;
+            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+            endResize();
+            // Bỏ cờ kéo sau vòng sự kiện click → tránh kích hoạt sort.
+            setTimeout(() => {
+              draggingRef.current = false;
+            }, 0);
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            resetColW(sortKey);
+          }}
+        />
       </TableHead>
     );
   };
@@ -480,18 +568,17 @@ export function ManageClient({
           <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
         </TableCell>
         <TableCell>
-          <Select
-            className="h-7 w-32 text-xs"
-            value={t.status}
-            onChange={(e) => quickStatus(t, e.target.value)}
+          <SearchableCombobox
+            className="h-8 text-xs"
+            creatable={false}
             disabled={!canManage && !t.assigneeIds.includes(currentUserId)}
-          >
-            {TASK_STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {TASK_STATUS_LABEL[s]}
-              </option>
-            ))}
-          </Select>
+            value={TASK_STATUS_LABEL[t.status] ?? ""}
+            options={TASK_STATUS_OPTIONS.map((s) => TASK_STATUS_LABEL[s])}
+            onChange={(label) => {
+              const st = TASK_STATUS_OPTIONS.find((s) => TASK_STATUS_LABEL[s] === label);
+              if (st) quickStatus(t, st);
+            }}
+          />
         </TableCell>
         <TableCell className="text-xs">
           {overdue ? (
@@ -879,11 +966,18 @@ export function ManageClient({
         renderKanban()
       ) : (
         <div className="rounded-lg border">
-        <Table>
+        <Table
+          className="table-fixed"
+          style={{
+            minWidth:
+              (canManage ? MANAGE_SEL_PX + MANAGE_ACT_PX : 0) +
+              MANAGE_SORT_KEYS.reduce((s, k) => s + colWidths[k], 0),
+          }}
+        >
           <TableHeader>
             <TableRow>
               {canManage ? (
-                <TableHead className="w-8">
+                <TableHead style={{ width: MANAGE_SEL_PX }}>
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
@@ -892,14 +986,18 @@ export function ManageClient({
                   />
                 </TableHead>
               ) : null}
-              {renderSortHead("Mã", "sumId")}
-              {renderSortHead("Công việc", "name")}
-              {renderSortHead("Dự án / Bộ môn", "project")}
-              {renderSortHead("Người thực hiện", "assignee")}
-              {renderSortHead("Ưu tiên", "priority")}
-              {renderSortHead("Trạng thái", "status")}
-              {renderSortHead("Hạn", "deadline")}
-              {canManage ? <TableHead className="text-right">Thao tác</TableHead> : null}
+              {renderHeadCell("Mã", "sumId")}
+              {renderHeadCell("Công việc", "name")}
+              {renderHeadCell("Dự án / Bộ môn", "project")}
+              {renderHeadCell("Người thực hiện", "assignee")}
+              {renderHeadCell("Ưu tiên", "priority")}
+              {renderHeadCell("Trạng thái", "status")}
+              {renderHeadCell("Hạn", "deadline")}
+              {canManage ? (
+                <TableHead style={{ width: MANAGE_ACT_PX }} className="text-right">
+                  Thao tác
+                </TableHead>
+              ) : null}
             </TableRow>
           </TableHeader>
           <TableBody>
