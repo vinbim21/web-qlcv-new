@@ -111,6 +111,44 @@ function deadlineLabel(t: TaskRow): string {
   return `Còn ${n} ngày · ${t.plannedEnd}`;
 }
 
+// YYYY-MM-DD theo giờ địa phương (tránh lệch timezone của toISOString).
+function localIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// Khoảng [from, to] (YYYY-MM-DD) suy ra từ preset thời gian, mốc hôm nay.
+function presetRange(preset: string): { from: string; to: string } {
+  const today = new Date(new Date().toDateString());
+  switch (preset) {
+    case "TODAY":
+      return { from: localIso(today), to: localIso(today) };
+    case "NEXT7": {
+      const end = new Date(today);
+      end.setDate(end.getDate() + 7);
+      return { from: localIso(today), to: localIso(end) };
+    }
+    case "MONTH": {
+      const first = new Date(today.getFullYear(), today.getMonth(), 1);
+      const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      return { from: localIso(first), to: localIso(last) };
+    }
+    default:
+      return { from: "", to: "" };
+  }
+}
+
+const DATE_PRESETS: { value: string; label: string }[] = [
+  { value: "", label: "— Thời gian —" },
+  { value: "TODAY", label: "Hôm nay" },
+  { value: "NEXT7", label: "7 ngày tới" },
+  { value: "MONTH", label: "Tháng này" },
+  { value: "QUA_HAN", label: "Quá hạn" },
+  { value: "CUSTOM", label: "Khoảng tùy chọn…" },
+];
+
 // Thứ tự cột Kanban + số thẻ tối đa hiển thị mỗi cột trước khi gập (bấm "xem thêm").
 const KANBAN_ORDER = ["CHUA_LAM", "DANG_LAM", "TAM_DUNG", "HOAN_THANH"] as const;
 const KANBAN_COL_LIMIT = 40;
@@ -160,6 +198,10 @@ export function ManageClient({
     status: "",
     priority: "",
     mine: false,
+    // Lọc theo thời gian (Hạn). datePreset: "" | TODAY | NEXT7 | MONTH | QUA_HAN | CUSTOM.
+    datePreset: "",
+    dateFrom: "",
+    dateTo: "",
   });
   const [activeWg, setActiveWg] = React.useState(""); // "" = Tất cả (tab Bảng)
   const [search, setSearch] = React.useState("");
@@ -250,9 +292,35 @@ export function ManageClient({
       if (f.priority && t.priority !== f.priority) return false;
       if (f.mine && !t.assigneeIds.includes(currentUserId)) return false;
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
+      // Lọc theo thời gian (theo Hạn). "Quá hạn" dùng lại isOverdue.
+      if (f.datePreset === "QUA_HAN") {
+        if (!isOverdue(t)) return false;
+      } else if (f.datePreset) {
+        const { from, to } =
+          f.datePreset === "CUSTOM"
+            ? { from: f.dateFrom, to: f.dateTo }
+            : presetRange(f.datePreset);
+        if (from || to) {
+          if (!t.plannedEnd) return false; // không có Hạn → ẩn khi đang lọc thời gian
+          if (from && t.plannedEnd < from) return false;
+          if (to && t.plannedEnd > to) return false;
+        }
+      }
       return true;
     });
-  }, [tasks, f.projectId, f.disciplineId, f.priority, f.mine, deferredSearch, haystacks, currentUserId]);
+  }, [
+    tasks,
+    f.projectId,
+    f.disciplineId,
+    f.priority,
+    f.mine,
+    f.datePreset,
+    f.dateFrom,
+    f.dateTo,
+    deferredSearch,
+    haystacks,
+    currentUserId,
+  ]);
 
   const kpi = React.useMemo(() => {
     let overdue = 0;
@@ -857,7 +925,7 @@ export function ManageClient({
       {/* Bộ lọc */}
       <div className="space-y-2 rounded-lg border bg-card p-3">
         <div className="flex items-start gap-2">
-          <div className="grid flex-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid flex-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <Select value={f.projectId} onChange={(e) => setF({ ...f, projectId: e.target.value })}>
               <option value="">— Dự án —</option>
               {projects.map((p) => (
@@ -891,6 +959,17 @@ export function ManageClient({
                 </option>
               ))}
             </Select>
+            <Select
+              value={f.datePreset}
+              onChange={(e) => setF({ ...f, datePreset: e.target.value })}
+              title="Lọc theo Hạn"
+            >
+              {DATE_PRESETS.map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </Select>
           </div>
           <Button
             variant="ghost"
@@ -899,7 +978,16 @@ export function ManageClient({
             aria-label="Xóa lọc"
             className="shrink-0 text-muted-foreground hover:text-destructive"
             onClick={() => {
-              setF({ projectId: "", disciplineId: "", status: "", priority: "", mine: false });
+              setF({
+                projectId: "",
+                disciplineId: "",
+                status: "",
+                priority: "",
+                mine: false,
+                datePreset: "",
+                dateFrom: "",
+                dateTo: "",
+              });
               setSearch("");
               setActiveWg("");
               setQuick("");
@@ -909,6 +997,24 @@ export function ManageClient({
             <X />
           </Button>
         </div>
+        {f.datePreset === "CUSTOM" ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Hạn từ</span>
+            <Input
+              type="date"
+              className="h-9 w-40"
+              value={f.dateFrom}
+              onChange={(e) => setF({ ...f, dateFrom: e.target.value })}
+            />
+            <span className="text-muted-foreground">đến</span>
+            <Input
+              type="date"
+              className="h-9 w-40"
+              value={f.dateTo}
+              onChange={(e) => setF({ ...f, dateTo: e.target.value })}
+            />
+          </div>
+        ) : null}
         <label className="flex items-center gap-1 text-sm">
           <input
             type="checkbox"
