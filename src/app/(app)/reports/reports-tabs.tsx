@@ -7,8 +7,9 @@ import { cn } from "@/lib/utils";
 import { NormReport, type NormRow } from "./norm-report";
 import { PivotReport, type ReportRow } from "./pivot-report";
 import { ReportsClient, type ReportsClientProps } from "./reports-client";
+import { TimeByTask, type TimeEntry, type TimeTask } from "./time-by-task";
 
-type TabKey = "overview" | "group" | "phong" | "user" | "norm";
+type TabKey = "overview" | "group" | "phong" | "user" | "norm" | "time";
 type Tab = { key: TabKey; label: string; sensitive?: boolean };
 
 const TABS: Tab[] = [
@@ -17,6 +18,7 @@ const TABS: Tab[] = [
   { key: "phong", label: "Theo phòng" },
   { key: "user", label: "Theo nhân sự", sensitive: true },
   { key: "norm", label: "Định mức", sensitive: true },
+  { key: "time", label: "Thời gian theo việc", sensitive: true },
 ];
 
 export function ReportsTabs({
@@ -24,12 +26,18 @@ export function ReportsTabs({
   rows,
   normRows,
   normCts,
+  timeTasks,
+  timeEntries,
+  unattributedHours,
   canViewPerson,
 }: {
   overview: ReportsClientProps;
   rows: ReportRow[];
   normRows: NormRow[];
   normCts: string[];
+  timeTasks: TimeTask[];
+  timeEntries: TimeEntry[];
+  unattributedHours: number;
   canViewPerson: boolean;
 }) {
   const tabs = TABS.filter((t) => !t.sensitive || canViewPerson);
@@ -72,6 +80,9 @@ export function ReportsTabs({
         <PivotReport rows={rows} mode="user" rowHeader="Nhân sự" />
       ) : null}
       {active === "norm" && canViewPerson ? <NormReport rows={normRows} cts={normCts} /> : null}
+      {active === "time" && canViewPerson ? (
+        <TimeByTask tasks={timeTasks} entries={timeEntries} unattributedHours={unattributedHours} />
+      ) : null}
     </div>
   );
 }

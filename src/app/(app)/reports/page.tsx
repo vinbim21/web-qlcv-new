@@ -4,6 +4,7 @@ import { canViewPersonReports } from "@/server/auth/permissions";
 import { prisma } from "@/server/db/client";
 import type { NormRow } from "./norm-report";
 import { ReportsTabs } from "./reports-tabs";
+import type { TimeEntry, TimeTask } from "./time-by-task";
 
 function iso(d: Date | null): string {
   return d ? d.toISOString().slice(0, 10) : "";
@@ -92,9 +93,12 @@ export default async function ReportsPage() {
       .sort((a, b) => b.value - a.value),
   };
 
-  // ----- Báo cáo định mức (BC4) — chỉ tính khi có quyền xem báo cáo nhạy cảm -----
+  // ----- Báo cáo định mức (BC4) + Thời gian theo việc — chỉ khi có quyền xem báo cáo nhạy cảm -----
   let normRows: NormRow[] = [];
   let normCts: string[] = [];
+  let timeTasks: TimeTask[] = [];
+  let timeEntries: TimeEntry[] = [];
+  let unattributedHours = 0;
   if (canViewPerson) {
     const entries = await prisma.timeSheetEntry.findMany({
       where: { deletedAt: null, task: { is: { measureNorm: true, deletedAt: null } } },
@@ -167,6 +171,58 @@ export default async function ReportsPage() {
       };
     });
     normCts = [...new Set(normRows.map((r) => r.ctName))];
+
+    // ----- Thời gian theo việc (tái dùng byDept của BC4 cho benchmark định mức) -----
+    const tsAll = await prisma.timeSheetEntry.findMany({
+      where: { deletedAt: null, taskId: { not: null } },
+      select: { taskId: true, hours: true, date: true, user: { select: { fullName: true } } },
+    });
+    const unattr = await prisma.timeSheetEntry.aggregate({
+      _sum: { hours: true },
+      where: { deletedAt: null, taskId: null },
+    });
+    unattributedHours = Number(unattr._sum.hours ?? 0);
+
+    const taskIds = [...new Set(tsAll.map((e) => e.taskId).filter(Boolean) as string[])];
+    const taskInfos = await prisma.task.findMany({
+      where: { id: { in: taskIds } }, // gồm cả việc đã xóa mềm
+      select: {
+        id: true,
+        sumId: true,
+        name: true,
+        level5: true,
+        plannedStart: true,
+        plannedEnd: true,
+        deletedAt: true,
+        workGroup: { select: { name: true } },
+        project: { select: { name: true, constructionType: { select: { name: true } } } },
+      },
+    });
+    const deptNormOf = (level5: string, ctName: string): number | null => {
+      const d = byDept.get(`${level5}|${ctName}`);
+      return d && d.tasks.size > 0 ? d.hours / d.tasks.size : null;
+    };
+    timeTasks = taskInfos.map((t) => {
+      const level5 = t.level5 || t.name;
+      const ctName = t.project?.constructionType?.name ?? "Chưa gán loại hình";
+      return {
+        id: t.id,
+        sumId: t.sumId,
+        name: t.name,
+        groupName: t.workGroup.name,
+        projectName: t.project?.name ?? null,
+        plannedStart: iso(t.plannedStart),
+        plannedEnd: iso(t.plannedEnd),
+        deleted: t.deletedAt != null,
+        deptNorm: deptNormOf(level5, ctName),
+      };
+    });
+    timeEntries = tsAll.map((e) => ({
+      taskId: e.taskId as string,
+      userName: e.user.fullName,
+      date: iso(e.date),
+      hours: Number(e.hours),
+    }));
   }
 
   return (
@@ -175,6 +231,9 @@ export default async function ReportsPage() {
       rows={rows}
       normRows={normRows}
       normCts={normCts}
+      timeTasks={timeTasks}
+      timeEntries={timeEntries}
+      unattributedHours={unattributedHours}
       canViewPerson={canViewPerson}
     />
   );

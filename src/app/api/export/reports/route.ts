@@ -185,6 +185,105 @@ export async function GET() {
       });
     }
     if (rows.length === 0) ws.addRow({ user: "(Chưa có dữ liệu định mức)" });
+
+    // ----- Thời gian theo việc (2 sheet) -----
+    const tsAll = await prisma.timeSheetEntry.findMany({
+      where: { deletedAt: null, taskId: { not: null } },
+      select: { taskId: true, hours: true, date: true, user: { select: { fullName: true } } },
+    });
+    const taskIds = [...new Set(tsAll.map((e) => e.taskId).filter(Boolean) as string[])];
+    const taskInfos = await prisma.task.findMany({
+      where: { id: { in: taskIds } },
+      select: {
+        id: true,
+        sumId: true,
+        name: true,
+        level5: true,
+        deletedAt: true,
+        workGroup: { select: { name: true } },
+        project: { select: { name: true, constructionType: { select: { name: true } } } },
+      },
+    });
+    const tInfo = new Map(taskInfos.map((t) => [t.id, t]));
+    const deptNormOf = (level5: string, ctName: string): number | null => {
+      const d = byDept.get(`${level5}|${ctName}`);
+      return d && d.tasks.size > 0 ? d.hours / d.tasks.size : null;
+    };
+
+    type T = { hours: number; users: Map<string, number>; dates: Set<string>; minD: string; maxD: string };
+    const byTask = new Map<string, T>();
+    for (const e of tsAll) {
+      const id = e.taskId as string;
+      const dt = iso(e.date);
+      let a = byTask.get(id);
+      if (!a) {
+        a = { hours: 0, users: new Map(), dates: new Set(), minD: dt, maxD: dt };
+        byTask.set(id, a);
+      }
+      a.hours += Number(e.hours);
+      a.users.set(e.user.fullName, (a.users.get(e.user.fullName) ?? 0) + Number(e.hours));
+      a.dates.add(dt);
+      if (dt < a.minD) a.minD = dt;
+      if (dt > a.maxD) a.maxD = dt;
+    }
+
+    const wsT = wb.addWorksheet("Thoi gian theo viec");
+    wsT.columns = [
+      { header: "Mã", key: "ma", width: 22 },
+      { header: "Công việc", key: "ten", width: 34 },
+      { header: "Nhóm", key: "nhom", width: 18 },
+      { header: "Dự án", key: "duan", width: 22 },
+      { header: "Tổng giờ", key: "gio", width: 10 },
+      { header: "Số người", key: "nguoi", width: 9 },
+      { header: "Số ngày", key: "ngay", width: 9 },
+      { header: "Đầu", key: "dau", width: 12 },
+      { header: "Cuối", key: "cuoi", width: 12 },
+      { header: "ĐM đầu việc", key: "dm", width: 12 },
+      { header: "Đã xóa", key: "xoa", width: 8 },
+    ];
+    wsT.getRow(1).font = { bold: true };
+
+    const wsTU = wb.addWorksheet("Thoi gian viec-nguoi");
+    wsTU.columns = [
+      { header: "Mã", key: "ma", width: 22 },
+      { header: "Công việc", key: "ten", width: 34 },
+      { header: "Nhân sự", key: "nguoi", width: 22 },
+      { header: "Giờ", key: "gio", width: 10 },
+      { header: "% so ĐM", key: "sodm", width: 10 },
+    ];
+    wsTU.getRow(1).font = { bold: true };
+
+    const sortedTasks = [...byTask.entries()].sort((a, b) => b[1].hours - a[1].hours);
+    for (const [id, agg] of sortedTasks) {
+      const t = tInfo.get(id);
+      if (!t) continue;
+      const level5 = t.level5 || t.name;
+      const ctName = t.project?.constructionType?.name ?? "Chưa gán loại hình";
+      const dn = deptNormOf(level5, ctName);
+      wsT.addRow({
+        ma: t.sumId ?? "",
+        ten: t.name,
+        nhom: t.workGroup.name,
+        duan: t.project?.name ?? "",
+        gio: Number(agg.hours.toFixed(1)),
+        nguoi: agg.users.size,
+        ngay: agg.dates.size,
+        dau: agg.minD,
+        cuoi: agg.maxD,
+        dm: dn != null ? Number(dn.toFixed(1)) : "",
+        xoa: t.deletedAt ? "x" : "",
+      });
+      for (const [name, h] of [...agg.users.entries()].sort((a, b) => b[1] - a[1])) {
+        wsTU.addRow({
+          ma: t.sumId ?? "",
+          ten: t.name,
+          nguoi: name,
+          gio: Number(h.toFixed(1)),
+          sodm: dn != null && dn > 0 ? Math.round(((h - dn) / dn) * 100) : "",
+        });
+      }
+    }
+    if (sortedTasks.length === 0) wsT.addRow({ ma: "(Chưa có timesheet gắn việc)" });
   }
 
   const buf = await wb.xlsx.writeBuffer();
