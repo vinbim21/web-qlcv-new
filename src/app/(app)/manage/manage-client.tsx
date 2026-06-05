@@ -872,7 +872,8 @@ export function ManageClient({
             { key: "QUA_HAN", label: "Quá hạn", n: kpi.overdue, Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
             { key: "SAP_HAN", label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon, Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
             { key: "CHUA_GIAO", label: "Chưa giao người", n: kpi.unassigned, Icon: UserX, tone: "border-slate-200 bg-slate-50 text-slate-700" },
-            { key: "DANG_LAM", label: `Đang làm · TB ${kpi.avg}%`, n: kpi.doing, Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
+            // "· TB {kpi.avg}%" tạm ẩn (tiến độ chưa nhập); bật lại: label: `Đang làm · TB ${kpi.avg}%`
+            { key: "DANG_LAM", label: "Đang làm", n: kpi.doing, Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
           ] as const
         ).map(({ key, label, n, Icon, tone }) => (
           <button
