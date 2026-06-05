@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { PHONG_LABEL, PHONG_ORDER, phongOf } from "@/lib/dept-map";
 import { PRIORITY_LABEL, TASK_STATUS_LABEL } from "@/lib/labels";
+import { effectiveStatus } from "@/lib/task-status";
 import { PERIOD_LABEL, PERIOD_TYPES, type PeriodType, periodLabel, periodOf, yearOf } from "@/lib/report-period";
 
 export type ReportRow = {
@@ -27,9 +28,20 @@ export type ReportRow = {
   disciplineCode: string | null;
   status: string;
   priority: string;
+  plannedStart: string; // "YYYY-MM-DD" hoặc ""
   plannedEnd: string; // "YYYY-MM-DD" hoặc "" (chưa có hạn)
   assignees: { id: string; name: string }[];
 };
+
+/** Trạng thái suy diễn (gồm Quá hạn + nâng Đang thực hiện) cho 1 dòng báo cáo. */
+function effOf(r: ReportRow): string {
+  return effectiveStatus({
+    status: r.status,
+    plannedStart: r.plannedStart,
+    plannedEnd: r.plannedEnd,
+    assigneeCount: r.assignees.length,
+  });
+}
 
 export type PivotMode = "group" | "phong" | "user";
 
@@ -43,14 +55,6 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const PRIORITY_KEYS = ["CAO", "TRUNG_BINH", "THAP"] as const;
 const NONE_KEY = "__none__";
-
-function isOverdue(plannedEnd: string, status: string): boolean {
-  if (!plannedEnd || status === "HOAN_THANH") return false;
-  return new Date(plannedEnd) < new Date(new Date().toDateString());
-}
-function effectiveStatus(plannedEnd: string, status: string): string {
-  return isOverdue(plannedEnd, status) ? "QUA_HAN" : status;
-}
 
 type Bucket = { key: string; label: string; order: number };
 
@@ -115,7 +119,7 @@ export function PivotReport({
     const map = new Map<string, Agg>();
     const add = (rs: ReportRow[]) => {
       for (const r of rs) {
-        const eff = effectiveStatus(r.plannedEnd, r.status);
+        const eff = effOf(r);
         for (const b of bucketsOf(r, mode)) {
           let a = map.get(b.key);
           if (!a) {
@@ -154,7 +158,7 @@ export function PivotReport({
         row = {};
         map.set(p.idx, row);
       }
-      const eff = effectiveStatus(r.plannedEnd, r.status);
+      const eff = effOf(r);
       row[eff] = (row[eff] ?? 0) + 1;
     }
     return [...map.entries()]

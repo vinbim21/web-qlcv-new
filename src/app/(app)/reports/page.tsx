@@ -27,6 +27,7 @@ export default async function ReportsPage() {
         projectId: true,
         status: true,
         priority: true,
+        plannedStart: true,
         plannedEnd: true,
         workGroup: { select: { name: true, order: true } },
         discipline: { select: { code: true, name: true } },
@@ -60,6 +61,7 @@ export default async function ReportsPage() {
     disciplineCode: t.discipline?.code ?? null,
     status: t.status,
     priority: t.priority,
+    plannedStart: iso(t.plannedStart),
     plannedEnd: iso(t.plannedEnd),
     assignees: t.assignees.map((a) => ({ id: a.user.id, name: a.user.fullName })),
   }));
@@ -78,6 +80,7 @@ export default async function ReportsPage() {
       projectName: t.project?.name ?? null,
       status: t.status,
       priority: t.priority,
+      plannedStart: iso(t.plannedStart),
       plannedEnd: iso(t.plannedEnd),
       assigneeNames: t.assignees.map((a) => a.user.fullName),
     })),

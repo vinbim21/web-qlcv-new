@@ -4,15 +4,15 @@ import { canViewPersonReports } from "@/server/auth/permissions";
 import { prisma } from "@/server/db/client";
 import { PHONG_LABEL, PHONG_ORDER, phongOf } from "@/lib/dept-map";
 import { PRIORITY_LABEL, TASK_STATUS_LABEL } from "@/lib/labels";
+import { effectiveStatus } from "@/lib/task-status";
 
 export const runtime = "nodejs";
 
 const STATUS_KEYS = ["CHUA_LAM", "DANG_LAM", "HOAN_THANH", "TAM_DUNG", "QUA_HAN"] as const;
 const PRIORITY_KEYS = ["CAO", "TRUNG_BINH", "THAP"] as const;
 
-function isOverdue(plannedEnd: Date | null, status: string): boolean {
-  if (!plannedEnd || status === "HOAN_THANH") return false;
-  return plannedEnd < new Date(new Date().toDateString());
+function iso(d: Date | null): string {
+  return d ? d.toISOString().slice(0, 10) : "";
 }
 
 type Agg = { label: string; order: number; total: number; status: Record<string, number>; priority: Record<string, number> };
@@ -64,6 +64,7 @@ export async function GET() {
     select: {
       status: true,
       priority: true,
+      plannedStart: true,
       plannedEnd: true,
       workGroup: { select: { name: true, order: true } },
       discipline: { select: { code: true } },
@@ -91,7 +92,12 @@ export async function GET() {
   };
 
   for (const t of tasks) {
-    const eff = isOverdue(t.plannedEnd, t.status) ? "QUA_HAN" : t.status;
+    const eff = effectiveStatus({
+      status: t.status,
+      plannedStart: iso(t.plannedStart),
+      plannedEnd: iso(t.plannedEnd),
+      assigneeCount: t.assignees.length,
+    });
     // BC1 — nhóm
     bump(group, t.workGroup.name, () => blankAgg(t.workGroup.name, t.workGroup.order), eff, t.priority);
     // BC2 — phòng

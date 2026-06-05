@@ -1,7 +1,12 @@
 // Đối chiếu/nghiệm thu báo cáo (READ-ONLY). Chạy: npx tsx prisma/verify-reports.ts
 import { PrismaClient } from "@prisma/client";
+import { effectiveStatus } from "../src/lib/task-status";
 
 const prisma = new PrismaClient();
+
+function iso(d: Date | null): string {
+  return d ? d.toISOString().slice(0, 10) : "";
+}
 
 async function main() {
   const active = await prisma.task.count({ where: { deletedAt: null } });
@@ -16,6 +21,34 @@ async function main() {
     where: { deletedAt: null, children: { none: {} }, disciplineId: null },
   });
   console.log(`[BC2] Việc lá CHƯA PHÂN PHÒNG (disciplineId null): ${noDisc}`);
+
+  // Trạng thái suy diễn — đối chiếu "Chưa làm" -> "Đang thực hiện"
+  const leafTasks = await prisma.task.findMany({
+    where: { deletedAt: null, children: { none: {} } },
+    select: {
+      status: true,
+      plannedStart: true,
+      plannedEnd: true,
+      _count: { select: { assignees: true } },
+    },
+  });
+  const stored: Record<string, number> = {};
+  const eff: Record<string, number> = {};
+  let promoted = 0;
+  for (const t of leafTasks) {
+    stored[t.status] = (stored[t.status] ?? 0) + 1;
+    const e = effectiveStatus({
+      status: t.status,
+      plannedStart: iso(t.plannedStart),
+      plannedEnd: iso(t.plannedEnd),
+      assigneeCount: t._count.assignees,
+    });
+    eff[e] = (eff[e] ?? 0) + 1;
+    if (t.status === "CHUA_LAM" && e === "DANG_LAM") promoted++;
+  }
+  console.log(`[Trạng thái] Stored:`, stored);
+  console.log(`[Trạng thái] Suy diễn:`, eff);
+  console.log(`[Trạng thái] Chưa làm -> Đang thực hiện (nâng): ${promoted}`);
 
   // BC4 — dữ liệu định mức hiện có
   const measured = await prisma.task.count({ where: { deletedAt: null, measureNorm: true } });

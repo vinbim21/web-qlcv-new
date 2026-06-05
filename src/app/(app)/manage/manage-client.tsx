@@ -39,6 +39,7 @@ import {
   statusVariant,
 } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
+import { effectiveStatus } from "@/lib/task-status";
 import {
   bulkReassign,
   bulkSetDeadline,
@@ -84,6 +85,17 @@ export type TaskRow = {
 function isOverdue(t: TaskRow): boolean {
   if (!t.plannedEnd || t.status === "HOAN_THANH") return false;
   return new Date(t.plannedEnd) < new Date(new Date().toDateString());
+}
+
+// Trạng thái suy diễn (gồm Quá hạn + nâng "Đang thực hiện" khi đã khai báo thời gian
+// & đã giao người). KHÔNG dùng cho Kanban (kéo-thả ghi status thật).
+function effOf(t: TaskRow): string {
+  return effectiveStatus({
+    status: t.status,
+    plannedStart: t.plannedStart,
+    plannedEnd: t.plannedEnd,
+    assigneeCount: t.assigneeIds.length,
+  });
 }
 
 // Số ngày từ hôm nay đến hạn (âm = đã quá hạn). null nếu không có hạn / sai định dạng.
@@ -333,7 +345,7 @@ export function ManageClient({
       if (isOverdue(t)) overdue++;
       else if (isDueSoon(t)) soon++;
       if (t.assigneeIds.length === 0) unassigned++;
-      if (t.status === "DANG_LAM") doing++;
+      if (effOf(t) === "DANG_LAM") doing++;
       progSum += t.progressPercent;
     }
     return {
@@ -348,11 +360,11 @@ export function ManageClient({
   // Áp thêm dropdown Trạng thái + lọc nhanh KPI (vẫn TRỪ tab nhóm để đếm theo tab).
   const base = React.useMemo(() => {
     return kpiBase.filter((t) => {
-      if (f.status === "QUA_HAN" ? !isOverdue(t) : f.status && t.status !== f.status) return false;
+      if (f.status && effOf(t) !== f.status) return false;
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0) return false;
-      if (quick === "DANG_LAM" && t.status !== "DANG_LAM") return false;
+      if (quick === "DANG_LAM" && effOf(t) !== "DANG_LAM") return false;
       return true;
     });
   }, [kpiBase, f.status, quick]);
@@ -393,7 +405,7 @@ export function ManageClient({
       case "priority":
         return PRIO_ORDER[t.priority] ?? 9;
       case "status":
-        return STATUS_ORDER[isOverdue(t) ? "QUA_HAN" : t.status] ?? 9;
+        return STATUS_ORDER[effOf(t)] ?? 9;
       case "deadline":
         return t.plannedEnd || "9999-12-31";
     }
@@ -1041,7 +1053,9 @@ export function ManageClient({
             [
               { key: "people", label: "Gom theo người" },
               { key: "table", label: "Bảng" },
-              { key: "kanban", label: "Kanban" },
+              // Kanban tạm tắt (chưa dùng). Bật lại: thêm { key: "kanban", label: "Kanban" }.
+              // ⚠ Khi bật lại: Kanban đặt thẻ theo status THẬT (t.status), KHÔNG dùng
+              //   effectiveStatus — vì kéo-thả ghi thẳng status vào DB.
             ] as const
           ).map((v) => (
             <button

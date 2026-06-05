@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PRIORITY_LABEL, TASK_STATUS_LABEL, priorityVariant, statusVariant } from "@/lib/labels";
+import { effectiveStatus } from "@/lib/task-status";
 
 type Opt = { id: string; name: string };
 type Bar = { name: string; value: number };
@@ -26,6 +27,7 @@ type Row = {
   projectName: string | null;
   status: string;
   priority: string;
+  plannedStart: string;
   plannedEnd: string;
   assigneeNames: string[];
 };
@@ -38,9 +40,13 @@ const STATUS_COLOR: Record<string, string> = {
   QUA_HAN: "#dc2626",
 };
 
-function isOverdue(r: Row): boolean {
-  if (!r.plannedEnd || r.status === "HOAN_THANH") return false;
-  return new Date(r.plannedEnd) < new Date(new Date().toDateString());
+function effOf(r: Row): string {
+  return effectiveStatus({
+    status: r.status,
+    plannedStart: r.plannedStart,
+    plannedEnd: r.plannedEnd,
+    assigneeCount: r.assigneeNames.length,
+  });
 }
 
 export type ReportsClientProps = {
@@ -76,8 +82,8 @@ export function ReportsClient({
     QUA_HAN: 0,
   };
   for (const t of filtered) {
-    if (isOverdue(t)) statusCounts.QUA_HAN!++;
-    else statusCounts[t.status] = (statusCounts[t.status] ?? 0) + 1;
+    const eff = effOf(t);
+    statusCounts[eff] = (statusCounts[eff] ?? 0) + 1;
   }
   const statusData = Object.entries(statusCounts)
     .filter(([, v]) => v > 0)
@@ -193,7 +199,7 @@ export function ReportsClient({
             </TableHeader>
             <TableBody>
               {filtered.slice(0, 200).map((t) => {
-                const ov = isOverdue(t);
+                const eff = effOf(t);
                 return (
                   <TableRow key={t.id}>
                     <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
@@ -204,9 +210,7 @@ export function ReportsClient({
                       <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={statusVariant(ov ? "QUA_HAN" : t.status)}>
-                        {ov ? "Quá hạn" : TASK_STATUS_LABEL[t.status]}
-                      </Badge>
+                      <Badge variant={statusVariant(eff)}>{TASK_STATUS_LABEL[eff]}</Badge>
                     </TableCell>
                   </TableRow>
                 );
@@ -215,7 +219,7 @@ export function ReportsClient({
           </Table>
           {filtered.length > 200 ? (
             <p className="pt-2 text-center text-xs text-muted-foreground">
-              Hiển thị 200/{filtered.length} — dùng "Xuất Excel" để xem đầy đủ
+              Hiển thị 200/{filtered.length} — dùng “Xuất Excel” để xem đầy đủ
             </p>
           ) : null}
         </CardContent>
