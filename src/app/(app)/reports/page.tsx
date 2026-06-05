@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/server/auth/config";
 import { canViewPersonReports } from "@/server/auth/permissions";
 import { prisma } from "@/server/db/client";
+import type { NormRow } from "./norm-report";
 import { ReportsTabs } from "./reports-tabs";
 
 function iso(d: Date | null): string {
@@ -88,5 +89,90 @@ export default async function ReportsPage() {
       .sort((a, b) => b.value - a.value),
   };
 
-  return <ReportsTabs overview={overview} rows={rows} canViewPerson={canViewPerson} />;
+  // ----- Báo cáo định mức (BC4) — chỉ tính khi có quyền xem báo cáo nhạy cảm -----
+  let normRows: NormRow[] = [];
+  let normCts: string[] = [];
+  if (canViewPerson) {
+    const entries = await prisma.timeSheetEntry.findMany({
+      where: { deletedAt: null, task: { is: { measureNorm: true, deletedAt: null } } },
+      select: {
+        hours: true,
+        taskId: true,
+        user: { select: { id: true, fullName: true } },
+        task: {
+          select: {
+            level5: true,
+            name: true,
+            project: { select: { constructionType: { select: { name: true, order: true } } } },
+          },
+        },
+      },
+    });
+
+    type A = {
+      userId: string;
+      userName: string;
+      task: string;
+      ctName: string;
+      ctOrder: number;
+      hours: number;
+      tasks: Set<string>;
+    };
+    const byUser = new Map<string, A>();
+    const byDept = new Map<string, { hours: number; tasks: Set<string> }>();
+    for (const e of entries) {
+      const taskName = e.task?.level5 || e.task?.name || "(không rõ đầu việc)";
+      const ct = e.task?.project?.constructionType;
+      const ctName = ct?.name ?? "Chưa gán loại hình";
+      const ctOrder = ct?.order ?? 999;
+      const h = Number(e.hours);
+      const tk = e.taskId ?? `${taskName}|${ctName}`;
+
+      const uk = `${e.user.id}|${taskName}|${ctName}`;
+      let a = byUser.get(uk);
+      if (!a) {
+        a = { userId: e.user.id, userName: e.user.fullName, task: taskName, ctName, ctOrder, hours: 0, tasks: new Set() };
+        byUser.set(uk, a);
+      }
+      a.hours += h;
+      a.tasks.add(tk);
+
+      const dk = `${taskName}|${ctName}`;
+      let d = byDept.get(dk);
+      if (!d) {
+        d = { hours: 0, tasks: new Set() };
+        byDept.set(dk, d);
+      }
+      d.hours += h;
+      d.tasks.add(tk);
+    }
+
+    normRows = [...byUser.values()].map((a) => {
+      const times = a.tasks.size || 1;
+      const d = byDept.get(`${a.task}|${a.ctName}`)!;
+      const dTimes = d.tasks.size || 1;
+      return {
+        userId: a.userId,
+        userName: a.userName,
+        task: a.task,
+        ctName: a.ctName,
+        ctOrder: a.ctOrder,
+        times: a.tasks.size,
+        hours: a.hours,
+        norm: a.hours / times,
+        deptNorm: d.hours / dTimes,
+      };
+    });
+    normCts = [...new Set(normRows.map((r) => r.ctName))];
+  }
+
+  return (
+    <ReportsTabs
+      overview={overview}
+      rows={rows}
+      normRows={normRows}
+      normCts={normCts}
+      canViewPerson={canViewPerson}
+    />
+  );
 }

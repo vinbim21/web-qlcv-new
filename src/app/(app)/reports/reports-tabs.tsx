@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { NormReport, type NormRow } from "./norm-report";
 import { PivotReport, type ReportRow } from "./pivot-report";
 import { ReportsClient, type ReportsClientProps } from "./reports-client";
 
@@ -20,10 +20,14 @@ const TABS: Tab[] = [
 export function ReportsTabs({
   overview,
   rows,
+  normRows,
+  normCts,
   canViewPerson,
 }: {
   overview: ReportsClientProps;
   rows: ReportRow[];
+  normRows: NormRow[];
+  normCts: string[];
   canViewPerson: boolean;
 }) {
   const tabs = TABS.filter((t) => !t.sensitive || canViewPerson);
@@ -60,14 +64,7 @@ export function ReportsTabs({
       {active === "user" && canViewPerson ? (
         <PivotReport rows={rows} mode="user" rowHeader="Nhân sự" />
       ) : null}
-      {active === "norm" && canViewPerson ? (
-        <Card>
-          <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            Báo cáo <b>Tính toán định mức</b> đang được phát triển (Bước 4) — cần khai báo Loại hình công
-            trình &amp; đánh dấu việc “cần đo định mức”.
-          </CardContent>
-        </Card>
-      ) : null}
+      {active === "norm" && canViewPerson ? <NormReport rows={normRows} cts={normCts} /> : null}
     </div>
   );
 }
