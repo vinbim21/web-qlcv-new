@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db/client";
 import { canAssign, canManage, requireUser } from "@/server/auth/permissions";
+import { shouldAutoStart } from "@/lib/task-status";
 import {
   bulkDeadlineSchema,
   bulkMeasureNormSchema,
@@ -58,6 +59,12 @@ export async function saveTask(input: unknown) {
     const name = defaultTaskName(data);
     const assigneeIds = [...new Set((data.assigneeIds ?? []).filter(Boolean))];
 
+    // Tự chuyển "Chưa làm" -> "Đang thực hiện" khi đã giao người & đã tới ngày bắt đầu.
+    let status = data.status ?? "CHUA_LAM";
+    if (shouldAutoStart({ status, plannedStart: data.plannedStart, assigneeCount: assigneeIds.length })) {
+      status = "DANG_LAM";
+    }
+
     const payload = {
       workGroupId: data.workGroupId,
       projectId: data.projectId || null,
@@ -70,7 +77,7 @@ export async function saveTask(input: unknown) {
       level5: data.level5 || null,
       name,
       priority: data.priority ?? "TRUNG_BINH",
-      status: data.status ?? "CHUA_LAM",
+      status,
       measureNorm: data.measureNorm ?? false,
       progressPercent: data.progressPercent ?? 0,
       plannedStart: toDate(data.plannedStart),

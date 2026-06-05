@@ -1,6 +1,6 @@
 // Đối chiếu/nghiệm thu báo cáo (READ-ONLY). Chạy: npx tsx prisma/verify-reports.ts
 import { PrismaClient } from "@prisma/client";
-import { effectiveStatus } from "../src/lib/task-status";
+import { effectiveStatus, shouldAutoStart } from "../src/lib/task-status";
 
 const prisma = new PrismaClient();
 
@@ -34,21 +34,18 @@ async function main() {
   });
   const stored: Record<string, number> = {};
   const eff: Record<string, number> = {};
-  let promoted = 0;
+  let pending = 0; // việc còn "Chưa làm" mà ĐÁNG LẼ Đang thực hiện (chưa lưu lại — không cron)
   for (const t of leafTasks) {
     stored[t.status] = (stored[t.status] ?? 0) + 1;
-    const e = effectiveStatus({
-      status: t.status,
-      plannedStart: iso(t.plannedStart),
-      plannedEnd: iso(t.plannedEnd),
-      assigneeCount: t._count.assignees,
-    });
+    const e = effectiveStatus({ status: t.status, plannedEnd: iso(t.plannedEnd) });
     eff[e] = (eff[e] ?? 0) + 1;
-    if (t.status === "CHUA_LAM" && e === "DANG_LAM") promoted++;
+    if (shouldAutoStart({ status: t.status, plannedStart: iso(t.plannedStart), assigneeCount: t._count.assignees })) {
+      pending++;
+    }
   }
-  console.log(`[Trạng thái] Stored:`, stored);
-  console.log(`[Trạng thái] Suy diễn:`, eff);
-  console.log(`[Trạng thái] Chưa làm -> Đang thực hiện (nâng): ${promoted}`);
+  console.log(`[Trạng thái] Stored (DB thật):`, stored);
+  console.log(`[Trạng thái] Hiển thị (+ overlay Quá hạn):`, eff);
+  console.log(`[Trạng thái] Còn Chưa làm nhưng đủ điều kiện Đang thực hiện (chờ lưu lại): ${pending}`);
 
   // BC4 — dữ liệu định mức hiện có
   const measured = await prisma.task.count({ where: { deletedAt: null, measureNorm: true } });
