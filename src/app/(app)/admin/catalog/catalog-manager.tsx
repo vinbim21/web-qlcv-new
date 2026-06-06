@@ -16,26 +16,34 @@ import {
   savePhase,
   saveWorkGroup,
 } from "@/server/actions/catalog";
+import {
+  deleteConstructionType,
+  saveConstructionType,
+} from "@/server/actions/construction-types";
 import type { Result } from "@/server/actions/_helpers";
 
 type Item = { id: string; code: string; name: string; order: number; abbr?: string | null };
-type Kind = "wg" | "phase";
+type Kind = "wg" | "phase" | "ct";
 
 const SAVE: Record<Kind, (input: unknown) => Promise<Result<unknown>>> = {
   wg: saveWorkGroup,
   phase: savePhase,
+  ct: saveConstructionType,
 };
 const DELETE: Record<Kind, (id: string) => Promise<Result<unknown>>> = {
   wg: deleteWorkGroup,
   phase: deletePhase,
+  ct: deleteConstructionType,
 };
 
 export function CatalogManager({
   workGroups,
   phases,
+  constructionTypes,
 }: {
   workGroups: Item[];
   phases: Item[];
+  constructionTypes: Item[];
 }) {
   const [dialog, setDialog] = React.useState<{ kind: Kind; item?: Item } | null>(null);
 
@@ -51,7 +59,7 @@ export function CatalogManager({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Khai báo danh mục</h1>
         <p className="text-sm text-muted-foreground">
-          Nhóm công việc (Level 1) và Giai đoạn dự án
+          Nhóm công việc (Level 1), Giai đoạn dự án và Loại hình công trình
         </p>
       </div>
 
@@ -71,6 +79,13 @@ export function CatalogManager({
           onAdd={() => setDialog({ kind: "phase" })}
           onEdit={(item) => setDialog({ kind: "phase", item })}
           onDelete={(item) => onDelete("phase", item)}
+        />
+        <CatalogTable
+          title="Loại hình công trình"
+          items={constructionTypes}
+          onAdd={() => setDialog({ kind: "ct" })}
+          onEdit={(item) => setDialog({ kind: "ct", item })}
+          onDelete={(item) => onDelete("ct", item)}
         />
       </div>
 
@@ -170,7 +185,8 @@ function EditDialog({
   onClose: () => void;
 }) {
   const [pending, setPending] = React.useState(false);
-  const title = kind === "wg" ? "Nhóm công việc" : "Giai đoạn";
+  const title =
+    kind === "wg" ? "Nhóm công việc" : kind === "phase" ? "Giai đoạn" : "Loại hình công trình";
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

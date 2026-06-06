@@ -26,6 +26,7 @@ export async function saveWorkGroup(input: unknown) {
     revalidatePath("/admin/catalog");
     revalidatePath("/assign");
     revalidatePath("/tasks");
+    revalidatePath("/manage");
   });
 }
 
@@ -37,6 +38,8 @@ export async function deleteWorkGroup(id: string) {
     await prisma.workGroup.delete({ where: { id } });
     revalidatePath("/admin/catalog");
     revalidatePath("/tasks");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
   });
 }
 
@@ -87,6 +90,8 @@ export async function addCatalogValue(workGroupId: string, level: number, value:
     });
     revalidatePath(`/admin/catalog/${workGroupId}`);
     revalidatePath("/tasks");
+    revalidatePath("/manage"); // nơi đặt lưới Giao việc (gợi ý danh mục)
+    revalidatePath("/assign");
   });
 }
 
@@ -98,6 +103,8 @@ export async function updateCatalogValue(id: string, value: string) {
     await prisma.catalogItem.update({ where: { id }, data: { value: v } });
     revalidatePath("/admin/catalog");
     revalidatePath("/tasks");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
   });
 }
 
@@ -107,5 +114,7 @@ export async function deleteCatalogValue(id: string) {
     await prisma.catalogItem.delete({ where: { id } });
     revalidatePath("/admin/catalog");
     revalidatePath("/tasks");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
   });
 }

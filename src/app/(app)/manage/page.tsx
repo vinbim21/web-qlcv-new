@@ -15,6 +15,7 @@ export default async function ManagePage() {
   // Chỉ Admin / Cấp 1 / Cấp 2 được vào trang Quản lý công việc.
   if (!canAssign(session.user.role)) redirect("/tasks");
   const manage = canManage(session.user.role);
+  const assign = canAssign(session.user.role);
 
   const [tasks, lookups] = await Promise.all([
     prisma.task.findMany({
@@ -36,6 +37,7 @@ export default async function ManagePage() {
     <ManageClient
       currentUserId={session.user.id}
       canManage={manage}
+      canAssign={assign}
       tasks={tasks.map((t) => ({
         id: t.id,
         sumId: t.sumId,

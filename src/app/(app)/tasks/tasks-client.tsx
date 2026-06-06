@@ -49,6 +49,7 @@ export type TaskRow = {
   progressPercent: number;
   plannedStart: string;
   plannedEnd: string;
+  actualEnd: string;
   note: string | null;
   assigneeIds: string[];
   assigneeNames: string[];
@@ -470,6 +471,9 @@ export function TasksClient({
           <TableBody>
             {sorted.map((t) => {
               const overdue = isOverdue(t);
+              // Đã hoàn thành + có ngày HT thực tế → hiện gọn dưới cột Hạn (xanh: đúng hạn, đỏ: trễ).
+              const done = t.status === "HOAN_THANH" && !!t.actualEnd;
+              const lateDone = done && !!t.plannedEnd && t.actualEnd > t.plannedEnd;
               return (
                 <TableRow key={t.id}>
                   <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
@@ -508,6 +512,21 @@ export function TasksClient({
                     ) : (
                       t.plannedEnd || "—"
                     )}
+                    {done ? (
+                      <div
+                        className={cn(
+                          "text-[11px]",
+                          !t.plannedEnd
+                            ? "text-muted-foreground"
+                            : lateDone
+                              ? "text-red-600"
+                              : "text-emerald-600",
+                        )}
+                      >
+                        HT: {t.actualEnd}
+                        {t.plannedEnd ? (lateDone ? " (trễ)" : " ✓") : null}
+                      </div>
+                    ) : null}
                   </TableCell>
                   <TableCell className="text-center">
                     <Button

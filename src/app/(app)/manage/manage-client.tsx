@@ -23,6 +23,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { useRouter } from "next/navigation";
+import { AssignClient } from "@/app/(app)/assign/assign-client";
 import { TaskRowEditor } from "@/components/task-row-editor";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Badge } from "@/components/ui/badge";
@@ -188,6 +189,7 @@ const MANAGE_SORT_KEYS = ["sumId", "name", "project", "assignee", "priority", "s
 export function ManageClient({
   currentUserId,
   canManage,
+  canAssign,
   tasks,
   workGroups,
   disciplines,
@@ -198,6 +200,8 @@ export function ManageClient({
 }: {
   currentUserId: string;
   canManage: boolean;
+  // canAssign (ADMIN/Cấp 1/Cấp 2): được tạo việc bằng lưới "Thêm công việc".
+  canAssign: boolean;
   tasks: TaskRow[];
   workGroups: WgOpt[];
   disciplines: Opt[];
@@ -222,7 +226,8 @@ export function ManageClient({
   // Gõ tới đâu ô phản hồi ngay; việc lọc dùng giá trị "trễ" nên không giật (React 19).
   const deferredSearch = React.useDeferredValue(search);
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
-  const [creating, setCreating] = React.useState(false);
+  // Lưới "Thêm công việc" (module Giao việc cũ) mở trong modal gần kín màn hình.
+  const [bulkOpen, setBulkOpen] = React.useState(false);
   // Lọc nhanh từ dải KPI (riêng với dropdown Trạng thái để không xung đột).
   const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">(
     "",
@@ -858,9 +863,9 @@ export function ManageClient({
             {filtered.length} / {tasks.length} công việc
           </p>
         </div>
-        {canManage ? (
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="size-4" /> Thêm công việc
+        {canAssign ? (
+          <Button onClick={() => setBulkOpen(true)}>
+            <Plus className="size-4" /> Giao việc
           </Button>
         ) : null}
       </div>
@@ -1282,9 +1287,10 @@ export function ManageClient({
         </Modal>
       ) : null}
 
-      {(creating || editing) && canManage ? (
+      {/* Form đơn chỉ còn dùng để SỬA 1 việc (tạo việc dùng lưới bên dưới). */}
+      {editing && canManage ? (
         <TaskDialog
-          task={editing ?? undefined}
+          task={editing}
           defaultWorkGroupId={activeWg}
           workGroups={workGroups}
           disciplines={disciplines}
@@ -1293,11 +1299,34 @@ export function ManageClient({
           users={users}
           catalog={catalog}
           onClose={() => {
-            setCreating(false);
             setEditing(null);
             router.refresh();
           }}
         />
+      ) : null}
+
+      {/* "Thêm công việc" → lưới nhập (1 hoặc nhiều việc) trong modal gần kín màn hình. */}
+      {bulkOpen && canAssign ? (
+        <Modal
+          open
+          onClose={() => setBulkOpen(false)}
+          title="Giao việc"
+          className="max-w-[96vw]"
+        >
+          <AssignClient
+            embedded
+            workGroups={workGroups}
+            disciplines={disciplines}
+            phases={phases}
+            projects={projects}
+            users={users}
+            catalog={catalog}
+            onSaved={() => {
+              setBulkOpen(false);
+              router.refresh();
+            }}
+          />
+        </Modal>
       ) : null}
     </div>
   );

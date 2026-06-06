@@ -175,16 +175,21 @@ export async function saveTasksBatch(input: unknown) {
       });
 
       const seqByIndex = new Array<number>(rows.length);
+      // Mã việc "abbr-001" cấp lúc lưu (khớp mã xem trước ở lưới Giao việc).
+      const sumIdByIndex = new Array<string>(rows.length);
       for (const [workGroupId, idxs] of byGroup) {
         // Tăng lastSeq một lần cho cả nhóm → khóa dòng WorkGroup, không bị đua.
         const wg = await tx.workGroup.update({
           where: { id: workGroupId },
           data: { lastSeq: { increment: idxs.length } },
-          select: { lastSeq: true },
+          select: { lastSeq: true, abbr: true, code: true },
         });
         const firstSeq = wg.lastSeq - idxs.length + 1;
+        const prefix = wg.abbr || wg.code || "WG";
         idxs.forEach((idx, k) => {
-          seqByIndex[idx] = firstSeq + k;
+          const seq = firstSeq + k;
+          seqByIndex[idx] = seq;
+          sumIdByIndex[idx] = `${prefix}-${String(seq).padStart(3, "0")}`;
         });
       }
 
@@ -207,6 +212,7 @@ export async function saveTasksBatch(input: unknown) {
             plannedStart: toDate(r.plannedStart),
             plannedEnd: toDate(r.plannedEnd),
             seq: seqByIndex[i],
+            sumId: sumIdByIndex[i],
             wbsPath: randomUUID(),
             level: 5,
             assignees: {
@@ -236,6 +242,7 @@ export async function saveTasksBatch(input: unknown) {
     revalidatePath("/reports");
     revalidatePath("/admin/catalog");
     revalidatePath("/assign");
+    revalidatePath("/manage");
     return rows.length;
   });
 }

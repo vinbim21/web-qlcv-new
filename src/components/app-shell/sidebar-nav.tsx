@@ -9,7 +9,6 @@ import {
   type LucideIcon,
   PieChart,
   SlidersHorizontal,
-  UserPlus,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -27,13 +26,12 @@ const MAIN_NAV: NavItem[] = [
 ];
 
 // Chỉ hiển thị cho Admin / Cấp 1 / Cấp 2 (canAssign), chèn ngay sau "Công việc của tôi".
+// "Giao việc" đã gộp vào nút "Thêm công việc" ở /manage (mở lưới nhập trong modal).
 const MANAGE_NAV: NavItem = { href: "/manage", label: "Quản lý công việc", icon: ClipboardCheck };
-const ASSIGN_NAV: NavItem = { href: "/assign", label: "Giao việc", icon: UserPlus };
 
 const ADMIN_NAV: NavItem[] = [
   { href: "/admin/users", label: "Người dùng", icon: Users },
   { href: "/admin/disciplines", label: "Khai báo bộ môn", icon: Building2 },
-  { href: "/admin/construction-types", label: "Loại hình công trình", icon: Building2 },
   { href: "/admin/catalog", label: "Khai báo danh mục", icon: SlidersHorizontal },
 ];
 
@@ -60,7 +58,7 @@ export function SidebarNav({ isAdmin, canAssign }: { isAdmin: boolean; canAssign
   const pathname = usePathname();
   // "Quản lý công việc" + "Giao việc" chỉ cho Admin / Cấp 1 / Cấp 2, chèn sau "Công việc của tôi".
   const mainNav = canAssign
-    ? [MAIN_NAV[0], MAIN_NAV[1], MANAGE_NAV, ASSIGN_NAV, ...MAIN_NAV.slice(2)]
+    ? [MAIN_NAV[0], MAIN_NAV[1], MANAGE_NAV, ...MAIN_NAV.slice(2)]
     : MAIN_NAV;
   return (
     <div className="space-y-3">

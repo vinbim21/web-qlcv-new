@@ -55,6 +55,7 @@ export default async function TasksPage() {
         progressPercent: t.progressPercent,
         plannedStart: iso(t.plannedStart),
         plannedEnd: iso(t.plannedEnd),
+        actualEnd: iso(t.actualEnd),
         note: t.note,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),

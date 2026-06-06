@@ -37,21 +37,24 @@ export function TimesheetEntryDialog({
 }) {
   const [pending, setPending] = React.useState(false);
   const [taskId, setTaskId] = React.useState<string>(lockedTask?.id ?? entry?.taskId ?? "");
+  const [complete, setComplete] = React.useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setPending(true);
     const fd = new FormData(e.currentTarget);
+    const markComplete = complete && !!taskId;
     const res = await saveTimesheetEntry({
       id: entry?.id,
       taskId: taskId || null,
       date: String(fd.get("date") || ""),
       hours: Number(fd.get("hours") || 0),
       note: (fd.get("note") as string) || null,
+      markComplete,
     });
     setPending(false);
     if (res.ok) {
-      toast.success("Đã lưu nhật ký");
+      toast.success(markComplete ? "Đã lưu & hoàn thành công việc" : "Đã lưu nhật ký");
       onClose();
     } else toast.error(res.error);
   }
@@ -95,6 +98,17 @@ export function TimesheetEntryDialog({
           <Label htmlFor="note">Nội dung công việc</Label>
           <Textarea id="note" name="note" defaultValue={entry?.note ?? ""} />
         </div>
+        {/* Chỉ hiện khi có gắn công việc — tích để đặt việc sang "Hoàn thành" khi lưu. */}
+        {taskId ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={complete}
+              onChange={(e) => setComplete(e.target.checked)}
+            />
+            Đánh dấu hoàn thành công việc
+          </label>
+        ) : null}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onClose}>
             Hủy

@@ -211,6 +211,8 @@ export function AssignClient({
   projects,
   users,
   catalog,
+  embedded = false,
+  onSaved,
 }: {
   // workGroups kèm abbr (tiền tố Id) + lastSeq (gốc preview Id).
   workGroups: (Opt & { abbr?: string | null; lastSeq?: number })[];
@@ -219,6 +221,9 @@ export function AssignClient({
   projects: Opt[];
   users: UserOpt[];
   catalog: Catalog;
+  // embedded: dùng lại lưới trong modal (ẩn tiêu đề trang). onSaved: gọi sau khi lưu xong.
+  embedded?: boolean;
+  onSaved?: () => void;
 }) {
   const [activeWg, setActiveWg] = React.useState(workGroups[0]?.id ?? "");
   const [rowsByWg, setRowsByWg] = React.useState<Record<string, GridRow[]>>(() =>
@@ -405,6 +410,7 @@ export function AssignClient({
     if (res.ok) {
       toast.success(`Đã giao ${res.data} việc`);
       setRows(() => makeRows(INITIAL_ROWS));
+      onSaved?.();
     } else {
       toast.error(res.error);
     }
@@ -422,12 +428,18 @@ export function AssignClient({
         );
       case "project":
         return (
-          <Select className={CELL} value={r.projectId} onChange={(e) => updateRow(r.key, { projectId: e.target.value })}>
-            <option value="">— Không —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </Select>
+          <SearchableCombobox
+            className={CELL}
+            creatable={false}
+            placeholder="— Không —"
+            value={projects.find((p) => p.id === r.projectId)?.name ?? ""}
+            options={["— Không —", ...projects.map((p) => p.name)]}
+            onChange={(label) =>
+              updateRow(r.key, {
+                projectId: label === "— Không —" ? "" : (projects.find((p) => p.name === label)?.id ?? ""),
+              })
+            }
+          />
         );
       case "discipline":
         return (
@@ -501,12 +513,18 @@ export function AssignClient({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Giao việc</h1>
+      {embedded ? (
         <p className="text-sm text-muted-foreground">
-          Chọn bảng theo nhóm công việc rồi nhập trực tiếp như Excel. Mỗi dòng có nội dung sẽ tạo thành một việc mới.
+          Chọn bảng theo nhóm công việc rồi nhập trực tiếp. Mỗi dòng có nội dung sẽ tạo thành một việc mới.
         </p>
-      </div>
+      ) : (
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Giao việc</h1>
+          <p className="text-sm text-muted-foreground">
+            Chọn bảng theo nhóm công việc rồi nhập trực tiếp. Mỗi dòng có nội dung sẽ tạo thành một việc mới.
+          </p>
+        </div>
+      )}
 
       {/* Tab Bảng 1-7 */}
       <div className="flex flex-wrap gap-1.5 border-b pb-2">

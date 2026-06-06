@@ -20,7 +20,7 @@ export async function saveConstructionType(input: unknown) {
         data: { code: data.code, name: data.name, order: data.order ?? 0 },
       });
     }
-    revalidatePath("/admin/construction-types");
+    revalidatePath("/admin/catalog");
   });
 }
 
@@ -30,6 +30,6 @@ export async function deleteConstructionType(id: string) {
     const used = await prisma.project.count({ where: { constructionTypeId: id } });
     if (used > 0) throw new Error("Loại hình đang được dùng cho dự án, không thể xóa");
     await prisma.constructionType.delete({ where: { id } });
-    revalidatePath("/admin/construction-types");
+    revalidatePath("/admin/catalog");
   });
 }
