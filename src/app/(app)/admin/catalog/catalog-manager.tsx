@@ -20,30 +20,35 @@ import {
   deleteConstructionType,
   saveConstructionType,
 } from "@/server/actions/construction-types";
+import { deleteDiscipline, saveDiscipline } from "@/server/actions/disciplines";
 import type { Result } from "@/server/actions/_helpers";
 
 type Item = { id: string; code: string; name: string; order: number; abbr?: string | null };
-type Kind = "wg" | "phase" | "ct";
+type Kind = "wg" | "phase" | "ct" | "disc";
 
 const SAVE: Record<Kind, (input: unknown) => Promise<Result<unknown>>> = {
   wg: saveWorkGroup,
   phase: savePhase,
   ct: saveConstructionType,
+  disc: saveDiscipline,
 };
 const DELETE: Record<Kind, (id: string) => Promise<Result<unknown>>> = {
   wg: deleteWorkGroup,
   phase: deletePhase,
   ct: deleteConstructionType,
+  disc: deleteDiscipline,
 };
 
 export function CatalogManager({
   workGroups,
   phases,
   constructionTypes,
+  disciplines,
 }: {
   workGroups: Item[];
   phases: Item[];
   constructionTypes: Item[];
+  disciplines: Item[];
 }) {
   const [dialog, setDialog] = React.useState<{ kind: Kind; item?: Item } | null>(null);
 
@@ -57,9 +62,9 @@ export function CatalogManager({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Khai báo danh mục</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Khai báo thông tin</h1>
         <p className="text-sm text-muted-foreground">
-          Nhóm công việc (Level 1), Giai đoạn dự án và Loại hình công trình
+          Nhóm công việc (Level 1), Bộ môn (Level 4), Giai đoạn dự án và Loại hình công trình
         </p>
       </div>
 
@@ -72,6 +77,13 @@ export function CatalogManager({
           onEdit={(item) => setDialog({ kind: "wg", item })}
           onDelete={(item) => onDelete("wg", item)}
           detailHref={(item) => `/admin/catalog/${item.id}`}
+        />
+        <CatalogTable
+          title="Bộ môn (Level 4)"
+          items={disciplines}
+          onAdd={() => setDialog({ kind: "disc" })}
+          onEdit={(item) => setDialog({ kind: "disc", item })}
+          onDelete={(item) => onDelete("disc", item)}
         />
         <CatalogTable
           title="Giai đoạn"
@@ -186,7 +198,13 @@ function EditDialog({
 }) {
   const [pending, setPending] = React.useState(false);
   const title =
-    kind === "wg" ? "Nhóm công việc" : kind === "phase" ? "Giai đoạn" : "Loại hình công trình";
+    kind === "wg"
+      ? "Nhóm công việc"
+      : kind === "phase"
+        ? "Giai đoạn"
+        : kind === "disc"
+          ? "Bộ môn"
+          : "Loại hình công trình";
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

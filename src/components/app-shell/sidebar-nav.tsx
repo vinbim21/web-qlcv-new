@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Building2,
   ClipboardCheck,
   ClipboardList,
   Clock,
@@ -31,8 +30,7 @@ const MANAGE_NAV: NavItem = { href: "/manage", label: "Quản lý công việc",
 
 const ADMIN_NAV: NavItem[] = [
   { href: "/admin/users", label: "Người dùng", icon: Users },
-  { href: "/admin/disciplines", label: "Khai báo bộ môn", icon: Building2 },
-  { href: "/admin/catalog", label: "Khai báo danh mục", icon: SlidersHorizontal },
+  { href: "/admin/catalog", label: "Khai báo thông tin", icon: SlidersHorizontal },
 ];
 
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {

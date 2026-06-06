@@ -12,8 +12,7 @@ const LABELS: Record<string, string> = {
   admin: "Quản trị",
   users: "Người dùng",
   projects: "Dự án",
-  disciplines: "Khai báo bộ môn",
-  catalog: "Khai báo danh mục",
+  catalog: "Khai báo thông tin",
 };
 
 export function Breadcrumbs() {

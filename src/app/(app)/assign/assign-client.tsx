@@ -9,6 +9,9 @@ import { Select } from "@/components/ui/select";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import type { Catalog, Opt, UserOpt } from "@/components/task-form";
+
+// Dự án kèm mã (L2) + tên (L3) thô để đồng bộ 2 chiều với cột Hạng mục/Chi tiết ở Bảng 3.
+export type ProjectOpt = Opt & { code: string; l3: string };
 import { PRIORITY_LABEL, PRIORITY_OPTIONS } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
 import { saveTasksBatch } from "@/server/actions/tasks";
@@ -218,7 +221,7 @@ export function AssignClient({
   workGroups: (Opt & { abbr?: string | null; lastSeq?: number })[];
   disciplines: Opt[];
   phases: Opt[];
-  projects: Opt[];
+  projects: ProjectOpt[];
   users: UserOpt[];
   catalog: Catalog;
   // embedded: dùng lại lưới trong modal (ẩn tiêu đề trang). onSaved: gọi sau khi lưu xong.
@@ -434,11 +437,16 @@ export function AssignClient({
             placeholder="— Không —"
             value={projects.find((p) => p.id === r.projectId)?.name ?? ""}
             options={["— Không —", ...projects.map((p) => p.name)]}
-            onChange={(label) =>
-              updateRow(r.key, {
-                projectId: label === "— Không —" ? "" : (projects.find((p) => p.name === label)?.id ?? ""),
-              })
-            }
+            onChange={(label) => {
+              // Chọn "— Không —" → chỉ bỏ Dự án, giữ nguyên L2/L3.
+              if (label === "— Không —") {
+                updateRow(r.key, { projectId: "" });
+                return;
+              }
+              // Chọn dự án → đè L2 (mã) + L3 (tên) theo dự án.
+              const p = projects.find((pp) => pp.name === label);
+              updateRow(r.key, p ? { projectId: p.id, level2: p.code, level3: p.l3 } : { projectId: "" });
+            }}
           />
         );
       case "discipline":
@@ -497,13 +505,33 @@ export function AssignClient({
       case "level2":
       case "level3":
       case "level5": {
-        const opts = col === "level2" ? sug.l2 : col === "level3" ? sug.l3 : sug.l5;
+        // Bảng 3: gợi ý L2/L3 lấy từ danh sách Dự án (L3 lọc theo L2 đang chọn — cascade).
+        const isB3 = activeGroup?.code === "3";
+        let opts: string[];
+        if (isB3 && col === "level2") {
+          opts = [...new Set(projects.map((p) => p.code))];
+        } else if (isB3 && col === "level3") {
+          const l2 = r.level2.trim();
+          opts = [...new Set(projects.filter((p) => !l2 || p.code === l2).map((p) => p.l3))];
+        } else {
+          opts = col === "level2" ? sug.l2 : col === "level3" ? sug.l3 : sug.l5;
+        }
         return (
           <SearchableCombobox
             className={CELL}
             creatable={false}
             value={r[col]}
-            onChange={(v) => updateRow(r.key, { [col]: v })}
+            onChange={(v) => {
+              const patch: Partial<GridRow> = { [col]: v };
+              // Bảng 3: khi đủ L2 + L3 khớp 1 dự án → tự điền Dự án; lệch/thiếu → bỏ Dự án.
+              if (cols.includes("project") && col !== "level5") {
+                const nl2 = (col === "level2" ? v : r.level2).trim();
+                const nl3 = (col === "level3" ? v : r.level3).trim();
+                const p = projects.find((pp) => pp.code === nl2 && pp.l3 === nl3);
+                patch.projectId = p ? p.id : "";
+              }
+              updateRow(r.key, patch);
+            }}
             options={opts}
           />
         );

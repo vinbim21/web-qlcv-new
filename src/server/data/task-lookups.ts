@@ -37,7 +37,8 @@ export async function getTaskLookups() {
     })),
     disciplines: disciplines.map((d) => ({ id: d.id, name: d.name })),
     phases: phases.map((p) => ({ id: p.id, name: p.name })),
-    projects: projects.map((p) => ({ id: p.id, name: `${p.code} — ${p.name}` })),
+    // name = nhãn hiển thị "mã — tên"; code = mã (L2), l3 = tên (L3) thô để đồng bộ lưới Giao việc.
+    projects: projects.map((p) => ({ id: p.id, name: `${p.code} — ${p.name}`, code: p.code, l3: p.name })),
     users: users.map((u) => ({ id: u.id, fullName: u.fullName })),
     catalog,
   };

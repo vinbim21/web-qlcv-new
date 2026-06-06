@@ -23,7 +23,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { useRouter } from "next/navigation";
-import { AssignClient } from "@/app/(app)/assign/assign-client";
+import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskRowEditor } from "@/components/task-row-editor";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Badge } from "@/components/ui/badge";
@@ -206,7 +206,7 @@ export function ManageClient({
   workGroups: WgOpt[];
   disciplines: Opt[];
   phases: Opt[];
-  projects: Opt[];
+  projects: ProjectOpt[];
   users: UserOpt[];
   catalog: Catalog;
 }) {
