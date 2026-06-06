@@ -15,7 +15,9 @@ export default async function TasksPage() {
 
   const [tasks, lookups] = await Promise.all([
     prisma.task.findMany({
-      where: { deletedAt: null },
+      // "Công việc của tôi" = chỉ việc mình được giao (worklist cá nhân).
+      // Quản lý toàn phòng nằm ở /manage.
+      where: { deletedAt: null, assignees: { some: { userId: session.user.id } } },
       include: {
         workGroup: true,
         discipline: true,

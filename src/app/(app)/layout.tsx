@@ -2,6 +2,7 @@ import { LogOut } from "lucide-react";
 import { redirect } from "next/navigation";
 import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
 import { MobileSidebar } from "@/components/app-shell/mobile-sidebar";
+import { NotificationBell } from "@/components/app-shell/notification-bell";
 import { SidebarNav } from "@/components/app-shell/sidebar-nav";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -17,7 +18,7 @@ function SidebarContent({ isAdmin, canAssignWork }: { isAdmin: boolean; canAssig
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-sidebar-border px-5 font-semibold">
         <BrandLogo className="size-7" />
-        Web QLCV
+        Web QLCV (BIM)
       </div>
       <div className="flex-1 overflow-y-auto p-3">
         <SidebarNav isAdmin={isAdmin} canAssign={canAssignWork} />
@@ -60,6 +61,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Breadcrumbs />
           </div>
           <div className="flex items-center gap-2">
+            <NotificationBell />
             <ThemeToggle />
             <Separator orientation="vertical" className="h-6" />
             <Badge variant="secondary" className="hidden sm:inline-flex">

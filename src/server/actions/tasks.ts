@@ -5,6 +5,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db/client";
 import { canAssign, canManage, requireUser } from "@/server/auth/permissions";
 import { shouldAutoStart } from "@/lib/task-status";
+import { PRIORITY_LABEL } from "@/lib/labels";
+import {
+  createNotifications,
+  notifyAssignment,
+  notifyTasksChange,
+} from "@/server/notifications/service";
 import {
   bulkDeadlineSchema,
   bulkMeasureNormSchema,
@@ -21,6 +27,11 @@ function toDate(v?: string | null): Date | null {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function ddmmyyyy(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
 // Tên hiển thị mặc định khi để trống: lấy theo cấp cụ thể nhất.
@@ -85,28 +96,50 @@ export async function saveTask(input: unknown) {
       note: data.note || null,
     };
 
-    if (data.id) {
-      await prisma.task.update({ where: { id: data.id }, data: payload });
-      // đồng bộ người thực hiện
-      await prisma.taskAssignee.deleteMany({ where: { taskId: data.id } });
-      if (assigneeIds.length > 0) {
-        await prisma.taskAssignee.createMany({
-          data: assigneeIds.map((userId, i) => ({ taskId: data.id as string, userId, roleNo: i + 1 })),
+    // Ghi việc + đồng bộ người + thông báo trong 1 transaction (atomic).
+    await prisma.$transaction(async (tx) => {
+      let taskId: string;
+      let newAssigneeIds: string[];
+
+      if (data.id) {
+        // Diff: chỉ báo người MỚI được thêm (sửa lại việc không spam người cũ).
+        const prev = await tx.taskAssignee.findMany({
+          where: { taskId: data.id },
+          select: { userId: true },
         });
-      }
-    } else {
-      const created = await prisma.task.create({
-        data: {
-          ...payload,
-          wbsPath: data.sumId || randomUUID(),
-          level: 5,
-          assignees: {
-            create: assigneeIds.map((userId, i) => ({ userId, roleNo: i + 1 })),
+        const had = new Set(prev.map((p) => p.userId));
+        newAssigneeIds = assigneeIds.filter((id) => !had.has(id));
+
+        await tx.task.update({ where: { id: data.id }, data: payload });
+        await tx.taskAssignee.deleteMany({ where: { taskId: data.id } });
+        if (assigneeIds.length > 0) {
+          await tx.taskAssignee.createMany({
+            data: assigneeIds.map((userId, i) => ({ taskId: data.id as string, userId, roleNo: i + 1 })),
+          });
+        }
+        taskId = data.id;
+      } else {
+        const created = await tx.task.create({
+          data: {
+            ...payload,
+            wbsPath: data.sumId || randomUUID(),
+            level: 5,
+            assignees: {
+              create: assigneeIds.map((userId, i) => ({ userId, roleNo: i + 1 })),
+            },
           },
-        },
+        });
+        taskId = created.id;
+        newAssigneeIds = assigneeIds; // việc mới → tất cả là người mới
+      }
+
+      await notifyAssignment(tx, {
+        taskId,
+        taskName: name,
+        recipientIds: newAssigneeIds,
+        actorId: user.id,
       });
-      void created;
-    }
+    });
 
     await Promise.all([
       ensureCatalog(data.workGroupId, 2, data.level2),
@@ -159,7 +192,8 @@ export async function saveTasksBatch(input: unknown) {
         const r = rows[i];
         // Bỏ trùng người (TaskAssignee unique theo [taskId, userId]).
         const assigneeIds = [...new Set((r.assigneeIds ?? []).filter(Boolean))];
-        await tx.task.create({
+        const name = defaultTaskName(r);
+        const created = await tx.task.create({
           data: {
             workGroupId: r.workGroupId,
             projectId: r.projectId || null,
@@ -168,7 +202,7 @@ export async function saveTasksBatch(input: unknown) {
             level2: r.level2 || null,
             level3: r.level3 || null,
             level5: r.level5 || null,
-            name: defaultTaskName(r),
+            name,
             priority: r.priority ?? "TRUNG_BINH",
             plannedStart: toDate(r.plannedStart),
             plannedEnd: toDate(r.plannedEnd),
@@ -179,6 +213,12 @@ export async function saveTasksBatch(input: unknown) {
               create: assigneeIds.map((userId, k) => ({ userId, roleNo: k + 1 })),
             },
           },
+        });
+        await notifyAssignment(tx, {
+          taskId: created.id,
+          taskName: name,
+          recipientIds: assigneeIds,
+          actorId: user.id,
         });
       }
     });
@@ -267,12 +307,22 @@ export async function bulkSetPriority(input: unknown) {
     const user = await requireUser();
     if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được đổi ưu tiên hàng loạt");
     const { ids, priority } = bulkPrioritySchema.parse(input);
-    const res = await prisma.task.updateMany({
-      where: { id: { in: ids }, deletedAt: null },
-      data: { priority },
+    const count = await prisma.$transaction(async (tx) => {
+      const res = await tx.task.updateMany({
+        where: { id: { in: ids }, deletedAt: null },
+        data: { priority },
+      });
+      await notifyTasksChange(tx, {
+        taskIds: ids,
+        type: "TASK_PRIORITY_CHANGED",
+        actorId: user.id,
+        title: "Việc của bạn đổi mức ưu tiên",
+        bodyFor: (t) => `${t.name} — ưu tiên: ${PRIORITY_LABEL[priority] ?? priority}`,
+      });
+      return res.count;
     });
     revalidateTaskViews();
-    return res.count;
+    return count;
   });
 }
 
@@ -299,12 +349,22 @@ export async function bulkSetDeadline(input: unknown) {
     const { ids, plannedEnd } = bulkDeadlineSchema.parse(input);
     const d = toDate(plannedEnd);
     if (!d) throw new Error("Ngày hạn không hợp lệ");
-    const res = await prisma.task.updateMany({
-      where: { id: { in: ids }, deletedAt: null },
-      data: { plannedEnd: d },
+    const count = await prisma.$transaction(async (tx) => {
+      const res = await tx.task.updateMany({
+        where: { id: { in: ids }, deletedAt: null },
+        data: { plannedEnd: d },
+      });
+      await notifyTasksChange(tx, {
+        taskIds: ids,
+        type: "TASK_DEADLINE_CHANGED",
+        actorId: user.id,
+        title: "Việc của bạn đã được dời hạn",
+        bodyFor: (t) => `${t.name} — hạn mới ${ddmmyyyy(d)}`,
+      });
+      return res.count;
     });
     revalidateTaskViews();
-    return res.count;
+    return count;
   });
 }
 
@@ -324,12 +384,26 @@ export async function bulkReassign(input: unknown) {
       // Chỉ thao tác trên việc chưa xóa.
       const tasks = await tx.task.findMany({
         where: { id: { in: ids }, deletedAt: null },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       const validIds = tasks.map((t) => t.id);
       if (validIds.length === 0) return 0;
+      const nameById = new Map(tasks.map((t) => [t.id, t.name]));
+      // Chỉ báo người MỚI được thêm vào (theo từng việc).
+      const newPairs: { userId: string; taskId: string }[] = [];
 
       if (mode === "replace") {
+        // Lấy người cũ TRƯỚC khi xóa để loại khỏi danh sách báo (giữ lại = không mới).
+        const existing = await tx.taskAssignee.findMany({
+          where: { taskId: { in: validIds } },
+          select: { taskId: true, userId: true },
+        });
+        const haveByTask = new Map<string, Set<string>>();
+        for (const e of existing) {
+          const s = haveByTask.get(e.taskId) ?? new Set<string>();
+          s.add(e.userId);
+          haveByTask.set(e.taskId, s);
+        }
         await tx.taskAssignee.deleteMany({ where: { taskId: { in: validIds } } });
         if (newIds.length > 0) {
           await tx.taskAssignee.createMany({
@@ -337,6 +411,12 @@ export async function bulkReassign(input: unknown) {
               newIds.map((userId, i) => ({ taskId, userId, roleNo: i + 1 })),
             ),
           });
+        }
+        for (const taskId of validIds) {
+          const have = haveByTask.get(taskId) ?? new Set<string>();
+          for (const userId of newIds) {
+            if (!have.has(userId)) newPairs.push({ userId, taskId });
+          }
         }
       } else {
         // add: thêm vào sau danh sách hiện có, bỏ qua người đã có.
@@ -352,9 +432,22 @@ export async function bulkReassign(input: unknown) {
             await tx.taskAssignee.createMany({
               data: toAdd.map((userId) => ({ taskId, userId, roleNo: next++ })),
             });
+            for (const userId of toAdd) newPairs.push({ userId, taskId });
           }
         }
       }
+
+      await createNotifications(
+        tx,
+        newPairs.map((p) => ({
+          userId: p.userId,
+          actorId: user.id,
+          type: "TASK_ASSIGNED" as const,
+          taskId: p.taskId,
+          title: "Bạn được giao công việc mới",
+          body: nameById.get(p.taskId) ?? "Công việc",
+        })),
+      );
       return validIds.length;
     });
 

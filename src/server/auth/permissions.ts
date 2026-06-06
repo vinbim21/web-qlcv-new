@@ -32,7 +32,15 @@ export function canAssign(role?: string) {
   return role === "ADMIN" || role === "LEVEL_1" || role === "LEVEL_2";
 }
 
-/** Được xem báo cáo nhạy cảm (theo nhân sự, định mức): ADMIN, LEVEL_1, LEVEL_2 (LEVEL_3 bị chặn). */
+/** Được xem báo cáo nhạy cảm (toàn phòng, theo nhân sự, định mức): ADMIN, LEVEL_1, LEVEL_2. */
 export function canViewPersonReports(role?: string) {
   return role === "ADMIN" || role === "LEVEL_1" || role === "LEVEL_2";
+}
+
+/**
+ * Được vào trang Báo cáo: mọi vai trò (đã đăng nhập).
+ * LEVEL_3 vào được nhưng chỉ thấy dữ liệu của CHÍNH MÌNH (self-only) — xem `canViewPersonReports`.
+ */
+export function canViewReports(role?: string) {
+  return role === "ADMIN" || role === "LEVEL_1" || role === "LEVEL_2" || role === "LEVEL_3";
 }

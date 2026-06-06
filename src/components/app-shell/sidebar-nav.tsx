@@ -22,12 +22,12 @@ type NavItem = { href: string; label: string; icon: LucideIcon };
 const MAIN_NAV: NavItem[] = [
   { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
   { href: "/tasks", label: "Công việc của tôi", icon: ClipboardList },
-  { href: "/manage", label: "Quản lý công việc", icon: ClipboardCheck },
   { href: "/timesheet", label: "Timesheet", icon: Clock },
   { href: "/reports", label: "Báo cáo", icon: PieChart },
 ];
 
-// Hiển thị cho người được giao việc (Admin / Cấp 1 / Cấp 2), đặt ngay dưới "Công việc của tôi".
+// Chỉ hiển thị cho Admin / Cấp 1 / Cấp 2 (canAssign), chèn ngay sau "Công việc của tôi".
+const MANAGE_NAV: NavItem = { href: "/manage", label: "Quản lý công việc", icon: ClipboardCheck };
 const ASSIGN_NAV: NavItem = { href: "/assign", label: "Giao việc", icon: UserPlus };
 
 const ADMIN_NAV: NavItem[] = [
@@ -58,9 +58,9 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 
 export function SidebarNav({ isAdmin, canAssign }: { isAdmin: boolean; canAssign: boolean }) {
   const pathname = usePathname();
-  // Chèn "Giao việc" ngay sau "Quản lý công việc" nếu có quyền.
+  // "Quản lý công việc" + "Giao việc" chỉ cho Admin / Cấp 1 / Cấp 2, chèn sau "Công việc của tôi".
   const mainNav = canAssign
-    ? [MAIN_NAV[0], MAIN_NAV[1], MAIN_NAV[2], ASSIGN_NAV, ...MAIN_NAV.slice(3)]
+    ? [MAIN_NAV[0], MAIN_NAV[1], MANAGE_NAV, ASSIGN_NAV, ...MAIN_NAV.slice(2)]
     : MAIN_NAV;
   return (
     <div className="space-y-3">

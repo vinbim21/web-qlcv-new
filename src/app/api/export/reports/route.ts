@@ -58,9 +58,16 @@ export async function GET() {
   const session = await auth();
   if (!session?.user) return new Response("Unauthorized", { status: 401 });
   const canPerson = canViewPersonReports(session.user.role);
+  // Cấp 3: chỉ xuất dữ liệu của chính mình (ép theo userId ở server).
+  const selfOnly = !canPerson;
+  const meId = session.user.id;
 
   const tasks = await prisma.task.findMany({
-    where: { deletedAt: null, children: { none: {} } },
+    where: {
+      deletedAt: null,
+      children: { none: {} },
+      ...(selfOnly ? { assignees: { some: { userId: meId } } } : {}),
+    },
     select: {
       status: true,
       priority: true,
@@ -120,13 +127,15 @@ export async function GET() {
   addPivotSheet(wb, "BC2 - Theo phong", "Phòng", [...phong.values()]);
   addPivotSheet(wb, "BC3 - Theo nhan su", "Nhân sự", [...user.values()]);
 
-  // BC4 — Định mức (chỉ khi có quyền)
-  if (canPerson) {
+  // BC4 — Định mức. Cấp 3 (selfOnly) cũng xuất được, nhưng chỉ dòng của chính mình;
+  // mốc "TB phòng" (byDept) vẫn tính trên toàn phòng (ẩn danh).
+  if (canPerson || selfOnly) {
     const entries = await prisma.timeSheetEntry.findMany({
       where: { deletedAt: null, task: { is: { measureNorm: true, deletedAt: null } } },
       select: {
         hours: true,
         taskId: true,
+        userId: true,
         user: { select: { fullName: true } },
         task: { select: { level5: true, name: true, project: { select: { constructionType: { select: { name: true, order: true } } } } } },
       },
@@ -139,14 +148,17 @@ export async function GET() {
       const ct = e.task?.project?.constructionType;
       const ctName = ct?.name ?? "Chưa gán loại hình";
       const tk = e.taskId ?? `${task}|${ctName}`;
-      const uk = `${e.user.fullName}|${task}|${ctName}`;
-      let a = byUser.get(uk);
-      if (!a) {
-        a = { user: e.user.fullName, task, ct: ctName, ctOrder: ct?.order ?? 999, hours: 0, tasks: new Set() };
-        byUser.set(uk, a);
+      // byUser: bỏ qua người khác khi selfOnly (byDept vẫn cộng đủ phía dưới).
+      if (!selfOnly || e.userId === meId) {
+        const uk = `${e.user.fullName}|${task}|${ctName}`;
+        let a = byUser.get(uk);
+        if (!a) {
+          a = { user: e.user.fullName, task, ct: ctName, ctOrder: ct?.order ?? 999, hours: 0, tasks: new Set() };
+          byUser.set(uk, a);
+        }
+        a.hours += Number(e.hours);
+        a.tasks.add(tk);
       }
-      a.hours += Number(e.hours);
-      a.tasks.add(tk);
       const dk = `${task}|${ctName}`;
       let d = byDept.get(dk);
       if (!d) {
@@ -188,7 +200,7 @@ export async function GET() {
 
     // ----- Thời gian theo việc (2 sheet) -----
     const tsAll = await prisma.timeSheetEntry.findMany({
-      where: { deletedAt: null, taskId: { not: null } },
+      where: { deletedAt: null, taskId: { not: null }, ...(selfOnly ? { userId: meId } : {}) },
       select: { taskId: true, hours: true, date: true, user: { select: { fullName: true } } },
     });
     const taskIds = [...new Set(tsAll.map((e) => e.taskId).filter(Boolean) as string[])];

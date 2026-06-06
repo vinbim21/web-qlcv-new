@@ -63,7 +63,8 @@ export function ReportsClient({
   disciplines,
   projects,
   hoursByUser,
-}: ReportsClientProps) {
+  selfOnly = false,
+}: ReportsClientProps & { selfOnly?: boolean }) {
   const [f, setF] = React.useState({ workGroupId: "", projectId: "", disciplineId: "" });
 
   const filtered = tasks.filter((t) => {
@@ -163,22 +164,27 @@ export function ReportsClient({
             <BarChart data={groupData} color="#0ea5e9" />
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Số việc theo nhân sự</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <BarChart data={userData} color="#8b5cf6" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Giờ công theo nhân sự</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <BarChart data={hoursByUser.slice(0, 20)} color="#16a34a" />
-          </CardContent>
-        </Card>
+        {/* 2 biểu đồ so sánh giữa các nhân sự — ẩn với Cấp 3 (self-only) vì chỉ còn 1 người. */}
+        {selfOnly ? null : (
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Số việc theo nhân sự</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <BarChart data={userData} color="#8b5cf6" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Giờ công theo nhân sự</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <BarChart data={hoursByUser.slice(0, 20)} color="#16a34a" />
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       <Card>

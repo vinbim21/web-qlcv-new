@@ -50,10 +50,12 @@ export function TimeByTask({
   tasks,
   entries,
   unattributedHours,
+  selfOnly = false,
 }: {
   tasks: TimeTask[];
   entries: TimeEntry[];
   unattributedHours: number;
+  selfOnly?: boolean;
 }) {
   const taskMeta = React.useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
   const users = React.useMemo(
@@ -139,12 +141,15 @@ export function TimeByTask({
             <option key={g} value={g}>{g}</option>
           ))}
         </Select>
-        <Select value={fUser} onChange={(e) => setFUser(e.target.value)}>
-          <option value="">— Nhân sự —</option>
-          {users.map((u) => (
-            <option key={u} value={u}>{u}</option>
-          ))}
-        </Select>
+        {/* selfOnly (Cấp 3): chỉ dữ liệu của chính mình nên ẩn bộ lọc Nhân sự. */}
+        {selfOnly ? null : (
+          <Select value={fUser} onChange={(e) => setFUser(e.target.value)}>
+            <option value="">— Nhân sự —</option>
+            {users.map((u) => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </Select>
+        )}
         <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="Từ ngày" />
         <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="Đến ngày" />
         <Input placeholder="Tìm mã / tên việc..." value={q} onChange={(e) => setQ(e.target.value)} />

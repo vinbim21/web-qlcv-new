@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import type { NextRequest } from "next/server";
 import { auth } from "@/server/auth/config";
+import { canViewPersonReports } from "@/server/auth/permissions";
 import { prisma } from "@/server/db/client";
 import { PRIORITY_LABEL, TASK_STATUS_LABEL } from "@/lib/labels";
 
@@ -15,6 +16,10 @@ export async function GET(req: NextRequest) {
   if (sp.get("workGroupId")) where.workGroupId = sp.get("workGroupId");
   if (sp.get("projectId")) where.projectId = sp.get("projectId");
   if (sp.get("disciplineId")) where.disciplineId = sp.get("disciplineId");
+  // Cấp 3: chỉ xuất việc của chính mình (ép ở server, không phụ thuộc tham số URL).
+  if (!canViewPersonReports(session.user.role)) {
+    where.assignees = { some: { userId: session.user.id } };
+  }
 
   const tasks = await prisma.task.findMany({
     where,

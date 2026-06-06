@@ -17,8 +17,8 @@ const TABS: Tab[] = [
   { key: "group", label: "Theo nhóm" },
   { key: "phong", label: "Theo phòng" },
   { key: "user", label: "Theo nhân sự", sensitive: true },
-  { key: "norm", label: "Định mức", sensitive: true },
   { key: "time", label: "Thời gian theo việc", sensitive: true },
+  { key: "norm", label: "Định mức", sensitive: true },
 ];
 
 export function ReportsTabs({
@@ -30,6 +30,7 @@ export function ReportsTabs({
   timeEntries,
   unattributedHours,
   canViewPerson,
+  selfOnly,
 }: {
   overview: ReportsClientProps;
   rows: ReportRow[];
@@ -39,8 +40,14 @@ export function ReportsTabs({
   timeEntries: TimeEntry[];
   unattributedHours: number;
   canViewPerson: boolean;
+  selfOnly: boolean;
 }) {
-  const tabs = TABS.filter((t) => !t.sensitive || canViewPerson);
+  // selfOnly (Cấp 3): chỉ Tổng quan + Định mức + Thời gian, tất cả là dữ liệu của chính mình.
+  // Ẩn các tab quản lý cross-person (Theo nhóm / Theo phòng / Theo nhân sự).
+  const SELF_TABS: TabKey[] = ["overview", "norm", "time"];
+  const tabs = selfOnly
+    ? TABS.filter((t) => SELF_TABS.includes(t.key))
+    : TABS.filter((t) => !t.sensitive || canViewPerson);
   const [active, setActive] = React.useState<TabKey>("overview");
 
   return (
@@ -51,7 +58,8 @@ export function ReportsTabs({
           <p className="text-sm text-muted-foreground">Module biểu diễn &amp; báo cáo công việc phòng BIM</p>
         </div>
         <a href="/api/export/reports" className={buttonVariants({ variant: "outline" })}>
-          <Download className="size-4" /> Xuất Excel{canViewPerson ? " (4 báo cáo)" : " (BC1-3)"}
+          <Download className="size-4" /> Xuất Excel
+          {selfOnly ? " (của tôi)" : canViewPerson ? " (4 báo cáo)" : " (BC1-3)"}
         </a>
       </div>
 
@@ -69,19 +77,31 @@ export function ReportsTabs({
             )}
           >
             {t.label}
+            {selfOnly ? <span className="ml-1 opacity-70">(của tôi)</span> : null}
           </button>
         ))}
       </div>
 
-      {active === "overview" ? <ReportsClient {...overview} /> : null}
-      {active === "group" ? <PivotReport rows={rows} mode="group" rowHeader="Nhóm công việc" /> : null}
-      {active === "phong" ? <PivotReport rows={rows} mode="phong" rowHeader="Phòng" /> : null}
+      {active === "overview" ? <ReportsClient {...overview} selfOnly={selfOnly} /> : null}
+      {active === "group" && !selfOnly ? (
+        <PivotReport rows={rows} mode="group" rowHeader="Nhóm công việc" />
+      ) : null}
+      {active === "phong" && !selfOnly ? (
+        <PivotReport rows={rows} mode="phong" rowHeader="Phòng" />
+      ) : null}
       {active === "user" && canViewPerson ? (
         <PivotReport rows={rows} mode="user" rowHeader="Nhân sự" />
       ) : null}
-      {active === "norm" && canViewPerson ? <NormReport rows={normRows} cts={normCts} /> : null}
-      {active === "time" && canViewPerson ? (
-        <TimeByTask tasks={timeTasks} entries={timeEntries} unattributedHours={unattributedHours} />
+      {active === "norm" && (canViewPerson || selfOnly) ? (
+        <NormReport rows={normRows} cts={normCts} />
+      ) : null}
+      {active === "time" && (canViewPerson || selfOnly) ? (
+        <TimeByTask
+          tasks={timeTasks}
+          entries={timeEntries}
+          unattributedHours={unattributedHours}
+          selfOnly={selfOnly}
+        />
       ) : null}
     </div>
   );

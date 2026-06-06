@@ -14,11 +14,18 @@ export default async function ReportsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
   const canViewPerson = canViewPersonReports(session.user.role);
+  // Cấp 3: vào được báo cáo nhưng CHỈ thấy dữ liệu của chính mình.
+  const selfOnly = !canViewPerson;
+  const meId = session.user.id;
 
   const [tasks, workGroups, disciplines, projects, hoursByUser] = await Promise.all([
     // Chỉ đếm VIỆC LÁ (không có việc con) để tránh đếm trùng việc cha/con.
     prisma.task.findMany({
-      where: { deletedAt: null, children: { none: {} } },
+      where: {
+        deletedAt: null,
+        children: { none: {} },
+        ...(selfOnly ? { assignees: { some: { userId: meId } } } : {}),
+      },
       select: {
         id: true,
         sumId: true,
@@ -42,7 +49,7 @@ export default async function ReportsPage() {
     prisma.project.findMany({ where: { deletedAt: null }, orderBy: { code: "asc" } }),
     prisma.timeSheetEntry.groupBy({
       by: ["userId"],
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...(selfOnly ? { userId: meId } : {}) },
       _sum: { hours: true },
     }),
   ]);
@@ -99,7 +106,9 @@ export default async function ReportsPage() {
   let timeTasks: TimeTask[] = [];
   let timeEntries: TimeEntry[] = [];
   let unattributedHours = 0;
-  if (canViewPerson) {
+  if (canViewPerson || selfOnly) {
+    // Lưu ý: entries để tính "TB phòng" (byDept) LUÔN lấy toàn phòng (mốc ẩn danh),
+    // kể cả khi selfOnly. Việc giới hạn theo người được làm ở bước xuất normRows bên dưới.
     const entries = await prisma.timeSheetEntry.findMany({
       where: { deletedAt: null, task: { is: { measureNorm: true, deletedAt: null } } },
       select: {
@@ -154,32 +163,35 @@ export default async function ReportsPage() {
       d.tasks.add(tk);
     }
 
-    normRows = [...byUser.values()].map((a) => {
-      const times = a.tasks.size || 1;
-      const d = byDept.get(`${a.task}|${a.ctName}`)!;
-      const dTimes = d.tasks.size || 1;
-      return {
-        userId: a.userId,
-        userName: a.userName,
-        task: a.task,
-        ctName: a.ctName,
-        ctOrder: a.ctOrder,
-        times: a.tasks.size,
-        hours: a.hours,
-        norm: a.hours / times,
-        deptNorm: d.hours / dTimes,
-      };
-    });
+    normRows = [...byUser.values()]
+      // selfOnly: chỉ giữ dòng định mức của chính mình (TB phòng vẫn là benchmark toàn phòng).
+      .filter((a) => !selfOnly || a.userId === meId)
+      .map((a) => {
+        const times = a.tasks.size || 1;
+        const d = byDept.get(`${a.task}|${a.ctName}`)!;
+        const dTimes = d.tasks.size || 1;
+        return {
+          userId: a.userId,
+          userName: a.userName,
+          task: a.task,
+          ctName: a.ctName,
+          ctOrder: a.ctOrder,
+          times: a.tasks.size,
+          hours: a.hours,
+          norm: a.hours / times,
+          deptNorm: d.hours / dTimes,
+        };
+      });
     normCts = [...new Set(normRows.map((r) => r.ctName))];
 
     // ----- Thời gian theo việc (tái dùng byDept của BC4 cho benchmark định mức) -----
     const tsAll = await prisma.timeSheetEntry.findMany({
-      where: { deletedAt: null, taskId: { not: null } },
+      where: { deletedAt: null, taskId: { not: null }, ...(selfOnly ? { userId: meId } : {}) },
       select: { taskId: true, hours: true, date: true, user: { select: { fullName: true } } },
     });
     const unattr = await prisma.timeSheetEntry.aggregate({
       _sum: { hours: true },
-      where: { deletedAt: null, taskId: null },
+      where: { deletedAt: null, taskId: null, ...(selfOnly ? { userId: meId } : {}) },
     });
     unattributedHours = Number(unattr._sum.hours ?? 0);
 
@@ -235,6 +247,7 @@ export default async function ReportsPage() {
       timeEntries={timeEntries}
       unattributedHours={unattributedHours}
       canViewPerson={canViewPerson}
+      selfOnly={selfOnly}
     />
   );
 }

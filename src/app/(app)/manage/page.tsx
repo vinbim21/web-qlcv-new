@@ -1,6 +1,7 @@
+import { redirect } from "next/navigation";
 import { auth } from "@/server/auth/config";
 import { prisma } from "@/server/db/client";
-import { canManage } from "@/server/auth/permissions";
+import { canAssign, canManage } from "@/server/auth/permissions";
 import { getTaskLookups } from "@/server/data/task-lookups";
 import { ManageClient } from "./manage-client";
 
@@ -11,6 +12,8 @@ function iso(d: Date | null): string {
 export default async function ManagePage() {
   const session = await auth();
   if (!session?.user) return null;
+  // Chỉ Admin / Cấp 1 / Cấp 2 được vào trang Quản lý công việc.
+  if (!canAssign(session.user.role)) redirect("/tasks");
   const manage = canManage(session.user.role);
 
   const [tasks, lookups] = await Promise.all([

@@ -40,6 +40,13 @@ enum ProjectStatus {
   HOAN_THANH // Hoàn thành
 }
 
+enum NotificationType {
+  TASK_ASSIGNED // Được giao việc
+  TASK_DEADLINE_CHANGED // Việc của tôi bị dời hạn
+  TASK_PRIORITY_CHANGED // Việc của tôi đổi ưu tiên
+  TASK_DEADLINE_SOON // Sắp đến hạn (sinh lười khi đọc)
+}
+
 // ---------- Danh mục (lookup) ----------
 
 /// Nhóm công việc chính — Level 1 (6 nhóm: HTTC BIM, Đào tạo, Quản lý, Thanh tra, BIM Tools, QL phần mềm)
@@ -148,9 +155,10 @@ model User {
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
 
-  discipline  Discipline?      @relation(fields: [disciplineId], references: [id])
-  assignments TaskAssignee[]
-  timeSheets  TimeSheetEntry[]
+  discipline    Discipline?      @relation(fields: [disciplineId], references: [id])
+  assignments   TaskAssignee[]
+  timeSheets    TimeSheetEntry[]
+  notifications Notification[]   @relation("NotifRecipient")
 
   @@index([disciplineId])
 }
@@ -198,10 +206,11 @@ model Task {
   project    Project?       @relation(fields: [projectId], references: [id])
   discipline Discipline?    @relation(fields: [disciplineId], references: [id])
   phase      Phase?         @relation(fields: [phaseId], references: [id])
-  parent     Task?          @relation("TaskTree", fields: [parentId], references: [id])
-  children   Task[]         @relation("TaskTree")
-  assignees  TaskAssignee[]
-  timeSheets TimeSheetEntry[]
+  parent        Task?            @relation("TaskTree", fields: [parentId], references: [id])
+  children      Task[]           @relation("TaskTree")
+  assignees     TaskAssignee[]
+  timeSheets    TimeSheetEntry[]
+  notifications Notification[]
 
   @@unique([workGroupId, seq])
   @@index([workGroupId])
@@ -247,4 +256,27 @@ model TimeSheetEntry {
 
   @@index([userId, date])
   @@index([taskId])
+}
+
+// ---------- Thông báo (in-app) ----------
+
+/// Thông báo trong app (chuông). actorId = người gây ra (nullable cho nhắc hệ thống).
+/// dedupeKey = khóa chống trùng cho thông báo sinh lười (vd nhắc "sắp đến hạn").
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String // người NHẬN
+  actorId   String? // người gây ra (người giao/đổi). Null = hệ thống.
+  type      NotificationType
+  taskId    String?
+  title     String
+  body      String?
+  dedupeKey String?          @unique
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User  @relation("NotifRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead, createdAt])
 }
