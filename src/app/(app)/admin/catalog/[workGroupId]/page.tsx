@@ -19,6 +19,18 @@ export default async function CatalogDetailPage({
   const byLevel = (lv: number) =>
     items.filter((i) => i.level === lv).map((i) => ({ id: i.id, value: i.value }));
 
+  // Nhóm Quản lý BIM (mã "3"): khai báo Dự án theo dòng (Level 2 = mã, Level 3 = tên, Quy mô CT = scale).
+  const isBim = wg.code === "3";
+  const projects = isBim
+    ? (
+        await prisma.project.findMany({
+          where: { deletedAt: null },
+          orderBy: [{ code: "asc" }],
+          select: { id: true, code: true, name: true, scale: true },
+        })
+      ).map((p) => ({ id: p.id, code: p.code, name: p.name, scale: p.scale }))
+    : [];
+
   return (
     <CatalogDetail
       workGroupId={wg.id}
@@ -29,6 +41,8 @@ export default async function CatalogDetailPage({
       level2={byLevel(2)}
       level3={byLevel(3)}
       level5={byLevel(5)}
+      isBim={isBim}
+      projects={projects}
     />
   );
 }

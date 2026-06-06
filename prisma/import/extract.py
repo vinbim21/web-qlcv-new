@@ -28,12 +28,17 @@ TS_SHEETS = ["XD", "MEPF", "IT"]
 DATA_COLS = [
     ("1", {2: 2, 3: 3, 5: 4}),     # Xây dựng HTTC BIM
     ("2", {2: 5, 3: 6, 5: 7}),     # Đào tạo BIM
-    ("3", {2: 8, 3: 9, 5: 11}),    # Quản lý BIM (cột 10=Quy mô, bỏ)
+    ("3", {5: 11}),                # Quản lý BIM: L2/L3 -> Dự án (xem BIM_PROJECT_COLS), chỉ giữ Level 5
     ("4", {5: 12}),                # Thanh tra BIM (chỉ Level 5)
     ("5", {2: 13, 3: 14, 5: 15}),  # Phát triển BIM Tools
     ("6", {2: 16, 3: 17, 5: 18}),  # Quản lý phần mềm
     ("7", {2: 19, 3: 20, 5: 21}),  # Công việc khác
 ]
+
+# Nhóm Quản lý BIM: mỗi dòng = 1 Dự án. H(8)=mã(L2), I(9)=tên(L3), J(10)=Quy mô (scale).
+BIM_PROJECT_COLS = {"code": 8, "name": 9, "scale": 10}
+# Placeholder ở cột Quy mô -> coi như chưa có scale.
+SCALE_PLACEHOLDERS = {"điền tổng diện tích sàn", "n/a", "na", "-"}
 
 def sval(v):
     if v is None: return ""
@@ -110,10 +115,31 @@ def main():
                         seen.add((wg, level, val))
                         catalog.append({"wg": wg, "level": level, "value": val})
 
+    # Dự án nhóm Quản lý BIM (mỗi dòng L2+L3 = 1 dự án, kèm Quy mô = scale)
+    projects = []
+    if "Data" in wb.sheetnames:
+        ws = wb["Data"]
+        seen_proj = set()
+        cc, nc, sc = BIM_PROJECT_COLS["code"], BIM_PROJECT_COLS["name"], BIM_PROJECT_COLS["scale"]
+        for row in ws.iter_rows(min_row=4):
+            def at(c):
+                idx = c - 1
+                return sval(row[idx].value) if idx < len(row) else ""
+            code, name = at(cc), at(nc)
+            if not code or not name or code.lower() == "all" or name.lower() == "all":
+                continue
+            scale_raw = at(sc)
+            scale = "" if scale_raw.lower() in SCALE_PLACEHOLDERS else scale_raw
+            key = (code, name)
+            if key in seen_proj:
+                continue
+            seen_proj.add(key)
+            projects.append({"code": code, "name": name, "scale": scale})
+
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
-        json.dump({"tasks": tasks, "timesheets": timesheets, "catalog": catalog}, f, ensure_ascii=False)
-    print("tasks=%d timesheets=%d catalog=%d -> %s" % (len(tasks), len(timesheets), len(catalog), OUT))
+        json.dump({"tasks": tasks, "timesheets": timesheets, "catalog": catalog, "projects": projects}, f, ensure_ascii=False)
+    print("tasks=%d timesheets=%d catalog=%d projects=%d -> %s" % (len(tasks), len(timesheets), len(catalog), len(projects), OUT))
 
 if __name__ == "__main__":
     main()

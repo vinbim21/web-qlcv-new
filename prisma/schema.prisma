@@ -119,8 +119,9 @@ model Phase {
 /// Dự án (mã như B.DSHNQN.DMF)
 model Project {
   id                 String        @id @default(cuid())
-  code               String        @unique
+  code               String // KHÔNG unique đơn lẻ: nhóm Quản lý BIM mỗi (mã + tên) là 1 dự án riêng
   name               String
+  scale              String? // Quy mô công trình (nhập tay, dùng cho nhóm Quản lý BIM)
   status             ProjectStatus @default(DANG_THUC_HIEN)
   constructionTypeId String? // Loại hình công trình (cho báo cáo định mức)
   startDate          DateTime?
@@ -134,6 +135,7 @@ model Project {
   tasks            Task[]
   timeSheets       TimeSheetEntry[]
 
+  @@unique([code, name])
   @@index([status])
   @@index([constructionTypeId])
 }
