@@ -122,7 +122,6 @@ async function main() {
       fullName: "Quản trị viên",
       passwordHash: adminHash,
       role: UserRole.ADMIN,
-      mustChangePassword: false,
     },
   });
 
@@ -144,7 +143,6 @@ async function main() {
         passwordHash: demoHash,
         role: UserRole.LEVEL_2,
         disciplineId: bimDept?.id ?? null,
-        mustChangePassword: true,
       },
     });
   }

@@ -32,7 +32,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           name: user.fullName,
           fullName: user.fullName,
           role: user.role,
-          mustChangePassword: user.mustChangePassword,
         };
       },
     }),

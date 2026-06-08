@@ -32,7 +32,6 @@ function SidebarContent({ isAdmin, canAssignWork }: { isAdmin: boolean; canAssig
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  if (session.user.mustChangePassword) redirect("/change-password");
 
   const isAdmin = session.user.role === "ADMIN";
   const canAssignWork = canAssign(session.user.role);

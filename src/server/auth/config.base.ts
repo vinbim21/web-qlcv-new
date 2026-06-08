@@ -12,8 +12,7 @@ export const authConfig = {
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
-      const isAuthPage =
-        nextUrl.pathname.startsWith("/login") || nextUrl.pathname.startsWith("/change-password");
+      const isAuthPage = nextUrl.pathname.startsWith("/login");
       if (isAuthPage) {
         if (isLoggedIn) return Response.redirect(new URL("/dashboard", nextUrl));
         return true;
@@ -25,7 +24,6 @@ export const authConfig = {
         token.id = user.id;
         token.role = user.role;
         token.fullName = user.fullName;
-        token.mustChangePassword = user.mustChangePassword;
       }
       return token;
     },
@@ -34,7 +32,6 @@ export const authConfig = {
         session.user.id = token.id as string;
         session.user.role = token.role as string;
         session.user.fullName = token.fullName as string;
-        session.user.mustChangePassword = token.mustChangePassword as boolean;
       }
       return session;
     },

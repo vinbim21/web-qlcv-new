@@ -20,7 +20,6 @@ export async function createUser(input: unknown) {
         role: data.role,
         disciplineId: data.disciplineId || null,
         passwordHash,
-        mustChangePassword: !data.password, // nếu admin không đặt pass -> buộc đổi
         isActive: data.isActive ?? true,
       },
     });
@@ -53,7 +52,7 @@ export async function resetUserPassword(id: string, newPassword: string) {
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id },
-      data: { passwordHash, mustChangePassword: true },
+      data: { passwordHash },
     });
     revalidatePath("/admin/users");
   });

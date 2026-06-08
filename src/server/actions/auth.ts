@@ -60,12 +60,11 @@ export async function changePasswordAction(
   const hash = await bcrypt.hash(parsed.data.newPassword, 10);
   await prisma.user.update({
     where: { id: user.id },
-    data: { passwordHash: hash, mustChangePassword: false },
+    data: { passwordHash: hash },
   });
 
   revalidatePath("/dashboard");
   // Đổi mật khẩu tự nguyện ở trang /account → ở lại trang, báo toast.
-  // Flow buộc-đổi (mustChangePassword) không gửi `stay` → vẫn về dashboard.
   if (formData.get("stay") === "1") return { success: true };
   redirect("/dashboard");
 }
