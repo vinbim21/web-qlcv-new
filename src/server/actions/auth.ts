@@ -9,7 +9,7 @@ import { signIn, signOut } from "@/server/auth/config";
 import { requireUser } from "@/server/auth/permissions";
 import { changePasswordSchema, loginSchema } from "@/lib/schemas/auth";
 
-export type ActionState = { error?: string };
+export type ActionState = { error?: string; success?: boolean };
 
 export async function loginAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const parsed = loginSchema.safeParse({
@@ -64,5 +64,8 @@ export async function changePasswordAction(
   });
 
   revalidatePath("/dashboard");
+  // Đổi mật khẩu tự nguyện ở trang /account → ở lại trang, báo toast.
+  // Flow buộc-đổi (mustChangePassword) không gửi `stay` → vẫn về dashboard.
+  if (formData.get("stay") === "1") return { success: true };
   redirect("/dashboard");
 }

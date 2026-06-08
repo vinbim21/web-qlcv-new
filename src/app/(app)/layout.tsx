@@ -1,15 +1,14 @@
-import { LogOut } from "lucide-react";
 import { redirect } from "next/navigation";
 import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
 import { MobileSidebar } from "@/components/app-shell/mobile-sidebar";
 import { NotificationBell } from "@/components/app-shell/notification-bell";
 import { SidebarNav } from "@/components/app-shell/sidebar-nav";
+import { UserMenu } from "@/components/app-shell/user-menu";
 import { BrandLogo } from "@/components/brand-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ROLE_LABEL } from "@/lib/labels";
-import { logoutAction } from "@/server/actions/auth";
 import { auth } from "@/server/auth/config";
 import { canAssign } from "@/server/auth/permissions";
 
@@ -67,22 +66,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Badge variant="secondary" className="hidden sm:inline-flex">
               {ROLE_LABEL[session.user.role] ?? session.user.role}
             </Badge>
-            <div className="flex items-center gap-2">
-              <span className="grid size-7 place-items-center rounded-full bg-muted text-xs font-medium">
-                {initials}
-              </span>
-              <span className="hidden text-sm font-medium md:inline">{name}</span>
-            </div>
-            <form action={logoutAction}>
-              <button
-                type="submit"
-                className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                title="Đăng xuất"
-                aria-label="Đăng xuất"
-              >
-                <LogOut className="size-4" />
-              </button>
-            </form>
+            <UserMenu name={name} initials={initials} />
           </div>
         </header>
 
