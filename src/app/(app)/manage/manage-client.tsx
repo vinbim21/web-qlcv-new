@@ -685,7 +685,10 @@ export function ManageClient({
         </TableCell>
         <TableCell className="text-xs">
           {overdue ? (
-            <Badge variant={statusVariant("QUA_HAN")}>Quá hạn</Badge>
+            <div className="flex flex-col items-start gap-0.5">
+              <Badge variant={statusVariant("QUA_HAN")}>Quá hạn</Badge>
+              <span className="text-[11px] text-red-600">{t.plannedEnd}</span>
+            </div>
           ) : (
             t.plannedEnd || "—"
           )}

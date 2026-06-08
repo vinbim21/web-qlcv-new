@@ -18,7 +18,7 @@ const TABS: Tab[] = [
   { key: "phong", label: "Theo phòng" },
   { key: "user", label: "Theo nhân sự", sensitive: true },
   { key: "time", label: "Thời gian theo việc", sensitive: true },
-  { key: "norm", label: "Định mức", sensitive: true },
+  // { key: "norm", label: "Định mức", sensitive: true }, // tạm ẩn — bật lại sau
 ];
 
 export function ReportsTabs({
@@ -59,7 +59,7 @@ export function ReportsTabs({
         </div>
         <a href="/api/export/reports" className={buttonVariants({ variant: "outline" })}>
           <Download className="size-4" /> Xuất Excel
-          {selfOnly ? " (của tôi)" : canViewPerson ? " (4 báo cáo)" : " (BC1-3)"}
+          {selfOnly ? " (của tôi)" : canViewPerson ? " (3 báo cáo)" : " (BC1-3)"}
         </a>
       </div>
 

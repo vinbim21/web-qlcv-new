@@ -19,6 +19,7 @@ type Row = {
   id: string;
   sumId: string | null;
   name: string;
+  level3: string | null;
   workGroupId: string;
   workGroupName: string;
   disciplineId: string | null;
@@ -196,6 +197,7 @@ export function ReportsClient({
             <TableHeader>
               <TableRow>
                 <TableHead>Mã</TableHead>
+                <TableHead>Chi tiết</TableHead>
                 <TableHead>Công việc</TableHead>
                 <TableHead>Nhóm</TableHead>
                 <TableHead>Người thực hiện</TableHead>
@@ -209,6 +211,7 @@ export function ReportsClient({
                 return (
                   <TableRow key={t.id}>
                     <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
+                    <TableCell className="text-xs">{t.level3 ?? "—"}</TableCell>
                     <TableCell className="max-w-xs font-medium">{t.name}</TableCell>
                     <TableCell className="text-xs">{t.workGroupName}</TableCell>
                     <TableCell className="text-xs">{t.assigneeNames.join(", ") || "—"}</TableCell>

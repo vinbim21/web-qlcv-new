@@ -136,16 +136,6 @@ export function PivotReport({
     return [...map.values()].sort((x, y2) => x.order - y2.order || x.label.localeCompare(y2.label, "vi"));
   }, [inScope, mode]);
 
-  // Δ% so kỳ trước (năm trước) — chỉ khi lọc theo năm.
-  const prevTotals = React.useMemo(() => {
-    if (!byYear) return null;
-    const map = new Map<string, number>();
-    for (const r of rows) {
-      if (yearOf(r.plannedEnd) !== year - 1) continue;
-      for (const b of bucketsOf(r, mode)) map.set(b.key, (map.get(b.key) ?? 0) + 1);
-    }
-    return map;
-  }, [rows, mode, byYear, year]);
 
   // Biểu đồ: số lượng + tình trạng theo kỳ.
   const chart = React.useMemo(() => {
@@ -181,15 +171,6 @@ export function PivotReport({
     }
     return t;
   }, [aggs]);
-
-  function delta(a: Agg): React.ReactNode {
-    if (!prevTotals) return <span className="text-muted-foreground">—</span>;
-    const prev = prevTotals.get(a.key) ?? 0;
-    if (prev === 0) return a.total > 0 ? <span className="text-emerald-600">mới</span> : <span className="text-muted-foreground">—</span>;
-    const pct = Math.round(((a.total - prev) / prev) * 100);
-    const cls = pct > 0 ? "text-emerald-600" : pct < 0 ? "text-red-600" : "text-muted-foreground";
-    return <span className={cls}>{pct > 0 ? "+" : ""}{pct}%</span>;
-  }
 
   return (
     <div className="space-y-4">
@@ -273,10 +254,9 @@ export function PivotReport({
                 ))}
                 {PRIORITY_KEYS.map((k) => (
                   <TableHead key={k} className="text-right text-xs">
-                    ⌀ {PRIORITY_LABEL[k]}
+                    {PRIORITY_LABEL[k]}
                   </TableHead>
                 ))}
-                {byYear ? <TableHead className="text-right text-xs">Δ so {year - 1}</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -298,12 +278,11 @@ export function PivotReport({
                       {(a.priority[k] ?? 0) || <span className="text-muted-foreground">·</span>}
                     </TableCell>
                   ))}
-                  {byYear ? <TableCell className="text-right text-sm">{delta(a)}</TableCell> : null}
                 </TableRow>
               ))}
               {aggs.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={byYear ? 10 : 9} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                     Không có việc trong phạm vi này
                   </TableCell>
                 </TableRow>
@@ -324,7 +303,6 @@ export function PivotReport({
                       {totalRow.priority[k] ?? 0}
                     </TableCell>
                   ))}
-                  {byYear ? <TableCell /> : null}
                 </TableRow>
               </TableFooter>
             ) : null}

@@ -13,12 +13,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn, removeVietnameseTones } from "@/lib/utils";
+import { removeVietnameseTones } from "@/lib/utils";
 
 export type TimeTask = {
   id: string;
   sumId: string | null;
   name: string;
+  level3: string | null;
   groupName: string;
   projectName: string | null;
   plannedStart: string;
@@ -169,13 +170,13 @@ export function TimeByTask({
               <TableRow>
                 <TableHead className="w-6" />
                 <TableHead>Mã</TableHead>
+                <TableHead>Chi tiết</TableHead>
                 <TableHead>Công việc</TableHead>
                 <TableHead className="text-right">Tổng giờ</TableHead>
                 <TableHead className="text-right">Số người</TableHead>
                 <TableHead className="text-right">Số ngày</TableHead>
                 <TableHead>Khoảng làm</TableHead>
                 <TableHead>Kế hoạch</TableHead>
-                <TableHead className="text-right">ĐM đầu việc</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -191,6 +192,7 @@ export function TimeByTask({
                         {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
                       </TableCell>
                       <TableCell className="font-mono text-xs">{task.sumId ?? "—"}</TableCell>
+                      <TableCell className="text-xs">{task.level3 ?? "—"}</TableCell>
                       <TableCell className="max-w-xs">
                         <span className="font-medium">{task.name}</span>
                         {task.deleted ? <span className="ml-1 text-xs text-red-600">(đã xóa)</span> : null}
@@ -207,15 +209,12 @@ export function TimeByTask({
                           ? `${task.plannedStart || "?"} → ${task.plannedEnd || "?"}`
                           : "—"}
                       </TableCell>
-                      <TableCell className="text-right text-xs text-muted-foreground">
-                        {task.deptNorm != null ? fmt(task.deptNorm) : "—"}
-                      </TableCell>
                     </TableRow>
                     {open ? (
                       <TableRow className="bg-muted/30 hover:bg-muted/30">
                         <TableCell />
                         <TableCell colSpan={8} className="py-3">
-                          <Breakdown agg={agg} deptNorm={task.deptNorm} />
+                          <Breakdown agg={agg} />
                         </TableCell>
                       </TableRow>
                     ) : null}
@@ -242,7 +241,7 @@ export function TimeByTask({
   );
 }
 
-function Breakdown({ agg, deptNorm }: { agg: Agg; deptNorm: number | null }) {
+function Breakdown({ agg }: { agg: Agg }) {
   const byUser = [...agg.users.entries()].sort((a, b) => b[1] - a[1]);
   return (
     <div className="grid gap-4 md:grid-cols-2">
@@ -250,19 +249,12 @@ function Breakdown({ agg, deptNorm }: { agg: Agg; deptNorm: number | null }) {
         <div className="pb-1 text-xs font-medium text-muted-foreground">Theo người</div>
         <table className="w-full text-sm">
           <tbody>
-            {byUser.map(([name, h]) => {
-              const pct = deptNorm && deptNorm > 0 ? Math.round(((h - deptNorm) / deptNorm) * 100) : null;
-              const cls = pct == null ? "" : pct > 0 ? "text-red-600" : pct < 0 ? "text-emerald-600" : "text-muted-foreground";
-              return (
-                <tr key={name}>
-                  <td className="py-0.5 pr-2">{name}</td>
-                  <td className="py-0.5 pr-2 text-right font-medium">{fmt(h)} giờ</td>
-                  <td className={cn("py-0.5 text-right text-xs", cls)}>
-                    {pct == null ? "—" : `${pct > 0 ? "+" : ""}${pct}% so ĐM`}
-                  </td>
-                </tr>
-              );
-            })}
+            {byUser.map(([name, h]) => (
+              <tr key={name}>
+                <td className="py-0.5 pr-2">{name}</td>
+                <td className="py-0.5 text-right font-medium">{fmt(h)} giờ</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

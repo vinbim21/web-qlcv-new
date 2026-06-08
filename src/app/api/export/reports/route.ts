@@ -168,35 +168,36 @@ export async function GET() {
       d.hours += Number(e.hours);
       d.tasks.add(tk);
     }
-    const ws = wb.addWorksheet("BC4 - Dinh muc");
-    ws.columns = [
-      { header: "Nhân sự", key: "user", width: 22 },
-      { header: "Đầu việc", key: "task", width: 32 },
-      { header: "Loại hình CT", key: "ct", width: 22 },
-      { header: "Số lần", key: "times", width: 8 },
-      { header: "Tổng giờ", key: "hours", width: 10 },
-      { header: "Định mức (giờ/lần)", key: "norm", width: 16 },
-      { header: "TB phòng", key: "dept", width: 12 },
-    ];
-    ws.getRow(1).font = { bold: true };
-    const rows = [...byUser.values()].sort(
-      (a, b) => a.user.localeCompare(b.user, "vi") || a.ctOrder - b.ctOrder || a.task.localeCompare(b.task, "vi"),
-    );
-    for (const a of rows) {
-      const times = a.tasks.size || 1;
-      const d = byDept.get(`${a.task}|${a.ct}`)!;
-      const dTimes = d.tasks.size || 1;
-      ws.addRow({
-        user: a.user,
-        task: a.task,
-        ct: a.ct,
-        times: a.tasks.size,
-        hours: Number(a.hours.toFixed(1)),
-        norm: Number((a.hours / times).toFixed(1)),
-        dept: Number((d.hours / dTimes).toFixed(1)),
-      });
-    }
-    if (rows.length === 0) ws.addRow({ user: "(Chưa có dữ liệu định mức)" });
+    // ----- BC4 Định mức — TẠM ẨN, bật lại sau (giữ byUser/byDept ở trên vì byDept còn cấp số liệu cho sheet Thời gian) -----
+    // const ws = wb.addWorksheet("BC4 - Dinh muc");
+    // ws.columns = [
+    //   { header: "Nhân sự", key: "user", width: 22 },
+    //   { header: "Đầu việc", key: "task", width: 32 },
+    //   { header: "Loại hình CT", key: "ct", width: 22 },
+    //   { header: "Số lần", key: "times", width: 8 },
+    //   { header: "Tổng giờ", key: "hours", width: 10 },
+    //   { header: "Định mức (giờ/lần)", key: "norm", width: 16 },
+    //   { header: "TB phòng", key: "dept", width: 12 },
+    // ];
+    // ws.getRow(1).font = { bold: true };
+    // const rows = [...byUser.values()].sort(
+    //   (a, b) => a.user.localeCompare(b.user, "vi") || a.ctOrder - b.ctOrder || a.task.localeCompare(b.task, "vi"),
+    // );
+    // for (const a of rows) {
+    //   const times = a.tasks.size || 1;
+    //   const d = byDept.get(`${a.task}|${a.ct}`)!;
+    //   const dTimes = d.tasks.size || 1;
+    //   ws.addRow({
+    //     user: a.user,
+    //     task: a.task,
+    //     ct: a.ct,
+    //     times: a.tasks.size,
+    //     hours: Number(a.hours.toFixed(1)),
+    //     norm: Number((a.hours / times).toFixed(1)),
+    //     dept: Number((d.hours / dTimes).toFixed(1)),
+    //   });
+    // }
+    // if (rows.length === 0) ws.addRow({ user: "(Chưa có dữ liệu định mức)" });
 
     // ----- Thời gian theo việc (2 sheet) -----
     const tsAll = await prisma.timeSheetEntry.findMany({
