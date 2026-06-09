@@ -1,10 +1,23 @@
 "use client";
 
 import dayjs from "dayjs";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Clock, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ChevronsUpDown,
+  Clock,
+  Pencil,
+  Plus,
+  Search,
+  ShieldCheck,
+  Trash2,
+  X,
+} from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
-import { SearchableCombobox } from "@/components/searchable-combobox";
+import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskForm } from "@/components/task-form";
 import { TimesheetEntryDialog } from "@/components/timesheet-entry-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -22,8 +35,8 @@ import {
   statusVariant,
 } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
-import { effectiveStatus } from "@/lib/task-status";
-import { deleteTask, updateTaskStatus } from "@/server/actions/tasks";
+import { completionDateError, effectiveStatus, isCompletedLate } from "@/lib/task-status";
+import { deleteTask, saveMyTasks, setTaskCompletion, setTaskStartApproval } from "@/server/actions/tasks";
 
 type Opt = { id: string; name: string };
 type UserOpt = { id: string; fullName: string };
@@ -51,9 +64,22 @@ export type TaskRow = {
   plannedEnd: string;
   actualEnd: string;
   note: string | null;
+  approved: boolean;
+  approvedByName: string | null;
+  approverId: string | null;
+  approverName: string | null;
+  startApproved: boolean;
   assigneeIds: string[];
   assigneeNames: string[];
 };
+
+// Việc đang "chờ duyệt khởi tạo" (luồng Thêm công việc) → khóa nhập thời gian.
+// Tạm ẩn dòng đường dẫn (Nhóm › Cấp 2 › Cấp 3) dưới tên việc. Đổi true để hiện lại.
+const SHOW_TASK_PATH = false;
+
+function isPendingApproval(t: TaskRow): boolean {
+  return !!t.approverId && !t.startApproved;
+}
 
 function isOverdue(t: TaskRow): boolean {
   if (!t.plannedEnd || t.status === "HOAN_THANH") return false;
@@ -64,6 +90,22 @@ function isOverdue(t: TaskRow): boolean {
 // Dùng CHUNG với /manage để cùng một việc không hiện 2 trạng thái khác nhau.
 function effOf(t: TaskRow): string {
   return effectiveStatus({ status: t.status, plannedEnd: t.plannedEnd });
+}
+
+// Số ngày từ hôm nay đến hạn (âm = đã quá hạn). null nếu không có hạn / sai định dạng.
+function daysUntil(end: string): number | null {
+  if (!end) return null;
+  const d = new Date(end);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date(new Date().toDateString());
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
+}
+
+// Sắp đến hạn: còn 0..3 ngày, chưa hoàn thành, chưa quá hạn.
+function isDueSoon(t: TaskRow): boolean {
+  if (t.status === "HOAN_THANH") return false;
+  const n = daysUntil(t.plannedEnd);
+  return n !== null && n >= 0 && n <= 3;
 }
 
 // YYYY-MM-DD theo giờ địa phương (tránh lệch timezone của toISOString).
@@ -104,25 +146,65 @@ const DATE_PRESETS: { value: string; label: string }[] = [
   { value: "CUSTOM", label: "Khoảng tùy chọn…" },
 ];
 
+// Kéo giãn cột bảng (theo SortKey). Cột Ghi giờ + Thao tác cố định, không giãn.
+const MYTASKS_MIN_W = 80;
+const MYTASKS_MAX_W = 600;
+const MYTASKS_COL_MIN_W: Record<string, number> = { actualEnd: 160 };
+const MYTASKS_WIDTH_KEY = "mytasks-col-widths-v3";
+const clampW = (n: number, key?: string) =>
+  Math.min(MYTASKS_MAX_W, Math.max(key ? (MYTASKS_COL_MIN_W[key] ?? MYTASKS_MIN_W) : MYTASKS_MIN_W, Math.round(n)));
+const MYTASKS_LOG_PX = 72; // cột "Ghi giờ"
+const MYTASKS_ACT_PX = 96; // cột "Thao tác" (Sửa + Xóa)
+const MYTASKS_COL_PX: Record<string, number> = {
+  sumId: 160,
+  project: 180,
+  name: 340,
+  discipline: 150,
+  assignee: 200,
+  priority: 90,
+  status: 160,
+  start: 100,
+  deadline: 110,
+  actualEnd: 180,
+};
+// Thứ tự cột: Mã · Dự án · Công việc · Bộ môn · Người · Ưu tiên · Trạng thái · Bắt đầu · Hạn · Thực tế HT.
+const MYTASKS_SORT_KEYS = [
+  "sumId",
+  "project",
+  "name",
+  "discipline",
+  "assignee",
+  "priority",
+  "status",
+  "start",
+  "deadline",
+  "actualEnd",
+] as const;
+
 export function TasksClient({
   currentUserId,
   canManage,
+  isAdmin,
   tasks,
   workGroups,
   disciplines,
   phases,
   projects,
   users,
+  approvers,
   catalog,
 }: {
   currentUserId: string;
   canManage: boolean;
+  isAdmin: boolean;
   tasks: TaskRow[];
-  workGroups: Opt[];
+  // workGroups kèm abbr/lastSeq (gốc mã) cho lưới "Thêm công việc".
+  workGroups: (Opt & { abbr?: string | null; lastSeq?: number })[];
   disciplines: Opt[];
   phases: Opt[];
-  projects: Opt[];
+  projects: ProjectOpt[];
   users: UserOpt[];
+  approvers: UserOpt[];
   catalog: Catalog;
 }) {
   const [f, setF] = React.useState({
@@ -140,8 +222,46 @@ export function TasksClient({
   // Gõ tới đâu ô phản hồi ngay; việc lọc dùng giá trị "trễ" nên không giật (React 19).
   const deferredSearch = React.useDeferredValue(search);
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
-  const [creating, setCreating] = React.useState(false);
+  const [addOpen, setAddOpen] = React.useState(false);
   const [logging, setLogging] = React.useState<TaskRow | null>(null); // ghi giờ cho việc này
+  // Lọc nhanh từ dải KPI (riêng với dropdown Trạng thái để không xung đột).
+  const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM">("");
+
+  // Bề rộng cột bảng (kéo giãn) — nhớ bằng localStorage.
+  const [colWidths, setColWidths] = React.useState<Record<string, number>>(() => ({
+    ...MYTASKS_COL_PX,
+  }));
+  const colWidthsRef = React.useRef(colWidths);
+  React.useEffect(() => {
+    colWidthsRef.current = colWidths;
+  }, [colWidths]);
+  const draggingRef = React.useRef(false);
+  const resizeStartRef = React.useRef<{ x: number; w: number; key: string } | null>(null);
+  React.useEffect(() => {
+    function loadWidths() {
+      try {
+        const raw = window.localStorage.getItem(MYTASKS_WIDTH_KEY);
+        if (raw) setColWidths((w) => ({ ...w, ...(JSON.parse(raw) as Record<string, number>) }));
+      } catch {
+        /* bỏ qua localStorage lỗi */
+      }
+    }
+    loadWidths();
+  }, []);
+  const persistWidths = (w: Record<string, number>) => {
+    try {
+      window.localStorage.setItem(MYTASKS_WIDTH_KEY, JSON.stringify(w));
+    } catch {
+      /* bỏ qua localStorage lỗi */
+    }
+  };
+  const setColW = (k: string, px: number) => setColWidths((w) => ({ ...w, [k]: px }));
+  const endResize = () => persistWidths(colWidthsRef.current);
+  const resetColW = (k: string) => {
+    const nw = { ...colWidthsRef.current, [k]: MYTASKS_COL_PX[k] };
+    setColWidths(nw);
+    persistWidths(nw);
+  };
 
   // Chỉ mục tìm kiếm: chuẩn-hóa bỏ dấu MỘT LẦN cho mỗi công việc (không tính lại mỗi phím gõ).
   const haystacks = React.useMemo(() => {
@@ -159,33 +279,53 @@ export function TasksClient({
     return m;
   }, [tasks]);
 
-  // Lọc theo MỌI tiêu chí TRỪ nhóm (để đếm số việc mỗi tab Bảng theo bộ lọc hiện tại).
-  const base = React.useMemo(() => {
+  // Nền KPI: lọc theo dự án/bộ môn/ưu tiên/tìm-kiếm/thời-gian, NHƯNG bỏ qua trạng thái,
+  // lọc nhanh KPI và tab nhóm → số trên dải KPI ổn định khi bấm vào một KPI.
+  const kpiBase = React.useMemo(() => {
     const q = removeVietnameseTones(deferredSearch.trim());
     return tasks.filter((t) => {
       if (f.projectId && t.projectId !== f.projectId) return false;
       if (f.disciplineId && t.disciplineId !== f.disciplineId) return false;
-      // Trạng thái dùng effOf để khớp /manage ("Quá hạn" suy ra từ hạn).
-      if (f.status && effOf(t) !== f.status) return false;
       if (f.priority && t.priority !== f.priority) return false;
+      if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       // Lọc theo thời gian (theo Hạn). "Quá hạn" dùng lại isOverdue.
       if (f.datePreset === "QUA_HAN") {
         if (!isOverdue(t)) return false;
       } else if (f.datePreset) {
         const { from, to } =
-          f.datePreset === "CUSTOM"
-            ? { from: f.dateFrom, to: f.dateTo }
-            : presetRange(f.datePreset);
+          f.datePreset === "CUSTOM" ? { from: f.dateFrom, to: f.dateTo } : presetRange(f.datePreset);
         if (from || to) {
           if (!t.plannedEnd) return false; // không có Hạn → ẩn khi đang lọc thời gian
           if (from && t.plannedEnd < from) return false;
           if (to && t.plannedEnd > to) return false;
         }
       }
-      if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       return true;
     });
-  }, [tasks, f, deferredSearch, haystacks]);
+  }, [tasks, f.projectId, f.disciplineId, f.priority, f.datePreset, f.dateFrom, f.dateTo, deferredSearch, haystacks]);
+
+  const kpi = React.useMemo(() => {
+    let overdue = 0;
+    let soon = 0;
+    let doing = 0;
+    for (const t of kpiBase) {
+      if (isOverdue(t)) overdue++;
+      else if (isDueSoon(t)) soon++;
+      if (effOf(t) === "DANG_LAM") doing++;
+    }
+    return { overdue, soon, doing };
+  }, [kpiBase]);
+
+  // Áp thêm dropdown Trạng thái + lọc nhanh KPI (vẫn TRỪ tab nhóm để đếm theo tab).
+  const base = React.useMemo(() => {
+    return kpiBase.filter((t) => {
+      if (f.status && effOf(t) !== f.status) return false;
+      if (quick === "QUA_HAN" && !isOverdue(t)) return false;
+      if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
+      if (quick === "DANG_LAM" && effOf(t) !== "DANG_LAM") return false;
+      return true;
+    });
+  }, [kpiBase, f.status, quick]);
 
   const wgCounts = React.useMemo(() => {
     const m = new Map<string, number>();
@@ -198,11 +338,19 @@ export function TasksClient({
     [base, activeWg],
   );
 
-  // Số việc quá hạn trên TOÀN bộ việc của tôi (không phụ thuộc bộ lọc) — nhắc ưu tiên.
-  const overdueCount = React.useMemo(() => tasks.filter(isOverdue).length, [tasks]);
-
+  // Số việc quá hạn trên TOÀN bộ việc của tôi (không phụ thuộc bộ lọc) — đã hiển thị ở KPI.
   // ---- Sắp xếp ----
-  type SortKey = "sumId" | "name" | "project" | "assignee" | "priority" | "status" | "deadline";
+  type SortKey =
+    | "sumId"
+    | "name"
+    | "project"
+    | "discipline"
+    | "assignee"
+    | "priority"
+    | "status"
+    | "start"
+    | "deadline"
+    | "actualEnd";
   const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" } | null>(null);
 
   const PRIO_ORDER: Record<string, number> = { CAO: 0, TRUNG_BINH: 1, THAP: 2 };
@@ -220,15 +368,21 @@ export function TasksClient({
       case "name":
         return removeVietnameseTones(t.name);
       case "project":
-        return removeVietnameseTones(`${t.projectName ?? ""} ${t.disciplineName ?? ""}`);
+        return removeVietnameseTones(t.projectName ?? "");
+      case "discipline":
+        return removeVietnameseTones(t.disciplineName ?? "");
       case "assignee":
         return removeVietnameseTones(t.assigneeNames.join(", "));
       case "priority":
         return PRIO_ORDER[t.priority] ?? 9;
       case "status":
         return STATUS_ORDER[effOf(t)] ?? 9;
+      case "start":
+        return t.plannedStart || "9999-12-31";
       case "deadline":
         return t.plannedEnd || "9999-12-31";
+      case "actualEnd":
+        return t.actualEnd || "9999-12-31";
     }
   }
   const sorted = React.useMemo(() => {
@@ -253,33 +407,86 @@ export function TasksClient({
     );
   }
 
-  // Hàm render (không phải component) để tránh tạo component trong render.
-  const renderSortHead = (label: string, sortKey: SortKey, className?: string) => {
+  // Ô tiêu đề: bấm nhãn để sắp xếp + kéo mép phải để giãn cột.
+  const renderHeadCell = (label: string, sortKey: SortKey) => {
     const active = sort?.key === sortKey;
     return (
-      <TableHead
-        className={cn("cursor-pointer select-none hover:text-foreground", className)}
-        onClick={() => toggleSort(sortKey)}
-      >
-        <span className="inline-flex items-center gap-1">
-          {label}
+      <TableHead style={{ width: colWidths[sortKey] }} className="relative select-none">
+        <button
+          type="button"
+          className="flex w-full items-center gap-1 text-left hover:text-foreground"
+          onClick={() => {
+            if (draggingRef.current) return;
+            toggleSort(sortKey);
+          }}
+        >
+          <span className="truncate">{label}</span>
           {active ? (
             sort?.dir === "asc" ? (
-              <ArrowUp className="size-3" />
+              <ArrowUp className="size-3 shrink-0" />
             ) : (
-              <ArrowDown className="size-3" />
+              <ArrowDown className="size-3 shrink-0" />
             )
           ) : (
-            <ChevronsUpDown className="size-3 opacity-40" />
+            <ChevronsUpDown className="size-3 shrink-0 opacity-40" />
           )}
-        </span>
+        </button>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none hover:bg-primary/40"
+          title="Kéo để giãn cột · nhấp đúp để đặt lại"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+            resizeStartRef.current = { x: e.clientX, w: colWidths[sortKey], key: sortKey };
+            draggingRef.current = true;
+          }}
+          onPointerMove={(e) => {
+            const s = resizeStartRef.current;
+            if (!s) return;
+            setColW(s.key, clampW(s.w + (e.clientX - s.x), s.key));
+          }}
+          onPointerUp={(e) => {
+            if (!resizeStartRef.current) return;
+            resizeStartRef.current = null;
+            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+            endResize();
+            setTimeout(() => {
+              draggingRef.current = false;
+            }, 0);
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            resetColW(sortKey);
+          }}
+        />
       </TableHead>
     );
   };
 
-  async function quickStatus(t: TaskRow, status: string) {
-    const res = await updateTaskStatus({ id: t.id, status });
-    if (res.ok) toast.success("Đã cập nhật trạng thái");
+  // Đánh dấu/bỏ hoàn thành bằng ngày Thực tế hoàn thành → trạng thái tự suy (không set trạng thái tay).
+  async function onCompletion(t: TaskRow, value: string) {
+    // Chặn sớm: ngày hoàn thành không được trước ngày bắt đầu.
+    if (value) {
+      const err = completionDateError(value, t.plannedStart || null);
+      if (err) {
+        toast.error(err);
+        return;
+      }
+    }
+    const res = await setTaskCompletion({ id: t.id, actualEnd: value || null });
+    if (res.ok) {
+      const late = value && t.plannedEnd && value > t.plannedEnd;
+      toast.success(value ? (late ? "Đã hoàn thành — TRỄ HẠN" : "Đã đánh dấu hoàn thành") : "Đã bỏ hoàn thành");
+    } else toast.error(res.error);
+  }
+
+  // Duyệt khởi tạo (luồng Thêm công việc) — mở khóa nhập thời gian.
+  async function approveStart(t: TaskRow) {
+    const res = await setTaskStartApproval({ id: t.id, approved: true });
+    if (res.ok) toast.success("Đã duyệt — cho phép nhập thời gian");
     else toast.error(res.error);
   }
 
@@ -290,23 +497,190 @@ export function TasksClient({
     else toast.error(res.error);
   }
 
+  function renderRow(t: TaskRow) {
+    const overdue = isOverdue(t);
+    const eff = effOf(t);
+    const pendingApproval = isPendingApproval(t);
+    const late = isCompletedLate(t);
+    const canApproveStart = isAdmin || t.approverId === currentUserId;
+    // Sửa được Thực tế hoàn thành nếu là quản lý hoặc người được giao việc (và việc KHÔNG chờ duyệt).
+    const canEditDone = (canManage || t.assigneeIds.includes(currentUserId)) && !pendingApproval;
+    return (
+      <TableRow key={t.id}>
+        <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
+        <TableCell className="text-xs">{t.projectName ?? "—"}</TableCell>
+        <TableCell className="max-w-xs">
+          <div className="font-medium">{t.name}</div>
+          {SHOW_TASK_PATH ? (
+            <div className="text-xs text-muted-foreground">
+              {[t.workGroupName, t.level2, t.level3].filter(Boolean).join(" › ")}
+            </div>
+          ) : null}
+        </TableCell>
+        <TableCell className="text-xs">{t.disciplineName ?? "—"}</TableCell>
+        <TableCell className="text-xs">{t.assigneeNames.join(", ") || "—"}</TableCell>
+        <TableCell>
+          <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
+        </TableCell>
+        {/* Trạng thái: CHỈ XEM (suy từ Thực tế hoàn thành/ngày) + cờ duyệt (tooltip người duyệt). */}
+        <TableCell>
+          <div className="flex flex-col items-start gap-1">
+            <div className="flex items-center gap-1">
+              <Badge variant={statusVariant(eff)}>{TASK_STATUS_LABEL[eff] ?? eff}</Badge>
+              {late ? (
+                <Badge variant="destructive" title={`Hoàn thành trễ hạn (hạn ${t.plannedEnd})`}>
+                  Trễ hạn
+                </Badge>
+              ) : null}
+            </div>
+            {pendingApproval ? (
+              <div className="flex items-center gap-1">
+                <Badge variant="warning" title={t.approverName ? `Chờ ${t.approverName} duyệt` : "Chờ duyệt"}>
+                  Chờ duyệt
+                </Badge>
+                {canApproveStart ? (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-6"
+                    title="Duyệt — cho phép nhập thời gian"
+                    onClick={() => approveStart(t)}
+                  >
+                    <ShieldCheck className="size-3.5" />
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            {!pendingApproval ? (
+              <Badge
+                variant="success"
+                title={t.approvedByName ? `Đã duyệt bởi ${t.approvedByName}` : "Đã giao / được duyệt để làm"}
+              >
+                Đã duyệt
+              </Badge>
+            ) : null}
+          </div>
+        </TableCell>
+        {/* Ngày bắt đầu — chỉ xem */}
+        <TableCell className="text-xs text-muted-foreground">{t.plannedStart || "—"}</TableCell>
+        {/* Hạn — chỉ xem (đỏ nếu quá hạn) */}
+        <TableCell className="text-xs">
+          {t.plannedEnd ? (
+            <span className={cn(overdue && "font-medium text-red-600")}>{t.plannedEnd}</span>
+          ) : (
+            "—"
+          )}
+        </TableCell>
+        {/* Thực tế hoàn thành — nhập ngày → trạng thái tự nhảy Hoàn thành (giống /manage).
+            Ô input cần ~150px để Chromium hiện đủ "dd/mm/yyyy" + icon lịch (hẹp hơn sẽ bị cắt icon)
+            → cột rộng + giảm padding ô (px-1) để input đủ rộng. */}
+        <TableCell className="px-1">
+          <Input
+            type="date"
+            className={cn("h-9 w-full px-2 text-xs", late && "font-medium text-red-600")}
+            value={t.actualEnd}
+            min={t.plannedStart || undefined}
+            disabled={!canEditDone}
+            title={
+              pendingApproval
+                ? "Việc đang chờ duyệt — chưa thể nhập"
+                : canEditDone
+                  ? "Đặt/đổi ngày hoàn thành thực tế (không trước ngày bắt đầu)"
+                  : "Chỉ người được giao hoặc quản lý"
+            }
+            onChange={(e) => onCompletion(t, e.target.value)}
+          />
+        </TableCell>
+        {/* Ghi giờ — đặc thù trang cá nhân (khóa khi việc đang chờ duyệt) */}
+        <TableCell className="px-2 text-center">
+          <Button
+            size="icon"
+            variant="ghost"
+            disabled={pendingApproval}
+            onClick={() => setLogging(t)}
+            title={pendingApproval ? "Việc đang chờ duyệt — chưa thể ghi giờ" : "Ghi giờ cho công việc này"}
+          >
+            <Clock className="size-4" />
+          </Button>
+        </TableCell>
+        {canManage ? (
+          <TableCell className="px-2">
+            <div className="flex items-center justify-center gap-0">
+              <Button size="icon" variant="ghost" onClick={() => setEditing(t)} title="Sửa">
+                <Pencil className="size-4" />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={() => onDelete(t)} title="Xóa">
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          </TableCell>
+        ) : null}
+      </TableRow>
+    );
+  }
+
+  function clearAllFilters() {
+    setF({
+      projectId: "",
+      disciplineId: "",
+      status: "",
+      priority: "",
+      datePreset: "",
+      dateFrom: "",
+      dateTo: "",
+    });
+    setSearch("");
+    setActiveWg("");
+    setQuick("");
+  }
+
+  // Tổng cột để đặt min-width cho bảng cuộn ngang (table-fixed).
+  const tableMinWidth =
+    MYTASKS_LOG_PX +
+    (canManage ? MYTASKS_ACT_PX : 0) +
+    MYTASKS_SORT_KEYS.reduce((s, k) => s + colWidths[k], 0);
+  const colCount = MYTASKS_SORT_KEYS.length + 1 + (canManage ? 1 : 0); // + Ghi giờ (+ Thao tác)
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-[5px]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Công việc của tôi</h1>
           <p className="text-sm text-muted-foreground">
             {filtered.length} / {tasks.length} việc được giao
-            {overdueCount > 0 ? (
-              <span className="ml-2 font-medium text-red-600">· {overdueCount} quá hạn</span>
-            ) : null}
           </p>
         </div>
-        {canManage ? (
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="size-4" /> Thêm công việc
-          </Button>
-        ) : null}
+        <Button onClick={() => setAddOpen(true)}>
+          <Plus className="size-4" /> Thêm công việc
+        </Button>
+      </div>
+
+      {/* Dải KPI cảnh báo — bấm để lọc nhanh */}
+      <div className="grid grid-cols-3 gap-2">
+        {(
+          [
+            { key: "QUA_HAN", label: "Quá hạn", n: kpi.overdue, Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
+            { key: "SAP_HAN", label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon, Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
+            { key: "DANG_LAM", label: "Đang làm", n: kpi.doing, Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
+          ] as const
+        ).map(({ key, label, n, Icon, tone }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setQuick((q) => (q === key ? "" : key))}
+            className={cn(
+              "flex items-center gap-3 rounded-lg border p-3 text-left transition",
+              tone,
+              quick === key ? "ring-2 ring-primary ring-offset-1" : "hover:brightness-95",
+            )}
+          >
+            <Icon className="size-5 shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xl font-semibold leading-none">{n}</div>
+              <div className="truncate text-xs opacity-80">{label}</div>
+            </div>
+          </button>
+        ))}
       </div>
 
       {/* Ô tìm kiếm nổi bật trên đầu */}
@@ -337,9 +711,7 @@ export function TasksClient({
           onClick={() => setActiveWg("")}
           className={cn(
             "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-            activeWg === ""
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-muted",
+            activeWg === "" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
           )}
         >
           Tất cả <span className="opacity-70">({base.length})</span>
@@ -351,9 +723,7 @@ export function TasksClient({
             onClick={() => setActiveWg(w.id)}
             className={cn(
               "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-              activeWg === w.id
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted",
+              activeWg === w.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
             )}
           >
             {w.name} <span className="opacity-70">({wgCounts.get(w.id) ?? 0})</span>
@@ -416,19 +786,7 @@ export function TasksClient({
             title="Xóa lọc"
             aria-label="Xóa lọc"
             className="shrink-0 text-muted-foreground hover:text-destructive"
-            onClick={() => {
-              setF({
-                projectId: "",
-                disciplineId: "",
-                status: "",
-                priority: "",
-                datePreset: "",
-                dateFrom: "",
-                dateTo: "",
-              });
-              setSearch("");
-              setActiveWg("");
-            }}
+            onClick={clearAllFilters}
           >
             <X />
           </Button>
@@ -453,120 +811,48 @@ export function TasksClient({
         ) : null}
       </div>
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {renderSortHead("Mã", "sumId")}
-              {renderSortHead("Công việc", "name")}
-              {renderSortHead("Dự án / Bộ môn", "project")}
-              {renderSortHead("Người thực hiện", "assignee")}
-              {renderSortHead("Ưu tiên", "priority")}
-              {renderSortHead("Trạng thái", "status")}
-              {renderSortHead("Hạn", "deadline")}
-              <TableHead className="text-center">Ghi giờ</TableHead>
-              {canManage ? <TableHead className="text-right">Thao tác</TableHead> : null}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sorted.map((t) => {
-              const overdue = isOverdue(t);
-              // Đã hoàn thành + có ngày HT thực tế → hiện gọn dưới cột Hạn (xanh: đúng hạn, đỏ: trễ).
-              const done = t.status === "HOAN_THANH" && !!t.actualEnd;
-              const lateDone = done && !!t.plannedEnd && t.actualEnd > t.plannedEnd;
-              return (
-                <TableRow key={t.id}>
-                  <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
-                  <TableCell className="max-w-xs">
-                    <div className="font-medium">{t.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {[t.workGroupName, t.level2, t.level3].filter(Boolean).join(" › ")}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {t.projectName ?? "—"}
-                    {t.disciplineName ? (
-                      <span className="text-muted-foreground"> · {t.disciplineName}</span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell className="text-xs">{t.assigneeNames.join(", ") || "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <SearchableCombobox
-                      className="h-8 text-xs"
-                      creatable={false}
-                      disabled={!canManage && !t.assigneeIds.includes(currentUserId)}
-                      value={TASK_STATUS_LABEL[t.status] ?? ""}
-                      options={TASK_STATUS_OPTIONS.map((s) => TASK_STATUS_LABEL[s])}
-                      onChange={(label) => {
-                        const st = TASK_STATUS_OPTIONS.find((s) => TASK_STATUS_LABEL[s] === label);
-                        if (st) quickStatus(t, st);
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {overdue ? (
-                      <Badge variant={statusVariant("QUA_HAN")}>Quá hạn</Badge>
-                    ) : (
-                      t.plannedEnd || "—"
-                    )}
-                    {done ? (
-                      <div
-                        className={cn(
-                          "text-[11px]",
-                          !t.plannedEnd
-                            ? "text-muted-foreground"
-                            : lateDone
-                              ? "text-red-600"
-                              : "text-emerald-600",
-                        )}
-                      >
-                        HT: {t.actualEnd}
-                        {t.plannedEnd ? (lateDone ? " (trễ)" : " ✓") : null}
-                      </div>
-                    ) : null}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setLogging(t)}
-                      title="Ghi giờ cho công việc này"
-                    >
-                      <Clock className="size-4" />
-                    </Button>
-                  </TableCell>
-                  {canManage ? (
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="ghost" onClick={() => setEditing(t)} title="Sửa">
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" onClick={() => onDelete(t)} title="Xóa">
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              );
-            })}
-            {filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={canManage ? 9 : 8} className="py-8 text-center text-muted-foreground">
-                  Không có công việc phù hợp
-                </TableCell>
-              </TableRow>
+      <Table
+        className="table-fixed"
+        wrapperClassName="max-h-[calc(100svh-40px)] overflow-auto rounded-lg border"
+        style={{ minWidth: tableMinWidth }}
+      >
+        <TableHeader className="sticky top-0 z-10 bg-background">
+          <TableRow>
+            {renderHeadCell("Mã", "sumId")}
+            {renderHeadCell("Dự án", "project")}
+            {renderHeadCell("Công việc", "name")}
+            {renderHeadCell("Bộ môn", "discipline")}
+            {renderHeadCell("Người thực hiện", "assignee")}
+            {renderHeadCell("Ưu tiên", "priority")}
+            {renderHeadCell("Trạng thái", "status")}
+            {renderHeadCell("Ngày bđ", "start")}
+            {renderHeadCell("Hạn", "deadline")}
+            {renderHeadCell("Thực tế ht", "actualEnd")}
+            <TableHead style={{ width: MYTASKS_LOG_PX }} className="px-2 text-center">
+              Ghi giờ
+            </TableHead>
+            {canManage ? (
+              <TableHead style={{ width: MYTASKS_ACT_PX }} className="px-2 text-center">
+                Thao tác
+              </TableHead>
             ) : null}
-          </TableBody>
-        </Table>
-      </div>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {sorted.map((t) => renderRow(t))}
+          {filtered.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={colCount} className="py-8 text-center text-muted-foreground">
+                Không có công việc phù hợp
+              </TableCell>
+            </TableRow>
+          ) : null}
+        </TableBody>
+      </Table>
 
-      {(creating || editing) && canManage ? (
+      {editing && canManage ? (
         <TaskDialog
-          task={editing ?? undefined}
+          task={editing}
           defaultWorkGroupId={activeWg}
           workGroups={workGroups}
           disciplines={disciplines}
@@ -574,11 +860,34 @@ export function TasksClient({
           projects={projects}
           users={users}
           catalog={catalog}
-          onClose={() => {
-            setCreating(false);
-            setEditing(null);
-          }}
+          onClose={() => setEditing(null)}
         />
+      ) : null}
+
+      {/* "Thêm công việc" (tự note): lưới có cột Người duyệt, tự gán mình làm người thực hiện;
+          việc tạo ra ở trạng thái chờ sếp duyệt. */}
+      {addOpen ? (
+        <Modal
+          open
+          onClose={() => setAddOpen(false)}
+          title="Thêm công việc (chờ duyệt)"
+          className="max-w-[96vw]"
+        >
+          <AssignClient
+            embedded
+            withApprover
+            approvers={approvers}
+            selfAssignUserId={currentUserId}
+            saveAction={saveMyTasks}
+            workGroups={workGroups}
+            disciplines={disciplines}
+            phases={phases}
+            projects={projects}
+            users={users}
+            catalog={catalog}
+            onSaved={() => setAddOpen(false)}
+          />
+        </Modal>
       ) : null}
 
       {logging ? (
@@ -614,12 +923,7 @@ function TaskDialog({
   onClose: () => void;
 }) {
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={task ? "Sửa công việc" : "Thêm công việc"}
-      className="max-w-2xl"
-    >
+    <Modal open onClose={onClose} title={task ? "Sửa công việc" : "Thêm công việc"} className="max-w-2xl">
       <TaskForm
         task={task}
         defaultWorkGroupId={defaultWorkGroupId}

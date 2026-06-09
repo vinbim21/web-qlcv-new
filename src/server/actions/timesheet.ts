@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db/client";
 import { canManage, requireUser } from "@/server/auth/permissions";
+import { isStartGateLocked } from "@/lib/task-status";
 import { canEditEntry } from "@/lib/timesheet";
 import { timesheetEntrySchema } from "@/lib/schemas/timesheet";
 import { runAction } from "./_helpers";
@@ -24,8 +25,17 @@ export async function saveTimesheetEntry(input: unknown) {
     if (data.taskId) {
       const t = await prisma.task.findUnique({
         where: { id: data.taskId },
-        select: { id: true, projectId: true, status: true, assignees: { where: { userId: user.id }, select: { id: true } } },
+        select: {
+          id: true,
+          projectId: true,
+          status: true,
+          approverId: true,
+          startApprovedAt: true,
+          assignees: { where: { userId: user.id }, select: { id: true } },
+        },
       });
+      // Cổng duyệt khởi tạo: chưa duyệt thì chưa cho ghi giờ vào việc.
+      if (t && isStartGateLocked(t)) throw new Error("Việc đang chờ duyệt — chưa thể ghi giờ");
       projectId = t?.projectId ?? null;
       if (t) task = { id: t.id, status: t.status, isAssignee: t.assignees.length > 0 };
     }

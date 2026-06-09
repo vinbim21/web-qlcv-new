@@ -211,14 +211,14 @@ export function TaskRowEditor({
             }
           />
         </Field>
-        <Field label="Trạng thái">
+        <Field label="Trạng thái (tự động)">
+          {/* Khóa: trạng thái suy theo Thực tế hoàn thành/Tạm dừng — không set tay. */}
           <SearchableCombobox
             creatable={false}
+            disabled
             value={TASK_STATUS_LABEL[f.status] ?? ""}
             options={TASK_STATUS_OPTIONS.map((s) => TASK_STATUS_LABEL[s])}
-            onChange={(label) =>
-              set({ status: TASK_STATUS_OPTIONS.find((s) => TASK_STATUS_LABEL[s] === label) ?? "CHUA_LAM" })
-            }
+            onChange={() => {}}
           />
         </Field>
 

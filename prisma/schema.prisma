@@ -45,6 +45,7 @@ enum NotificationType {
   TASK_DEADLINE_CHANGED // Việc của tôi bị dời hạn
   TASK_PRIORITY_CHANGED // Việc của tôi đổi ưu tiên
   TASK_DEADLINE_SOON // Sắp đến hạn (sinh lười khi đọc)
+  TASK_APPROVAL_REQUESTED // Có việc (NV tự tạo) chờ bạn duyệt
 }
 
 // ---------- Danh mục (lookup) ----------
@@ -159,6 +160,8 @@ model User {
 
   discipline    Discipline?      @relation(fields: [disciplineId], references: [id])
   assignments   TaskAssignee[]
+  approvedTasks Task[]           @relation("TaskApprover")
+  tasksToApprove Task[]          @relation("TaskStartApprover")
   timeSheets    TimeSheetEntry[]
   notifications Notification[]   @relation("NotifRecipient")
 
@@ -199,6 +202,15 @@ model Task {
   actualEnd       DateTime?
   note            String?
 
+  // Duyệt việc (chỉ Quản trị/Cấp 1) — null = chưa duyệt (ký duyệt SAU khi hoàn thành)
+  approvedAt   DateTime?
+  approvedById String?
+
+  // Duyệt KHỞI TẠO (luồng mới, TRƯỚC khi làm): chỉ định người duyệt; chưa duyệt thì khóa nhập thời gian.
+  // approverId != null  => việc cần duyệt khởi tạo; startApprovedAt = null => đang chờ duyệt.
+  approverId      String?
+  startApprovedAt DateTime?
+
   order     Int       @default(0)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -210,6 +222,8 @@ model Task {
   phase      Phase?         @relation(fields: [phaseId], references: [id])
   parent        Task?            @relation("TaskTree", fields: [parentId], references: [id])
   children      Task[]           @relation("TaskTree")
+  approvedBy    User?            @relation("TaskApprover", fields: [approvedById], references: [id])
+  approver      User?            @relation("TaskStartApprover", fields: [approverId], references: [id])
   assignees     TaskAssignee[]
   timeSheets    TimeSheetEntry[]
   notifications Notification[]
@@ -221,6 +235,7 @@ model Task {
   @@index([status])
   @@index([wbsPath])
   @@index([sumId])
+  @@index([approverId])
 }
 
 /// Bảng nối nhiều-nhiều: 1 công việc có thể có nhiều người (Nhân sự 01/02/03)

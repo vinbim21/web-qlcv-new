@@ -34,7 +34,8 @@ type ColKey =
   | "priority"
   | "assignees"
   | "plannedStart"
-  | "plannedEnd";
+  | "plannedEnd"
+  | "approver";
 
 const COLS_DEFAULT: ColKey[] = [
   "id", "level2", "level3", "discipline", "level5",
@@ -50,10 +51,11 @@ const COLS_B6: ColKey[] = [
   "id", "level2", "level3", "discipline", "level5", "priority", "assignees", "plannedStart", "plannedEnd",
 ];
 
-function columnsFor(code?: string): ColKey[] {
-  if (code === "3") return COLS_B3;
-  if (code === "6") return COLS_B6;
-  return COLS_DEFAULT;
+function columnsFor(code?: string, withApprover = false): ColKey[] {
+  const base = code === "3" ? COLS_B3 : code === "6" ? COLS_B6 : COLS_DEFAULT;
+  if (!withApprover) return base;
+  // "Thêm công việc" (có người duyệt): bỏ cột ngày (đặt SAU khi duyệt), thêm cột Người duyệt.
+  return [...base.filter((c) => c !== "plannedStart" && c !== "plannedEnd"), "approver"];
 }
 
 const COL_LABEL: Record<ColKey, string> = {
@@ -68,6 +70,7 @@ const COL_LABEL: Record<ColKey, string> = {
   assignees: "Người thực hiện",
   plannedStart: "Ngày BĐ",
   plannedEnd: "Ngày KT",
+  approver: "Người duyệt",
 };
 
 // Bề rộng cố định từng cột (px). Dùng cho `table-layout: fixed` để mở/đóng ô
@@ -84,6 +87,7 @@ const COL_PX: Record<ColKey, number> = {
   assignees: 230,
   plannedStart: 140,
   plannedEnd: 140,
+  approver: 180,
 };
 const IDX_PX = 40; // cột #
 const ACT_PX = 96; // cột hành động
@@ -101,6 +105,7 @@ type GridRow = {
   assigneeIds: string[];
   plannedStart: string;
   plannedEnd: string;
+  approverId: string;
 };
 
 const EMPTY: Omit<GridRow, "key"> = {
@@ -114,6 +119,7 @@ const EMPTY: Omit<GridRow, "key"> = {
   assigneeIds: [],
   plannedStart: "",
   plannedEnd: "",
+  approverId: "",
 };
 
 const INITIAL_ROWS = 5;
@@ -216,6 +222,10 @@ export function AssignClient({
   catalog,
   embedded = false,
   onSaved,
+  withApprover = false,
+  approvers = [],
+  selfAssignUserId,
+  saveAction = saveTasksBatch,
 }: {
   // workGroups kèm abbr (tiền tố Id) + lastSeq (gốc preview Id).
   workGroups: (Opt & { abbr?: string | null; lastSeq?: number })[];
@@ -227,6 +237,13 @@ export function AssignClient({
   // embedded: dùng lại lưới trong modal (ẩn tiêu đề trang). onSaved: gọi sau khi lưu xong.
   embedded?: boolean;
   onSaved?: () => void;
+  // withApprover: chế độ "Thêm công việc" — thêm cột Người duyệt (bắt buộc), bỏ cột ngày.
+  withApprover?: boolean;
+  approvers?: UserOpt[];
+  // selfAssignUserId: chế độ "tự note" — ẩn cột Người thực hiện, tự gán user này làm người thực hiện.
+  selfAssignUserId?: string;
+  // saveAction: action lưu (mặc định saveTasksBatch; "tự note" dùng saveMyTasks).
+  saveAction?: typeof saveTasksBatch;
 }) {
   const [activeWg, setActiveWg] = React.useState(workGroups[0]?.id ?? "");
   const [rowsByWg, setRowsByWg] = React.useState<Record<string, GridRow[]>>(() =>
@@ -267,7 +284,10 @@ export function AssignClient({
   };
 
   const activeGroup = workGroups.find((w) => w.id === activeWg);
-  const cols = columnsFor(activeGroup?.code);
+  // "Tự note" (selfAssignUserId): ẩn cột Người thực hiện (luôn tự gán mình).
+  const cols = columnsFor(activeGroup?.code, withApprover).filter(
+    (c) => !(selfAssignUserId && c === "assignees"),
+  );
   const tableMinWidth = IDX_PX + ACT_PX + cols.reduce((s, c) => s + colWidths[c], 0);
   const rows = rowsByWg[activeWg] ?? [];
   const sort = sortByWg[activeWg] ?? null;
@@ -331,6 +351,7 @@ export function AssignClient({
       case "assignees": return r.assigneeIds.length === 0;
       case "plannedStart": return !r.plannedStart;
       case "plannedEnd": return !r.plannedEnd;
+      case "approver": return !r.approverId;
       case "priority": return false;
     }
   };
@@ -359,6 +380,7 @@ export function AssignClient({
       }
       case "plannedStart": return a.plannedStart.localeCompare(b.plannedStart); // yyyy-mm-dd so được theo từ điển
       case "plannedEnd": return a.plannedEnd.localeCompare(b.plannedEnd);
+      case "approver": return t(userNameOf(a.approverId)).localeCompare(t(userNameOf(b.approverId)));
     }
   };
 
@@ -388,7 +410,13 @@ export function AssignClient({
   };
 
   async function onSave() {
-    const payload = rows.filter(hasContent).map((r) => ({
+    const validRows = rows.filter(hasContent);
+    // "Thêm công việc": mỗi dòng bắt buộc có Người duyệt.
+    if (withApprover && validRows.some((r) => !r.approverId)) {
+      toast.error("Mỗi dòng phải chọn Người duyệt");
+      return;
+    }
+    const payload = validRows.map((r) => ({
       workGroupId: activeWg,
       projectId: cols.includes("project") ? r.projectId || null : null,
       disciplineId: r.disciplineId || null,
@@ -397,9 +425,12 @@ export function AssignClient({
       level3: r.level3.trim() || null,
       level5: r.level5.trim() || null,
       priority: r.priority || "TRUNG_BINH",
-      plannedStart: r.plannedStart || null,
-      plannedEnd: r.plannedEnd || null,
-      assigneeIds: r.assigneeIds,
+      // withApprover: bỏ ngày (đặt sau khi duyệt) + gắn người duyệt.
+      plannedStart: withApprover ? null : r.plannedStart || null,
+      plannedEnd: withApprover ? null : r.plannedEnd || null,
+      approverId: withApprover ? r.approverId || null : null,
+      // "Tự note": ép người thực hiện = chính mình.
+      assigneeIds: selfAssignUserId ? [selfAssignUserId] : r.assigneeIds,
     }));
 
     if (payload.length === 0) {
@@ -408,10 +439,10 @@ export function AssignClient({
     }
 
     setPending(true);
-    const res = await saveTasksBatch(payload);
+    const res = await saveAction(payload);
     setPending(false);
     if (res.ok) {
-      toast.success(`Đã giao ${res.data} việc`);
+      toast.success(withApprover ? `Đã thêm ${res.data} việc (chờ duyệt)` : `Đã giao ${res.data} việc`);
       setRows(() => makeRows(INITIAL_ROWS));
       onSaved?.();
     } else {
@@ -501,6 +532,19 @@ export function AssignClient({
       case "plannedEnd":
         return (
           <Input className={CELL} type="date" value={r[col]} onChange={(e) => updateRow(r.key, { [col]: e.target.value })} />
+        );
+      case "approver":
+        return (
+          <Select
+            className={CELL}
+            value={r.approverId}
+            onChange={(e) => updateRow(r.key, { approverId: e.target.value })}
+          >
+            <option value="">— Chọn người duyệt —</option>
+            {approvers.map((u) => (
+              <option key={u.id} value={u.id}>{u.fullName}</option>
+            ))}
+          </Select>
         );
       case "level2":
       case "level3":

@@ -1,10 +1,11 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db/client";
 import { canAssign, canManage, requireUser } from "@/server/auth/permissions";
-import { shouldAutoStart } from "@/lib/task-status";
+import { completionDateError, isStartGateLocked, shouldAutoStart } from "@/lib/task-status";
 import { PRIORITY_LABEL } from "@/lib/labels";
 import {
   createNotifications,
@@ -18,10 +19,20 @@ import {
   bulkReassignSchema,
   bulkStatusSchema,
   taskBatchSchema,
+  type TaskBatchRow,
+  taskCompletionSchema,
+  taskApprovalSchema,
+  taskStartApprovalSchema,
+  taskPausedSchema,
   taskSchema,
   taskStatusSchema,
 } from "@/lib/schemas/task";
 import { runAction } from "./_helpers";
+
+const APPROVER_ROLES = new Set(["ADMIN", "LEVEL_1", "LEVEL_2"]);
+
+// Chặn nhập thời gian khi việc đang "chờ duyệt khởi tạo".
+const GATE_MSG = "Việc đang chờ duyệt — chưa thể nhập thời gian";
 
 function toDate(v?: string | null): Date | null {
   if (!v) return null;
@@ -55,6 +66,93 @@ async function ensureCatalog(workGroupId: string, level: number, value?: string 
   });
 }
 
+// Người duyệt (nếu có) phải là ADMIN / Cấp 1 / Cấp 2.
+async function validateApprovers(approverIds: string[]) {
+  if (approverIds.length === 0) return;
+  const found = await prisma.user.findMany({
+    where: { id: { in: approverIds }, deletedAt: null },
+    select: { id: true, role: true },
+  });
+  const okIds = new Set(found.filter((u) => APPROVER_ROLES.has(u.role)).map((u) => u.id));
+  if (approverIds.some((id) => !okIds.has(id))) {
+    throw new Error("Người duyệt phải là tài khoản Quản trị / Cấp 1 / Cấp 2");
+  }
+}
+
+/**
+ * Tạo nhiều việc trong 1 transaction: cấp mã "abbr-001" theo nhóm + gán người + thông báo giao việc.
+ * - forceAssigneeIds: ép danh sách người thực hiện (dùng cho "tự note việc của mình").
+ * - Việc có approverId → chờ duyệt khởi tạo (startApprovedAt null), KHÔNG kèm ngày kế hoạch.
+ * Trả về [{ id, approverId, name }] để gọi thông báo tiếp theo nếu cần.
+ */
+async function createTasksBatchTx(
+  tx: Prisma.TransactionClient,
+  rows: TaskBatchRow[],
+  opts: { actorId: string; forceAssigneeIds?: string[] },
+): Promise<{ id: string; approverId: string | null; name: string }[]> {
+  // Gom dòng theo nhóm để cấp 1 dải seq liên tục cho mỗi nhóm.
+  const byGroup = new Map<string, number[]>();
+  rows.forEach((r, i) => {
+    const list = byGroup.get(r.workGroupId);
+    if (list) list.push(i);
+    else byGroup.set(r.workGroupId, [i]);
+  });
+  const seqByIndex = new Array<number>(rows.length);
+  const sumIdByIndex = new Array<string>(rows.length);
+  for (const [workGroupId, idxs] of byGroup) {
+    const wg = await tx.workGroup.update({
+      where: { id: workGroupId },
+      data: { lastSeq: { increment: idxs.length } },
+      select: { lastSeq: true, abbr: true, code: true },
+    });
+    const firstSeq = wg.lastSeq - idxs.length + 1;
+    const prefix = wg.abbr || wg.code || "WG";
+    idxs.forEach((idx, k) => {
+      seqByIndex[idx] = firstSeq + k;
+      sumIdByIndex[idx] = `${prefix}-${String(firstSeq + k).padStart(3, "0")}`;
+    });
+  }
+
+  const out: { id: string; approverId: string | null; name: string }[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const assigneeIds = [...new Set((opts.forceAssigneeIds ?? r.assigneeIds ?? []).filter(Boolean))];
+    const name = defaultTaskName(r);
+    const gated = !!r.approverId;
+    const created = await tx.task.create({
+      data: {
+        workGroupId: r.workGroupId,
+        projectId: r.projectId || null,
+        disciplineId: r.disciplineId || null,
+        phaseId: r.phaseId || null,
+        level2: r.level2 || null,
+        level3: r.level3 || null,
+        level5: r.level5 || null,
+        name,
+        priority: r.priority ?? "TRUNG_BINH",
+        plannedStart: gated ? null : toDate(r.plannedStart),
+        plannedEnd: gated ? null : toDate(r.plannedEnd),
+        approverId: r.approverId || null,
+        startApprovedAt: null,
+        seq: seqByIndex[i],
+        sumId: sumIdByIndex[i],
+        wbsPath: randomUUID(),
+        level: 5,
+        assignees: { create: assigneeIds.map((userId, k) => ({ userId, roleNo: k + 1 })) },
+      },
+      select: { id: true, approverId: true },
+    });
+    await notifyAssignment(tx, {
+      taskId: created.id,
+      taskName: name,
+      recipientIds: assigneeIds,
+      actorId: opts.actorId,
+    });
+    out.push({ id: created.id, approverId: created.approverId, name });
+  }
+  return out;
+}
+
 export async function saveTask(input: unknown) {
   return runAction(async () => {
     const user = await requireUser();
@@ -63,6 +161,14 @@ export async function saveTask(input: unknown) {
     // Sửa việc có sẵn: chỉ Quản trị/Cấp 1. Tạo & giao việc mới: thêm cả Cấp 2.
     if (data.id) {
       if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được sửa công việc");
+      // Cổng duyệt khởi tạo: việc đang chờ duyệt thì chưa cho đặt ngày kế hoạch.
+      if (data.plannedStart || data.plannedEnd) {
+        const cur = await prisma.task.findUnique({
+          where: { id: data.id },
+          select: { approverId: true, startApprovedAt: true },
+        });
+        if (cur && isStartGateLocked(cur)) throw new Error(GATE_MSG);
+      }
     } else {
       if (!canAssign(user.role)) throw new Error("Bạn không có quyền giao việc");
     }
@@ -164,70 +270,10 @@ export async function saveTasksBatch(input: unknown) {
     const rows = taskBatchSchema.parse(input).filter((r) => r.workGroupId);
     if (rows.length === 0) throw new Error("Chưa có dòng nào để giao (cần chọn Nhóm công việc)");
 
-    // Cấp seq (Id "abbr-001" theo nhóm) một cách nguyên tử + tạo việc trong 1 transaction.
-    await prisma.$transaction(async (tx) => {
-      // Gom dòng theo nhóm để cấp 1 dải seq liên tục cho mỗi nhóm.
-      const byGroup = new Map<string, number[]>();
-      rows.forEach((r, i) => {
-        const list = byGroup.get(r.workGroupId);
-        if (list) list.push(i);
-        else byGroup.set(r.workGroupId, [i]);
-      });
+    await validateApprovers([...new Set(rows.map((r) => r.approverId).filter(Boolean) as string[])]);
 
-      const seqByIndex = new Array<number>(rows.length);
-      // Mã việc "abbr-001" cấp lúc lưu (khớp mã xem trước ở lưới Giao việc).
-      const sumIdByIndex = new Array<string>(rows.length);
-      for (const [workGroupId, idxs] of byGroup) {
-        // Tăng lastSeq một lần cho cả nhóm → khóa dòng WorkGroup, không bị đua.
-        const wg = await tx.workGroup.update({
-          where: { id: workGroupId },
-          data: { lastSeq: { increment: idxs.length } },
-          select: { lastSeq: true, abbr: true, code: true },
-        });
-        const firstSeq = wg.lastSeq - idxs.length + 1;
-        const prefix = wg.abbr || wg.code || "WG";
-        idxs.forEach((idx, k) => {
-          const seq = firstSeq + k;
-          seqByIndex[idx] = seq;
-          sumIdByIndex[idx] = `${prefix}-${String(seq).padStart(3, "0")}`;
-        });
-      }
-
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
-        // Bỏ trùng người (TaskAssignee unique theo [taskId, userId]).
-        const assigneeIds = [...new Set((r.assigneeIds ?? []).filter(Boolean))];
-        const name = defaultTaskName(r);
-        const created = await tx.task.create({
-          data: {
-            workGroupId: r.workGroupId,
-            projectId: r.projectId || null,
-            disciplineId: r.disciplineId || null,
-            phaseId: r.phaseId || null,
-            level2: r.level2 || null,
-            level3: r.level3 || null,
-            level5: r.level5 || null,
-            name,
-            priority: r.priority ?? "TRUNG_BINH",
-            plannedStart: toDate(r.plannedStart),
-            plannedEnd: toDate(r.plannedEnd),
-            seq: seqByIndex[i],
-            sumId: sumIdByIndex[i],
-            wbsPath: randomUUID(),
-            level: 5,
-            assignees: {
-              create: assigneeIds.map((userId, k) => ({ userId, roleNo: k + 1 })),
-            },
-          },
-        });
-        await notifyAssignment(tx, {
-          taskId: created.id,
-          taskName: name,
-          recipientIds: assigneeIds,
-          actorId: user.id,
-        });
-      }
-    });
+    // Cấp mã + tạo việc + thông báo giao việc trong 1 transaction (helper dùng chung).
+    await prisma.$transaction((tx) => createTasksBatchTx(tx, rows, { actorId: user.id }));
 
     // Bổ sung danh mục Level 2/3/5 mới cho từng nhóm.
     await Promise.all(
@@ -243,6 +289,55 @@ export async function saveTasksBatch(input: unknown) {
     revalidatePath("/admin/catalog");
     revalidatePath("/assign");
     revalidatePath("/manage");
+    return rows.length;
+  });
+}
+
+/**
+ * "Thêm công việc" tự-note ở trang Công việc của tôi: NV (MỌI cấp) tự tạo việc cho
+ * CHÍNH MÌNH thực hiện, bắt buộc chọn Người duyệt (sếp). Việc ở trạng thái chờ duyệt
+ * (khóa nhập thời gian) tới khi người duyệt duyệt. Gửi thông báo cho người duyệt.
+ */
+export async function saveMyTasks(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const rows = taskBatchSchema.parse(input).filter((r) => r.workGroupId);
+    if (rows.length === 0) throw new Error("Chưa có dòng nào (cần chọn Nhóm công việc)");
+    if (rows.some((r) => !r.approverId)) throw new Error("Mỗi việc phải chọn Người duyệt");
+    await validateApprovers([...new Set(rows.map((r) => r.approverId as string))]);
+
+    // Tự gán người thực hiện = chính mình.
+    const created = await prisma.$transaction((tx) =>
+      createTasksBatchTx(tx, rows, { actorId: user.id, forceAssigneeIds: [user.id] }),
+    );
+
+    // Thông báo cho người duyệt: "Có việc chờ bạn duyệt".
+    await createNotifications(
+      prisma,
+      created
+        .filter((c) => c.approverId)
+        .map((c) => ({
+          userId: c.approverId as string,
+          actorId: user.id,
+          type: "TASK_APPROVAL_REQUESTED" as const,
+          taskId: c.id,
+          title: "Có việc chờ bạn duyệt",
+          body: c.name,
+        })),
+    );
+
+    await Promise.all(
+      rows.flatMap((r) => [
+        ensureCatalog(r.workGroupId, 2, r.level2),
+        ensureCatalog(r.workGroupId, 3, r.level3),
+        ensureCatalog(r.workGroupId, 5, r.level5),
+      ]),
+    );
+
+    revalidatePath("/tasks");
+    revalidatePath("/manage");
+    revalidatePath("/reports");
+    revalidatePath("/admin/catalog");
     return rows.length;
   });
 }
@@ -266,6 +361,134 @@ export async function updateTaskStatus(input: unknown) {
         status: data.status,
         progressPercent: data.progressPercent ?? (data.status === "HOAN_THANH" ? 100 : undefined),
         actualEnd: data.status === "HOAN_THANH" ? new Date() : null,
+      },
+    });
+    revalidateTaskViews();
+  });
+}
+
+// Suy lại trạng thái khi KHÔNG hoàn thành & KHÔNG tạm dừng: Đang thực hiện nếu đã giao + tới ngày
+// bắt đầu, ngược lại Chưa làm.
+function deriveActiveStatus(plannedStart: Date | null, assigneeCount: number): "CHUA_LAM" | "DANG_LAM" {
+  const ps = plannedStart ? plannedStart.toISOString().slice(0, 10) : null;
+  return shouldAutoStart({ status: "CHUA_LAM", plannedStart: ps, assigneeCount }) ? "DANG_LAM" : "CHUA_LAM";
+}
+
+/**
+ * Đánh dấu/huỷ hoàn thành bằng ngày "Thực tế hoàn thành" — trạng thái TỰ suy.
+ * Có ngày → HOÀN THÀNH (100%). Bỏ ngày → suy lại Đang thực hiện/Chưa làm (0%).
+ * Quyền: Quản trị/Cấp 1 hoặc người được giao việc.
+ */
+export async function setTaskCompletion(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const data = taskCompletionSchema.parse(input);
+    if (!canManage(user.role)) {
+      const assigned = await prisma.taskAssignee.findFirst({
+        where: { taskId: data.id, userId: user.id },
+      });
+      if (!assigned) throw new Error("Bạn không được giao công việc này");
+    }
+    // Cổng duyệt khởi tạo: chưa duyệt thì chưa cho đặt/đổi ngày hoàn thành.
+    const gate = await prisma.task.findUnique({
+      where: { id: data.id },
+      select: { approverId: true, startApprovedAt: true, plannedStart: true },
+    });
+    if (gate && isStartGateLocked(gate)) throw new Error(GATE_MSG);
+    const date = toDate(data.actualEnd);
+    if (date) {
+      // Ngày hoàn thành không được trước ngày bắt đầu (cho phép bằng).
+      const err = completionDateError(date, gate?.plannedStart ?? null);
+      if (err) throw new Error(err);
+      await prisma.task.update({
+        where: { id: data.id },
+        data: { actualEnd: date, status: "HOAN_THANH", progressPercent: 100 },
+      });
+    } else {
+      const t = await prisma.task.findUnique({
+        where: { id: data.id },
+        select: { plannedStart: true, _count: { select: { assignees: true } } },
+      });
+      if (!t) throw new Error("Không tìm thấy công việc");
+      await prisma.task.update({
+        where: { id: data.id },
+        data: { actualEnd: null, status: deriveActiveStatus(t.plannedStart, t._count.assignees), progressPercent: 0 },
+      });
+    }
+    revalidateTaskViews();
+  });
+}
+
+/** Tạm dừng / bỏ tạm dừng — CHỈ Quản trị/Cấp 1. Không áp lên việc đã hoàn thành. */
+export async function setTaskPaused(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được tạm dừng công việc");
+    const data = taskPausedSchema.parse(input);
+    const t = await prisma.task.findUnique({
+      where: { id: data.id },
+      select: { plannedStart: true, actualEnd: true, _count: { select: { assignees: true } } },
+    });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    if (data.paused) {
+      if (t.actualEnd) throw new Error("Việc đã hoàn thành — bỏ ngày hoàn thành trước khi tạm dừng");
+      await prisma.task.update({ where: { id: data.id }, data: { status: "TAM_DUNG" } });
+    } else {
+      await prisma.task.update({
+        where: { id: data.id },
+        data: { status: deriveActiveStatus(t.plannedStart, t._count.assignees) },
+      });
+    }
+    revalidateTaskViews();
+  });
+}
+
+/** Duyệt / bỏ duyệt việc — CHỈ Quản trị/Cấp 1, chỉ áp lên việc đã hoàn thành. */
+export async function setTaskApproval(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được duyệt công việc");
+    const data = taskApprovalSchema.parse(input);
+    const t = await prisma.task.findUnique({ where: { id: data.id }, select: { actualEnd: true } });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    if (data.approved && !t.actualEnd) throw new Error("Chỉ duyệt được việc đã hoàn thành");
+    await prisma.task.update({
+      where: { id: data.id },
+      data: data.approved
+        ? { approvedAt: new Date(), approvedById: user.id }
+        : { approvedAt: null, approvedById: null },
+    });
+    revalidateTaskViews();
+  });
+}
+
+/**
+ * Duyệt KHỞI TẠO: mở/khóa cổng cho phép người được giao NHẬP thời gian.
+ * - Duyệt (approved=true): ghi startApprovedAt = now → mở khóa nhập.
+ * - Thu hồi (approved=false): xóa startApprovedAt → khóa nhập. Nếu việc CHƯA có người duyệt
+ *   (giao trực tiếp), gán luôn người thao tác làm approver để cổng (isStartGateLocked) kích hoạt.
+ * Quyền: Quản lý (ADMIN/Cấp 1) — hoặc người duyệt được chỉ định.
+ */
+export async function setTaskStartApproval(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const data = taskStartApprovalSchema.parse(input);
+    const t = await prisma.task.findUnique({
+      where: { id: data.id },
+      select: { approverId: true },
+    });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    const isApprover = !!t.approverId && t.approverId === user.id;
+    if (!canManage(user.role) && !(isApprover && canAssign(user.role))) {
+      throw new Error("Chỉ Quản lý hoặc người duyệt được chỉ định mới được duyệt");
+    }
+    await prisma.task.update({
+      where: { id: data.id },
+      data: {
+        startApprovedAt: data.approved ? new Date() : null,
+        // Thu hồi việc giao trực tiếp (chưa có approver) → gán người thao tác làm approver
+        // để việc chuyển sang trạng thái "Chờ duyệt" (cổng khóa nhập).
+        ...(!data.approved && !t.approverId ? { approverId: user.id } : {}),
       },
     });
     revalidateTaskViews();
@@ -358,7 +581,12 @@ export async function bulkSetDeadline(input: unknown) {
     if (!d) throw new Error("Ngày hạn không hợp lệ");
     const count = await prisma.$transaction(async (tx) => {
       const res = await tx.task.updateMany({
-        where: { id: { in: ids }, deletedAt: null },
+        // Bỏ qua việc đang chờ duyệt khởi tạo (chưa cho đặt thời gian).
+        where: {
+          id: { in: ids },
+          deletedAt: null,
+          OR: [{ approverId: null }, { startApprovedAt: { not: null } }],
+        },
         data: { plannedEnd: d },
       });
       await notifyTasksChange(tx, {

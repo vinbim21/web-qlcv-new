@@ -16,6 +16,8 @@
     "import:extract": "python prisma/import/extract.py",
     "import:load": "tsx prisma/import/run-all.ts",
     "import:all": "python prisma/import/extract.py && tsx prisma/import/run-all.ts",
+    "import:l3": "python prisma/import/extract.py && tsx prisma/import/update-l3.ts",
+    "import:missing": "tsx prisma/import/add-missing.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

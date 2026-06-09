@@ -8,12 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { UserMultiSelect } from "@/components/user-multi-select";
-import {
-  PRIORITY_LABEL,
-  PRIORITY_OPTIONS,
-  TASK_STATUS_LABEL,
-  TASK_STATUS_OPTIONS,
-} from "@/lib/labels";
+import { PRIORITY_LABEL, PRIORITY_OPTIONS, TASK_STATUS_LABEL } from "@/lib/labels";
 import { saveTask } from "@/server/actions/tasks";
 
 export type Opt = { id: string; name: string; code?: string };
@@ -227,13 +222,12 @@ export function TaskForm({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="status">Trạng thái</Label>
-          <Select id="status" name="status" defaultValue={task?.status ?? "CHUA_LAM"}>
-            {TASK_STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {TASK_STATUS_LABEL[s]}
-              </option>
-            ))}
-          </Select>
+          {/* Khóa: trạng thái tự suy theo "Thực tế hoàn thành"/Tạm dừng — giữ giá trị cũ qua hidden input. */}
+          <input type="hidden" name="status" value={task?.status ?? "CHUA_LAM"} />
+          <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm text-muted-foreground">
+            {TASK_STATUS_LABEL[task?.status ?? "CHUA_LAM"] ?? "Chưa làm"}
+            <span className="ml-2 text-xs">· tự động theo Thực tế hoàn thành</span>
+          </div>
         </div>
       </div>
 

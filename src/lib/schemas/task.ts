@@ -19,6 +19,8 @@ export const taskSchema = z.object({
   plannedStart: z.string().optional().nullable(),
   plannedEnd: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
+  // Người duyệt khởi tạo (luồng "Thêm công việc"). null = việc không cần duyệt khởi tạo.
+  approverId: z.string().optional().nullable(),
   // nhiều người thực hiện; roleNo = vị trí + 1
   assigneeIds: z.array(z.string()).optional(),
 });
@@ -36,6 +38,7 @@ export const taskBatchRowSchema = taskSchema.pick({
   priority: true,
   plannedStart: true,
   plannedEnd: true,
+  approverId: true,
   assigneeIds: true,
 });
 export const taskBatchSchema = z.array(taskBatchRowSchema).min(1).max(200);
@@ -45,6 +48,30 @@ export const taskStatusSchema = z.object({
   id: z.string().min(1),
   status: z.enum(["CHUA_LAM", "DANG_LAM", "HOAN_THANH", "TAM_DUNG"]),
   progressPercent: z.coerce.number().int().min(0).max(100).optional(),
+});
+
+// Đánh dấu hoàn thành bằng ngày Thực tế hoàn thành (null = bỏ hoàn thành). Trạng thái tự suy.
+export const taskCompletionSchema = z.object({
+  id: z.string().min(1),
+  actualEnd: z.string().nullable(),
+});
+
+// Tạm dừng / bỏ tạm dừng (chỉ Quản trị/Cấp 1).
+export const taskPausedSchema = z.object({
+  id: z.string().min(1),
+  paused: z.boolean(),
+});
+
+// Duyệt / bỏ duyệt việc (chỉ Quản trị/Cấp 1, chỉ với việc đã hoàn thành).
+export const taskApprovalSchema = z.object({
+  id: z.string().min(1),
+  approved: z.boolean(),
+});
+
+// Duyệt KHỞI TẠO (luồng mới): mở/khóa cổng cho phép nhập thời gian.
+export const taskStartApprovalSchema = z.object({
+  id: z.string().min(1),
+  approved: z.boolean(),
 });
 
 // ---- Thao tác hàng loạt (tab Quản lý công việc) ----

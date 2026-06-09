@@ -1,6 +1,8 @@
 "use client";
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import * as React from "react";
 import { StackedBarChart, type StackSeries } from "@/components/charts/stacked-bar-chart";
 import { Badge } from "@/components/ui/badge";
@@ -106,6 +108,27 @@ export function PivotReport({
   const [type, setType] = React.useState<PeriodType>("month");
   const [year, setYear] = React.useState<number>(defaultYear);
   const byYear = type !== "year";
+  const router = useRouter();
+
+  // Link sang /manage lọc đúng chiều (nhóm/phòng/người) + khoảng Hạn khớp scope bảng.
+  // byYear → trọn năm đang xem; tất cả-năm → range rộng (ép /manage loại việc không-hạn, khớp báo cáo).
+  // NONE_KEY ("Chưa giao"/"Chưa phân phòng") không có đích filter → trả null (để trơ).
+  function manageHref(key: string): string | null {
+    if (key === NONE_KEY) return null;
+    const p = new URLSearchParams();
+    if (mode === "group") p.set("group", key);
+    else if (mode === "phong") p.set("phong", key);
+    else if (mode === "user") p.set("user", key);
+    else return null;
+    if (byYear) {
+      p.set("from", `${year}-01-01`);
+      p.set("to", `${year}-12-31`);
+    } else {
+      p.set("from", "0001-01-01");
+      p.set("to", "9999-12-31");
+    }
+    return `/manage?${p.toString()}`;
+  }
 
   // Việc trong phạm vi đang xem (theo Hạn). type=Năm → toàn bộ (có hạn).
   const inScope = React.useMemo(
@@ -260,9 +283,28 @@ export function PivotReport({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {aggs.map((a) => (
-                <TableRow key={a.key}>
-                  <TableCell className="font-medium">{a.label}</TableCell>
+              {aggs.map((a) => {
+                const href = manageHref(a.key);
+                return (
+                <TableRow
+                  key={a.key}
+                  className={cn(href && "cursor-pointer hover:bg-muted/50")}
+                  onClick={href ? () => router.push(href) : undefined}
+                >
+                  <TableCell className="font-medium">
+                    {href ? (
+                      <Link
+                        href={href}
+                        className="text-primary underline-offset-2 hover:underline"
+                        title={`Mở ở Quản lý công việc: ${a.label}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {a.label}
+                      </Link>
+                    ) : (
+                      a.label
+                    )}
+                  </TableCell>
                   <TableCell className="text-right font-semibold">{a.total}</TableCell>
                   {STATUS_KEYS.map((k) => (
                     <TableCell key={k} className="text-right text-sm">
@@ -279,7 +321,8 @@ export function PivotReport({
                     </TableCell>
                   ))}
                 </TableRow>
-              ))}
+                );
+              })}
               {aggs.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">

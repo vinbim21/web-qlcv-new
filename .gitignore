@@ -45,3 +45,14 @@ next-env.d.ts
 
 # Backup DB (dump JSON cục bộ — không đẩy lên git)
 /backup
+
+# File chứa thông tin nhạy cảm / cấu hình cục bộ — KHÔNG đẩy lên git
+/docs/TAI-KHOAN-CAP-PHAT.xlsx
+.claude/
+.mcp.json
+
+# temp Supabase sync creds (never commit)
+prisma/import/supabase-sync.env
+prisma/import/*.tmp.sql
+.env.supabase.tmp
+prisma/import/.pgpass

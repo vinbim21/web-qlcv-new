@@ -9,13 +9,31 @@ function iso(d: Date | null): string {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
-export default async function ManagePage() {
+export default async function ManagePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user) return null;
   // Chỉ Admin / Cấp 1 / Cấp 2 được vào trang Quản lý công việc.
   if (!canAssign(session.user.role)) redirect("/tasks");
   const manage = canManage(session.user.role);
   const assign = canAssign(session.user.role);
+
+  // Deep-link từ Báo cáo: lấy ?user/group/phong/from/to (server-side → SSR-safe, không cần useSearchParams).
+  const sp = await searchParams;
+  const pick = (k: string): string => {
+    const v = sp[k];
+    return Array.isArray(v) ? (v[0] ?? "") : (v ?? "");
+  };
+  const initial = {
+    user: pick("user"),
+    group: pick("group"),
+    phong: pick("phong"),
+    from: pick("from"),
+    to: pick("to"),
+  };
 
   const [tasks, lookups] = await Promise.all([
     prisma.task.findMany({
@@ -25,6 +43,8 @@ export default async function ManagePage() {
         discipline: true,
         phase: true,
         project: true,
+        approvedBy: { select: { fullName: true } },
+        approver: { select: { fullName: true } },
         assignees: { include: { user: true }, orderBy: { roleNo: "asc" } },
       },
       orderBy: [{ workGroupId: "asc" }, { createdAt: "asc" }],
@@ -35,6 +55,9 @@ export default async function ManagePage() {
 
   return (
     <ManageClient
+      // Đổi deep-link (từ Báo cáo) → key đổi → remount để seed lại bộ lọc đúng tham số mới.
+      key={`${initial.user}|${initial.group}|${initial.phong}|${initial.from}|${initial.to}`}
+      initial={initial}
       currentUserId={session.user.id}
       canManage={manage}
       canAssign={assign}
@@ -48,6 +71,7 @@ export default async function ManagePage() {
         projectName: t.project?.name ?? null,
         disciplineId: t.disciplineId,
         disciplineName: t.discipline?.name ?? null,
+        disciplineCode: t.discipline?.code ?? null,
         phaseId: t.phaseId,
         phaseName: t.phase?.name ?? null,
         level2: t.level2,
@@ -59,11 +83,18 @@ export default async function ManagePage() {
         progressPercent: t.progressPercent,
         plannedStart: iso(t.plannedStart),
         plannedEnd: iso(t.plannedEnd),
+        actualEnd: iso(t.actualEnd),
         note: t.note,
         measureNorm: t.measureNorm,
+        approved: !!t.approvedAt,
+        approvedByName: t.approvedBy?.fullName ?? null,
+        approverId: t.approverId,
+        approverName: t.approver?.fullName ?? null,
+        startApproved: !!t.startApprovedAt,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
       }))}
+      isAdmin={session.user.role === "ADMIN"}
       workGroups={lookups.workGroups}
       disciplines={lookups.disciplines}
       phases={lookups.phases}

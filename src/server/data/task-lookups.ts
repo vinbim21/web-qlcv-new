@@ -40,6 +40,10 @@ export async function getTaskLookups() {
     // name = nhãn hiển thị "mã — tên"; code = mã (L2), l3 = tên (L3) thô để đồng bộ lưới Giao việc.
     projects: projects.map((p) => ({ id: p.id, name: `${p.code} — ${p.name}`, code: p.code, l3: p.name })),
     users: users.map((u) => ({ id: u.id, fullName: u.fullName })),
+    // Người duyệt (luồng "Thêm công việc"): chỉ tài khoản ADMIN / Cấp 1 / Cấp 2.
+    approvers: users
+      .filter((u) => u.role === "ADMIN" || u.role === "LEVEL_1" || u.role === "LEVEL_2")
+      .map((u) => ({ id: u.id, fullName: u.fullName })),
     catalog,
   };
 }

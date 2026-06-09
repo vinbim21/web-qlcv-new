@@ -23,6 +23,8 @@ export default async function TasksPage() {
         discipline: true,
         phase: true,
         project: true,
+        approvedBy: { select: { fullName: true } },
+        approver: { select: { fullName: true } },
         assignees: { include: { user: true }, orderBy: { roleNo: "asc" } },
       },
       orderBy: [{ workGroupId: "asc" }, { createdAt: "asc" }],
@@ -57,14 +59,21 @@ export default async function TasksPage() {
         plannedEnd: iso(t.plannedEnd),
         actualEnd: iso(t.actualEnd),
         note: t.note,
+        approved: !!t.approvedAt,
+        approvedByName: t.approvedBy?.fullName ?? null,
+        approverId: t.approverId,
+        approverName: t.approver?.fullName ?? null,
+        startApproved: !!t.startApprovedAt,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
       }))}
+      isAdmin={session.user.role === "ADMIN"}
       workGroups={lookups.workGroups}
       disciplines={lookups.disciplines}
       phases={lookups.phases}
       projects={lookups.projects}
       users={lookups.users}
+      approvers={lookups.approvers}
       catalog={lookups.catalog}
     />
   );
