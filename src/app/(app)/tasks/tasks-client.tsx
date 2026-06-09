@@ -77,6 +77,9 @@ export type TaskRow = {
 // Tạm ẩn dòng đường dẫn (Nhóm › Cấp 2 › Cấp 3) dưới tên việc. Đổi true để hiện lại.
 const SHOW_TASK_PATH = false;
 
+// Nhóm việc hiện Level 3 ở cột "Dự án" (vì nhóm này không gắn dự án).
+const WG_SHOW_L3_IN_PROJECT = "Phát triển BIM Tools";
+
 function isPendingApproval(t: TaskRow): boolean {
   return !!t.approverId && !t.startApproved;
 }
@@ -508,7 +511,11 @@ export function TasksClient({
     return (
       <TableRow key={t.id}>
         <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
-        <TableCell className="text-xs">{t.projectName ?? "—"}</TableCell>
+        <TableCell className="text-xs">
+          {t.workGroupName === WG_SHOW_L3_IN_PROJECT
+            ? t.level3 || t.projectName || "—"
+            : (t.projectName ?? "—")}
+        </TableCell>
         <TableCell className="max-w-xs">
           <div className="font-medium">{t.name}</div>
           {SHOW_TASK_PATH ? (
