@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Cắt bê tông — ConcreteCut for Revit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Carlito:wght@400;700&family=Oswald:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body style="background:#3a3d44;">
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="components.jsx"></script>
+
+<script type="text/babel">
+const { useState, useMemo, useRef, useEffect } = React;
+
+/* ---- model objects + slice math --------------------------------- */
+const axisOf = (plane) => plane === 'XY' ? 'z' : plane === 'XZ' ? 'y' : 'x';
+const volOf  = (o) => (o.dim.x/1000)*(o.dim.y/1000)*(o.dim.z/1000); // m³
+
+// Library of pickable Revit elements (mm). PickBtn adds the next unused one.
+const LIBRARY = [
+  { id: 348201, name: 'Sàn bê tông · Concrete-300', cat: 'Floor',              icon: 'deployed_code',     dim: { x: 3200, y: 1700, z: 2100 } },
+  { id: 348455, name: 'Dầm BTCT · C30 · 300×600',   cat: 'Structural Framing',  icon: 'horizontal_rule',   dim: { x: 5400, y: 300,  z: 600  } },
+  { id: 349102, name: 'Tường BTCT · 200',           cat: 'Wall',                icon: 'square',            dim: { x: 4200, y: 200,  z: 3000 } },
+  { id: 349550, name: 'Cột bê tông · 400×400',      cat: 'Structural Column',   icon: 'view_column',       dim: { x: 400,  y: 400,  z: 3600 } },
+];
+
+const DEF_CFG = () => ({ mode: 'equal', count: 5, spacing: 400, custom: '300, 500, 600, 400' });
+
+// custom slice edges (normalized 0..1) from a comma list of slice thicknesses (mm)
+const customEdges = (str, dim) => {
+  const vals = String(str || '').split(/[^0-9.]+/).map(Number).filter(v => v > 0);
+  const edges = [0]; let acc = 0;
+  for (const v of vals) { acc += v; if (acc >= dim - 1) break; edges.push(acc / dim); }
+  edges.push(1);
+  return edges;
+};
+
+function useCut() {
+  const [objects, setObjects] = useState([LIBRARY[0], LIBRARY[1]]); // demo: 2 picked
+  // per-object slice config keyed by element id
+  const [cfg, setCfg] = useState({
+    [LIBRARY[0].id]: { mode: 'equal', count: 5, spacing: 400 },
+    [LIBRARY[1].id]: { mode: 'equal', count: 8, spacing: 300 },
+  });
+  const [activeId, setActiveId] = useState(LIBRARY[0].id);
+  const [plane, setPlane]     = useState('XZ');
+  const [selectMethod, setSelectMethod] = useState('pick'); // 'pick' | 'sweep'
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [done, setDone]       = useState(false);
+
+  const addObject = () => {
+    const next = LIBRARY.find(o => !objects.some(s => s.id === o.id));
+    if (next) {
+      setObjects([...objects, next]);
+      setCfg(c => ({ ...c, [next.id]: c[next.id] || DEF_CFG() }));
+      setActiveId(next.id);
+    }
+  };
+  const removeObject = (id) => {
+    const rest = objects.filter(o => o.id !== id);
+    setObjects(rest);
+    if (id === activeId && rest[0]) setActiveId(rest[0].id);
+  };
+
+  // slices for any object, honouring its own config + current plane
+  const sliceCountOf = (o) => {
+    const c = cfg[o.id] || DEF_CFG();
+    const d = o.dim[axisOf(plane)];
+    if (c.mode === 'equal') return c.count;
+    if (c.mode === 'spacing') return Math.max(1, Math.floor(d / Math.max(1, c.spacing)));
+    return customEdges(c.custom, d).length - 1; // custom
+  };
+
+  const active = objects.find(o => o.id === activeId) || objects[0];
+  const aCfg = (active && cfg[active.id]) || DEF_CFG();
+  const updateActive = (patch) =>
+    setCfg(c => ({ ...c, [active.id]: { ...(c[active.id] || DEF_CFG()), ...patch } }));
+  const applyToAll = () =>
+    setCfg(c => { const n = { ...c }; objects.forEach(o => { n[o.id] = { ...aCfg }; }); return n; });
+
+  const dim = active ? active.dim[axisOf(plane)] : 0;
+  const slices = active ? sliceCountOf(active) : 0;
+  const thickness = aCfg.mode === 'equal' ? (dim / aCfg.count) : aCfg.spacing;
+  const activeEdges = active && aCfg.mode === 'custom' ? customEdges(aCfg.custom, dim) : null;
+  const cuts = Math.max(0, slices - 1);
+  const remainder = aCfg.mode === 'spacing' ? dim - slices * aCfg.spacing : 0;
+  const totalVolume = objects.reduce((a, o) => a + volOf(o), 0);
+  const totalSlices = objects.reduce((a, o) => a + sliceCountOf(o), 0);
+  const mixed = objects.length > 1 && objects.some(o => sliceCountOf(o) !== slices);
+  const dimsM = active ? { x: active.dim.x/1000, y: active.dim.y/1000, z: active.dim.z/1000 } : null;
+
+  const run = () => {
+    if (running || !objects.length) return;
+    setDone(false); setRunning(true); setProgress(0);
+    let p = 0;
+    const t = setInterval(() => {
+      p += Math.random()*16 + 7;
+      if (p >= 100) { p = 100; clearInterval(t); setRunning(false); setDone(true); }
+      setProgress(p);
+    }, 180);
+  };
+
+  return { objects, addObject, removeObject, activeId, setActiveId, active, dimsM, sliceCountOf,
+           plane, setPlane, applyToAll, mixed,
+           selectMethod, setSelectMethod,
+           mode: aCfg.mode, setMode: (m) => updateActive({ mode: m }),
+           count: aCfg.count, setCount: (n) => updateActive({ count: n }),
+           spacing: aCfg.spacing, setSpacing: (n) => updateActive({ spacing: n }),
+           custom: aCfg.custom, setCustom: (v) => updateActive({ custom: v }), activeEdges,
+           running, progress, done, setDone, run,
+           dim, slices, thickness, cuts, remainder, totalVolume, totalSlices };
+}
+
+const fmt = (n, d=0) => n.toLocaleString('vi-VN', {maximumFractionDigits:d, minimumFractionDigits:d});
+
+/* ---- shared sub-pieces ------------------------------------------ */
+function ObjectPicker({ s, compact }) {
+  const total = s.objects.length;
+  if (!total) {
+    return (
+      <div className="obj-empty">
+        <span className="mi">ads_click</span>
+        <div style={{fontSize:12.5, fontWeight:700, color:'#6b6e7a'}}>Chưa chọn đối tượng</div>
+        <button className="v-btn v-action wide" onClick={s.addObject}>
+          <span className="mi" style={{fontSize:17}}>touch_app</span>Chọn trên mô hình
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div style={{display:'flex', flexDirection:'column', gap:8, flex: compact?'none':1, minHeight:0}}>
+      <div className="obj-list" style={{flex:'none'}}>
+        {s.objects.map(o => {
+          const isActive = o.id === s.activeId;
+          return (
+            <div key={o.id} className={`obj-row ${isActive?'active':''}`}
+                 onClick={()=>s.setActiveId(o.id)}
+                 style={isActive ? {borderColor:'#BA6C28', boxShadow:'0 0 0 1px rgba(186,108,40,0.35)'} : null}>
+              <span className="glyph"><span className="mi" style={{fontSize:17}}>{o.icon}</span></span>
+              <div className="col">
+                <div className="nm">{o.name}</div>
+                <div className="meta">{o.cat} · Id {o.id} · {o.dim.x}×{o.dim.y}×{o.dim.z}</div>
+              </div>
+              <span style={{fontFamily:"'JetBrains Mono',monospace", fontSize:11, fontWeight:600,
+                            color:'#BA6C28', background:'rgba(226,172,36,0.13)',
+                            border:'1px solid rgba(186,108,40,0.28)', borderRadius:10,
+                            padding:'1px 8px', flexShrink:0, whiteSpace:'nowrap'}}>{s.sliceCountOf(o)} lát</span>
+              <span className="vol">{fmt(volOf(o),2)} m³</span>
+              <button className="del" onClick={(e)=>{e.stopPropagation(); s.removeObject(o.id);}} title="Bỏ chọn"><span className="mi" style={{fontSize:16}}>close</span></button>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:'flex', alignItems:'center', gap:8}}>
+        <button className="v-btn v-action wide" onClick={s.addObject}
+                disabled={s.objects.length >= LIBRARY.length}
+                style={s.objects.length >= LIBRARY.length ? {opacity:0.45, cursor:'default'} : null}>
+          <span className="mi" style={{fontSize:16}}>add</span>Thêm đối tượng
+        </button>
+        <div style={{flex:1}} />
+        <span style={{fontSize:11, color:'#888', fontWeight:700}}>{total} đối tượng · {fmt(s.totalVolume,2)} m³</span>
+      </div>
+    </div>
+  );
+}
+
+function PickBtn({ s }) {
+  const full = s.objects.length >= LIBRARY.length;
+  return (
+    <button className="v-btn" onClick={s.addObject} disabled={full}
+      style={{height:22, padding:'0 10px', borderRadius:5, border:0, cursor: full?'default':'pointer',
+              background:'var(--vin-btn-blue-grad)', color:'#fff', fontWeight:700,
+              fontSize:11.5, gap:5, boxShadow:'1px 1px 4px lightgray', fontFamily:'inherit',
+              opacity: full?0.45:1}}>
+      <span className="mi" style={{fontSize:14}}>touch_app</span>Chọn đối tượng
+    </button>
+  );
+}
+
+function PlaneRow({ s }) {
+  return (
+    <div style={{display:'flex', flexDirection:'column', gap:12}}>
+      <SegPlane value={s.plane} onChange={s.setPlane} />
+      <div style={{display:'flex', gap:8}}>
+        <div style={{flex:1}}>
+          <VTopBox label="Offset gốc" value="0" onChange={()=>{}} mono unit="mm" />
+        </div>
+        <div style={{flex:1}}>
+          <VTopBox label="Góc xoay" value="0" onChange={()=>{}} mono unit="°" />
+        </div>
+        <button className="v-btn v-util" title="Chọn mặt phẳng tham chiếu trên mô hình">
+          <span className="mi" style={{fontSize:16}}>touch_app</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* segmented mode toggle reused */
+function ModeSeg({ s }) {
+  return (
+    <div className="v-seg" style={{width:'100%'}}>
+      <div className={`seg ${s.mode==='equal'?'active':''}`} style={{flex:1, flexDirection:'row', gap:6, padding:'7px 0'}} onClick={()=>s.setMode('equal')}>
+        <span className="mi glyph" style={{fontSize:16}}>format_line_spacing</span>Chia đều
+      </div>
+      <div className={`seg ${s.mode==='spacing'?'active':''}`} style={{flex:1, flexDirection:'row', gap:6, padding:'7px 0'}} onClick={()=>s.setMode('spacing')}>
+        <span className="mi glyph" style={{fontSize:16}}>straighten</span>Theo khoảng cách
+      </div>
+    </div>
+  );
+}
+
+function SliceControls({ s }) {
+  return (
+    <div style={{display:'flex', flexDirection:'column', gap:12}}>
+      {s.objects.length > 1 && (
+        <div style={{display:'flex', alignItems:'center', gap:7, padding:'4px 8px',
+                     background:'#F7F8FA', border:'1px solid #ECECEC', borderRadius:6}}>
+          <span className="mi" style={{fontSize:15, color:'#BA6C28'}}>{s.active && s.active.icon}</span>
+          <span style={{fontSize:11.5, fontWeight:700, color:'#2f3578', maxWidth:150,
+                        overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{s.active && s.active.name}</span>
+          <div style={{flex:1}} />
+          <button className="v-btn" onClick={s.applyToAll}
+            style={{height:22, padding:'0 9px', borderRadius:5, border:'1px solid #b8c0cc',
+                    background:'#d6dce4', color:'#1E235B', fontWeight:700, fontSize:11, gap:4,
+                    cursor:'pointer', fontFamily:'inherit'}}>
+            <span className="mi" style={{fontSize:14}}>done_all</span>Áp dụng tất cả
+          </button>
+        </div>
+      )}
+      <ModeSeg s={s} />
+      {s.mode === 'equal' ? (
+        <div style={{display:'flex', alignItems:'center', gap:12}}>
+          <div>
+            <div className="field-lbl">Số lát cắt</div>
+            <NumberStepper value={s.count} onChange={s.setCount} min={1} max={120} />
+          </div>
+          <div style={{flex:1}} />
+          <div style={{textAlign:'right'}}>
+            <div className="field-lbl" style={{justifyContent:'flex-end'}}>Bề dày / lát</div>
+            <div style={{fontFamily:"'JetBrains Mono',monospace", fontSize:18, fontWeight:600, color:'#2f3578'}}>
+              {fmt(s.thickness)} <span style={{fontSize:12, color:'#888'}}>mm</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{display:'flex', alignItems:'center', gap:12}}>
+          <div>
+            <div className="field-lbl">Khoảng cách lát</div>
+            <NumberStepper value={s.spacing} onChange={s.setSpacing} min={20} max={s.dim} />
+          </div>
+          <div style={{flex:1}} />
+          <div style={{textAlign:'right'}}>
+            <div className="field-lbl" style={{justifyContent:'flex-end'}}>Số lát (≈)</div>
+            <div style={{fontFamily:"'JetBrains Mono',monospace", fontSize:18, fontWeight:600, color:'#2f3578'}}>
+              {s.slices}{s.remainder>1 && <span style={{fontSize:11, color:'#CC8926', marginLeft:4}}>+ dư {fmt(s.remainder)}mm</span>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatTiles({ s }) {
+  return (
+    <div className="stat-tiles">
+      <div className="stat-tile"><span className="v">{s.slices}</span><span className="l">Lát · đang chọn</span></div>
+      <div className="stat-tile"><span className="v">{s.objects.length}</span><span className="l">Đối tượng</span></div>
+      <div className="stat-tile"><span className="v">{s.totalSlices}</span><span className="l">Tổng lát cắt</span></div>
+    </div>
+  );
+}
+
+function Footer({ s, label }) {
+  return (
+    <div className="v-footer">
+      {s.running ? (
+        <ProgressRow pct={s.progress} label="Đang dựng mặt cắt & tách khối..." />
+      ) : s.done ? (
+        <>
+          <span className="mi" style={{fontSize:20, color:'#40ba0f'}}>check_circle</span>
+          <span style={{fontSize:12.5, fontWeight:700, color:'#1E235B'}}>Đã tạo {s.totalSlices} lát trên {s.objects.length} đối tượng</span>
+          <div style={{flex:1}} />
+          <button className="v-btn v-cancel" onClick={()=>s.setDone(false)}>LÀM LẠI</button>
+        </>
+      ) : (
+        <>
+          <div style={{flex:1}} />
+          <button className="v-btn v-cancel">HUỶ</button>
+          <button className="v-btn v-primary" disabled={!s.objects.length} onClick={s.run}>
+            <span className="mi" style={{fontSize:18}}>content_cut</span>{label || (s.objects.length > 1 ? `CẮT ${s.objects.length} ĐT · ${s.totalSlices} LÁT` : `CẮT (${s.slices} LÁT)`)}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* =================================================================
+   VARIATION A — Bảng điều khiển dọc (preview hero on top)
+   ================================================================= */
+function VariationA() {
+  const s = useCut();
+  return (
+    <WindowsChrome title="Cắt bê tông — ConcreteCut">
+      <AppStrip count={s.objects.length} volume={fmt(s.totalVolume,2)} />
+      <div style={{flex:1, display:'flex', flexDirection:'column', gap:10, padding:10, minHeight:0, overflow:'auto'}}>
+
+        <div className="v-grp" style={{flex:'0 0 196px'}}>
+          <CutPreview plane={s.plane} slices={s.slices} dims={s.dimsM} title={s.active && s.active.name} flush />
+        </div>
+
+        <VGroup num="1" title="Chọn đối tượng" action={<PickBtn s={s} />}>
+          <ObjectPicker s={s} compact />
+        </VGroup>
+
+        <VGroup num="2" title="Mặt phẳng cắt" count={s.plane}>
+          <PlaneRow s={s} />
+        </VGroup>
+
+        <VGroup num="3" title="Số lượng lát cắt" count={`${s.slices} lát`}>
+          <SliceControls s={s} />
+        </VGroup>
+
+      </div>
+      <Footer s={s} />
+    </WindowsChrome>
+  );
+}
+
+/* =================================================================
+   VARIATION B — Hai cột: điều khiển trái + preview 3D lớn phải
+   ================================================================= */
+function VariationB() {
+  const s = useCut();
+  return (
+    <WindowsChrome title="Cắt bê tông — ConcreteCut">
+      <AppStrip count={s.objects.length} volume={fmt(s.totalVolume,2)} />
+      <div style={{flex:1, display:'grid', gridTemplateColumns:'330px minmax(0,1fr)', minHeight:0}}>
+
+        {/* LEFT — controls */}
+        <div style={{display:'flex', flexDirection:'column', gap:10, padding:10, overflow:'auto', borderRight:'1px solid #E5E5E5'}}>
+          <VGroup num="1" title="Chọn đối tượng" action={<PickBtn s={s} />}>
+            <ObjectPicker s={s} compact />
+          </VGroup>
+          <VGroup num="2" title="Mặt phẳng cắt" count={s.plane}>
+            <PlaneRow s={s} />
+          </VGroup>
+          <VGroup num="3" title="Số lượng lát cắt" count={`${s.slices} lát`}>
+            <SliceControls s={s} />
+          </VGroup>
+        </div>
+
+        {/* RIGHT — preview + stats */}
+        <div style={{display:'flex', flexDirection:'column', gap:10, padding:10, minHeight:0, background:'#F4F5F7'}}>
+          <div className="v-grp" style={{flex:1, minHeight:0}}>
+            <div className="v-grp-header">
+              <span className="mi" style={{fontSize:15, color:'#1E235B'}}>3d_rotation</span>
+              <span>Xem trước mặt cắt</span>
+              <div style={{flex:1}} />
+              <span className="count">{s.plane}</span>
+            </div>
+            <div className="v-grp-body flush" style={{flex:1, minHeight:0}}>
+              <CutPreview plane={s.plane} slices={s.slices} dims={s.dimsM} title={s.active && s.active.name} flush />
+            </div>
+          </div>
+          <StatTiles s={s} />
+        </div>
+
+      </div>
+      <Footer s={s} />
+    </WindowsChrome>
+  );
+}
+
+/* =================================================================
+   VARIATION C — Gọn theo GroupBox stack (native WPF, dùng radio gold)
+   ================================================================= */
+function FmlRadio({ active, children, onClick }) {
+  return (
+    <div className={`v-radio-fml ${active?'checked':''}`} onClick={onClick}>
+      <span className="indicator" />{children}
+    </div>
+  );
+}
+function VariationC() {
+  const s = useCut();
+  return (
+    <WindowsChrome title="Cắt bê tông — ConcreteCut">
+      <AppStrip count={s.objects.length} volume={fmt(s.totalVolume,2)} />
+      <div style={{flex:1, display:'flex', flexDirection:'column', gap:9, padding:10, minHeight:0, overflow:'auto'}}>
+
+        <VGroup num="1" title="Chọn đối tượng" action={<PickBtn s={s} />}>
+          <ObjectPicker s={s} compact />
+        </VGroup>
+
+        <VGroup num="2" title="Mặt phẳng cắt">
+          <div style={{display:'flex', gap:8, alignItems:'center'}}>
+            <SegPlane value={s.plane} onChange={s.setPlane} />
+            <div style={{flex:1}} />
+            <button className="v-btn v-action wide" title="Pick mặt phẳng">
+              <span className="mi" style={{fontSize:16}}>touch_app</span>Pick
+            </button>
+          </div>
+        </VGroup>
+
+        <VGroup num="3" title="Số lượng lát cắt" count={`${s.slices} lát`}>
+          <div style={{display:'flex', flexDirection:'column', gap:11}}>
+            {s.objects.length > 1 && (
+              <div style={{display:'flex', alignItems:'center', gap:7, padding:'4px 8px',
+                           background:'#F7F8FA', border:'1px solid #ECECEC', borderRadius:6}}>
+                <span className="mi" style={{fontSize:15, color:'#BA6C28'}}>{s.active && s.active.icon}</span>
+                <span style={{fontSize:11.5, fontWeight:700, color:'#2f3578', maxWidth:150,
+                              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{s.active && s.active.name}</span>
+                <div style={{flex:1}} />
+                <button className="v-btn" onClick={s.applyToAll}
+                  style={{height:22, padding:'0 9px', borderRadius:5, border:'1px solid #b8c0cc',
+                          background:'#d6dce4', color:'#1E235B', fontWeight:700, fontSize:11, gap:4,
+                          cursor:'pointer', fontFamily:'inherit'}}>
+                  <span className="mi" style={{fontSize:14}}>done_all</span>Tất cả
+                </button>
+              </div>
+            )}
+            <div style={{display:'flex', gap:8}}>
+              <FmlRadio active={s.mode==='equal'} onClick={()=>s.setMode('equal')}>Chia đều</FmlRadio>
+              <FmlRadio active={s.mode==='spacing'} onClick={()=>s.setMode('spacing')}>Theo k.cách</FmlRadio>
+            </div>
+            <div style={{display:'flex', alignItems:'center', gap:12}}>
+              {s.mode==='equal' ? (
+                <><div className="field-lbl" style={{margin:0}}>Số lát</div><NumberStepper value={s.count} onChange={s.setCount} min={1} max={120} /></>
+              ) : (
+                <><div className="field-lbl" style={{margin:0}}>K.cách (mm)</div><NumberStepper value={s.spacing} onChange={s.setSpacing} min={20} max={s.dim} /></>
+              )}
+              <div style={{flex:1}} />
+              <div className="count-readout">
+                <span className="big">{s.slices}</span><span className="unit">lát · {fmt(s.thickness)}mm</span>
+              </div>
+            </div>
+          </div>
+        </VGroup>
+
+        <div className="v-grp" style={{flex:1, minHeight:120}}>
+          <div className="v-grp-header"><span className="mi" style={{fontSize:14, color:'#1E235B'}}>visibility</span><span>Xem trước</span></div>
+          <div className="v-grp-body flush" style={{flex:1, minHeight:0}}>
+            <CutPreview plane={s.plane} slices={s.slices} dims={s.dimsM} flush badge={false} />
+          </div>
+        </div>
+
+      </div>
+      <Footer s={s} />
+    </WindowsChrome>
+  );
+}
+
+/* =================================================================
+   VARIATION D — Bố cục theo wireframe: cột điều khiển trái + preview lớn phải
+   "Chọn đối tượng" = radio (Pick chọn / Quét chọn)
+   ================================================================= */
+function ModeBtnRow({ s }) {
+  const MODES = [
+    { id: 'equal',   label: 'Chia đều',   icon: 'format_line_spacing' },
+    { id: 'spacing', label: 'Theo k/c',   icon: 'straighten' },
+    { id: 'custom',  label: 'K/c riêng',  icon: 'tune' },
+  ];
+  return (
+    <div className="v-seg" style={{width:'100%'}}>
+      {MODES.map(m => (
+        <div key={m.id}
+             className={`seg ${s.mode===m.id?'active':''}`}
+             style={{flex:1, flexDirection:'row', gap:6, padding:'8px 0', minWidth:0}}
+             onClick={()=>s.setMode(m.id)}>
+          <span className="mi glyph" style={{fontSize:16}}>{m.icon}</span>{m.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VariationD() {
+  const s = useCut();
+  const sel = s.objects.length;
+  return (
+    <WindowsChrome title="Cắt bê tông — ConcreteCut">
+      <AppStrip count={sel} volume={fmt(s.totalVolume,2)} />
+      <div style={{flex:1, display:'grid', gridTemplateColumns:'368px minmax(0,1fr)', minHeight:0}}>
+
+        {/* LEFT — control stack */}
+        <div style={{display:'flex', flexDirection:'column', gap:11, padding:12, overflow:'auto', borderRight:'1px solid #E5E5E5'}}>
+
+          {/* 1 — Chọn đối tượng (radio) */}
+          <VGroup num="1" title="Chọn đối tượng" count={sel ? `${sel} ĐT` : undefined}>
+            <div style={{display:'flex', gap:18}}>
+              <VRadio checked={s.selectMethod==='pick'}  onClick={()=>s.setSelectMethod('pick')}
+                      label="Pick chọn"  hint="Click từng cấu kiện" icon="touch_app" />
+              <VRadio checked={s.selectMethod==='sweep'} onClick={()=>s.setSelectMethod('sweep')}
+                      label="Quét chọn" hint="Khoanh vùng nhiều" icon="select_all" />
+            </div>
+          </VGroup>
+
+          {/* 2 — Mặt phẳng cắt */}
+          <VGroup num="2" title="Mặt phẳng cắt" count={s.plane}>
+            <div style={{display:'flex', gap:8, alignItems:'stretch'}}>
+              <SegPlane value={s.plane} onChange={s.setPlane} />
+              <div style={{flex:1}} />
+              <button className="v-btn v-action wide" title="Chọn mặt phẳng tham chiếu trên mô hình"
+                      style={{alignSelf:'stretch'}}>
+                <span className="mi" style={{fontSize:16}}>touch_app</span>Pick
+              </button>
+            </div>
+          </VGroup>
+
+          {/* 3 — Số lượng lát cắt */}
+          <VGroup num="3" title="Số lượng lát cắt" count={`${s.slices} lát`}>
+            <div style={{display:'flex', flexDirection:'column', gap:12}}>
+              <ModeBtnRow s={s} />
+
+              {s.mode === 'equal' && (
+                <div style={{display:'flex', alignItems:'center', gap:12}}>
+                  <div>
+                    <div className="field-lbl">Số lát cắt</div>
+                    <NumberStepper value={s.count} onChange={s.setCount} min={1} max={120} />
+                  </div>
+                  <div style={{flex:1}} />
+                  <div style={{textAlign:'right'}}>
+                    <div className="field-lbl" style={{justifyContent:'flex-end'}}>Bề dày / lát</div>
+                    <div style={{fontFamily:"'JetBrains Mono',monospace", fontSize:18, fontWeight:600, color:'#2f3578'}}>
+                      {fmt(s.thickness)} <span style={{fontSize:12, color:'#888'}}>mm</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {s.mode === 'spacing' && (
+                <div style={{display:'flex', alignItems:'center', gap:12}}>
+                  <div>
+                    <div className="field-lbl">Khoảng cách lát</div>
+                    <NumberStepper value={s.spacing} onChange={s.setSpacing} min={20} max={s.dim} />
+                  </div>
+                  <div style={{flex:1}} />
+                  <div style={{textAlign:'right'}}>
+                    <div className="field-lbl" style={{justifyContent:'flex-end'}}>Số lát (≈)</div>
+                    <div style={{fontFamily:"'JetBrains Mono',monospace", fontSize:18, fontWeight:600, color:'#2f3578'}}>
+                      {s.slices}{s.remainder>1 && <span style={{fontSize:11, color:'#CC8926', marginLeft:4}}>+ dư {fmt(s.remainder)}mm</span>}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {s.mode === 'custom' && (
+                <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                  <VTopBox label="Bề dày từng lát (mm)" value={s.custom} onChange={s.setCustom}
+                           mono placeholder="vd: 300, 500, 600, 400" />
+                  <div style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:'#777'}}>
+                    <span className="mi" style={{fontSize:14, color:'#BA6C28'}}>info</span>
+                    Nhập lần lượt bề dày mỗi lát, cách nhau bởi dấu phẩy. Phần còn dư thành lát cuối.
+                    <div style={{flex:1}} />
+                    <span style={{fontFamily:"'JetBrains Mono',monospace", fontWeight:700, color:'#2f3578'}}>{s.slices} lát</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </VGroup>
+
+          <StatTiles s={s} />
+        </div>
+
+        {/* RIGHT — large preview */}
+        <div style={{display:'flex', flexDirection:'column', minHeight:0, background:'#F4F5F7'}}>
+          <div className="v-grp" style={{flex:1, minHeight:0, margin:12, borderRadius:8}}>
+            <div className="v-grp-header">
+              <span className="mi" style={{fontSize:15, color:'#1E235B'}}>visibility</span>
+              <span>Xem trước</span>
+              <div style={{flex:1}} />
+              <span className="count">{s.plane} · {s.slices} lát</span>
+            </div>
+            <div className="v-grp-body flush" style={{flex:1, minHeight:0}}>
+              <CutPreview plane={s.plane} slices={s.slices} dims={s.dimsM}
+                          edges={s.activeEdges} title={s.active && s.active.name} flush />
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <Footer s={s} />
+    </WindowsChrome>
+  );
+}
+
+/* =================================================================
+   Intro / design-reasoning note
+   ================================================================= */
+function IntroNote() {
+  const Row = ({k, children}) => (
+    <div style={{display:'flex', gap:10, marginBottom:7}}>
+      <div style={{width:120, flexShrink:0, fontSize:11, fontWeight:700, letterSpacing:0.5, textTransform:'uppercase', color:'#BA6C28', paddingTop:1}}>{k}</div>
+      <div style={{flex:1, fontSize:12.5, lineHeight:1.55, color:'#333'}}>{children}</div>
+    </div>
+  );
+  return (
+    <div style={{padding:'22px 26px', fontFamily:"'Carlito',sans-serif", height:'100%', overflow:'auto'}}>
+      <div style={{fontFamily:"'Oswald',sans-serif", fontWeight:600, fontSize:22, color:'#1E235B', letterSpacing:0.4, textTransform:'uppercase'}}>Tool Cắt bê tông · Revit</div>
+      <div style={{fontSize:12, color:'#666', marginBottom:16, fontWeight:700}}>Bám VinCADTools Design System — gold/navy, Calibri · Oswald · JetBrains Mono</div>
+
+      <Row k="Bố cục">3 luồng đều theo trình tự <b>1 · Chọn đối tượng → 2 · Mặt phẳng cắt → 3 · Số lượng lát</b>, đóng khung trong GroupBox của hệ thống.</Row>
+      <Row k="Mặt phẳng">Segmented <span style={{fontFamily:"'Oswald'"}}>XY / XZ / YZ</span> + nút <i>Pick</i> (blue action) để chọn trực tiếp trên mô hình; có Offset & Góc xoay.</Row>
+      <Row k="Số lát">Hai chế độ: <b>Chia đều</b> (nhập số lát) hoặc <b>Theo khoảng cách</b> (nhập mm → suy ra số lát + phần dư).</Row>
+      <Row k="Riêng từng ĐT">Chọn được <b>nhiều đối tượng</b>; mỗi đối tượng có số lát riêng — click 1 dòng để chỉnh, hoặc <i>Áp dụng tất cả</i>. Tổng lát cộng dồn thực tế.</Row>
+      <Row k="Xem trước">Khối bê tông iso dựng lại theo thời gian thực — mặt phẳng & số lát đổi là hình cắt đổi; mạch cắt = nét đứt đỏ.</Row>
+      <Row k="Tiến trình">Thanh progress xanh + chữ "thinking" khi tách khối, đúng AccentProcessBar / Thinking TextBlock.</Row>
+      <Row k="Tương tác">Cả 3 cửa sổ bấm được: đổi mặt phẳng, +/− số lát, đổi chế độ, bấm CẮT để chạy progress.</Row>
+
+      <div style={{marginTop:14, borderLeft:'4px solid #CC8926', background:'#FFFBEB', padding:'11px 14px', borderRadius:4, fontSize:12, color:'#4A3A0F', lineHeight:1.55}}>
+        <b style={{color:'#2f3578'}}>3 phương án →</b> A: bảng điều khiển dọc (preview trên). B: hai cột, preview 3D lớn (đề xuất). C: gọn theo GroupBox, radio gold. Chọn 1 hoặc trộn ý từng phần.
+      </div>
+    </div>
+  );
+}
+
+/* ================================ APP ================================ */
+function App() {
+  return (
+    <DesignCanvas>
+      <DCSection id="new" title="Bố cục mới (theo wireframe)" subtitle="Cột điều khiển trái · Xem trước lớn bên phải — bấm thử trực tiếp">
+        <DCArtboard id="vd" label="Cắt bê tông — bố cục 2 cột" width={980} height={660} background="#E7E9EE">
+          <VariationD />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="variations" title="Các phương án trước" subtitle="Lưu lại để tham khảo">
+        <DCArtboard id="va" label="A · Bảng điều khiển dọc" width={430} height={668} background="#E7E9EE">
+          <VariationA />
+        </DCArtboard>
+        <DCArtboard id="vb" label="B · Hai cột + preview 3D lớn" width={880} height={624} background="#E7E9EE">
+          <VariationB />
+        </DCArtboard>
+        <DCArtboard id="vc" label="C · Gọn theo GroupBox" width={452} height={620} background="#E7E9EE">
+          <VariationC />
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

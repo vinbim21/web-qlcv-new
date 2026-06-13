@@ -51,8 +51,21 @@ next-env.d.ts
 .claude/
 .mcp.json
 
+# docs nhạy cảm (chứa mật khẩu tạm) / quá khổ — KHÔNG đẩy lên git
+/docs/_gen_accounts.py
+/docs/_gen_guide.py
+/docs/HUONG-DAN-SU-DUNG.docx
+/docs/Qlcv@*
+/docs/Data/
+
 # temp Supabase sync creds (never commit)
 prisma/import/supabase-sync.env
 prisma/import/*.tmp.sql
 .env.supabase.tmp
 prisma/import/.pgpass
+
+# Dump dữ liệu cục bộ (chứa passwordHash / dữ liệu thật) — KHÔNG đẩy lên git
+prisma/import/backup-*.json
+prisma/import/created-missing-*.json
+prisma/import/local-backup-*.sql
+prisma/import/supabase-data.sql
