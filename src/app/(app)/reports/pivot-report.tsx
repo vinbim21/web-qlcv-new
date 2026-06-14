@@ -1,80 +1,35 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import Link from "next/link";
+import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
-import { StackedBarChart, type StackSeries } from "@/components/charts/stacked-bar-chart";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableFooter,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { PHONG_LABEL, PHONG_ORDER, phongOf } from "@/lib/dept-map";
-import { PRIORITY_LABEL, TASK_STATUS_LABEL } from "@/lib/labels";
-import { effectiveStatus } from "@/lib/task-status";
 import { PERIOD_LABEL, PERIOD_TYPES, type PeriodType, periodLabel, periodOf, yearOf } from "@/lib/report-period";
+import { MiniLegend, type StackBucket, StackedBars } from "./report-charts";
+import { distinctYears, effStatus, STATUS_COLOR, STATUS_LABEL, type EffStatus, type TaskRow } from "./report-data";
+import { Panel } from "./report-ui";
 
-export type ReportRow = {
-  id: string;
-  groupId: string;
-  groupName: string;
-  groupOrder: number;
-  disciplineCode: string | null;
-  status: string;
-  priority: string;
-  plannedStart: string; // "YYYY-MM-DD" hoặc ""
-  plannedEnd: string; // "YYYY-MM-DD" hoặc "" (chưa có hạn)
-  assignees: { id: string; name: string }[];
-};
-
-/** Trạng thái suy diễn (gồm Quá hạn + nâng Đang thực hiện) cho 1 dòng báo cáo. */
-function effOf(r: ReportRow): string {
-  return effectiveStatus({
-    status: r.status,
-    plannedStart: r.plannedStart,
-    plannedEnd: r.plannedEnd,
-    assigneeCount: r.assignees.length,
-  });
-}
-
-export type PivotMode = "group" | "phong" | "user";
-
-const STATUS_KEYS = ["CHUA_LAM", "DANG_LAM", "HOAN_THANH", "TAM_DUNG", "QUA_HAN"] as const;
-const STATUS_COLOR: Record<string, string> = {
-  CHUA_LAM: "#94a3b8",
-  DANG_LAM: "#2563eb",
-  HOAN_THANH: "#16a34a",
-  TAM_DUNG: "#f59e0b",
-  QUA_HAN: "#dc2626",
-};
-const PRIORITY_KEYS = ["CAO", "TRUNG_BINH", "THAP"] as const;
+type Mode = "group" | "phong" | "person";
 const NONE_KEY = "__none__";
 
-type Bucket = { key: string; label: string; order: number };
+const STATUS_LEGEND = [
+  { label: "Chưa làm", color: STATUS_COLOR.CHUA_LAM },
+  { label: "Hoàn thành", color: STATUS_COLOR.HOAN_THANH, text: STATUS_COLOR.HOAN_THANH },
+  { label: "Quá hạn", color: STATUS_COLOR.QUA_HAN, text: STATUS_COLOR.QUA_HAN },
+  { label: "Tạm dừng", color: STATUS_COLOR.TAM_DUNG, text: STATUS_COLOR.TAM_DUNG },
+  { label: "Đang thực hiện", color: STATUS_COLOR.DANG_LAM, text: STATUS_COLOR.DANG_LAM },
+];
 
-function bucketsOf(row: ReportRow, mode: PivotMode): Bucket[] {
-  if (mode === "group") {
-    return [{ key: row.groupId, label: row.groupName, order: row.groupOrder }];
-  }
+type Bucket = { key: string; label: string; order: number };
+function bucketsOf(r: TaskRow, mode: Mode): Bucket[] {
+  if (mode === "group") return [{ key: r.groupId, label: r.groupName, order: r.groupOrder }];
   if (mode === "phong") {
-    const p = phongOf(row.disciplineCode);
-    return p
-      ? [{ key: p, label: PHONG_LABEL[p], order: PHONG_ORDER.indexOf(p) }]
-      : [{ key: NONE_KEY, label: "Chưa phân phòng", order: 99 }];
+    const p = phongOf(r.boMonCode);
+    return p ? [{ key: p, label: PHONG_LABEL[p], order: PHONG_ORDER.indexOf(p) }] : [{ key: NONE_KEY, label: "Chưa phân phòng", order: 99 }];
   }
-  // user — nổ theo từng người được giao (đếm theo lượt giao)
-  if (row.assignees.length === 0) {
-    return [{ key: NONE_KEY, label: "⚠ Chưa giao", order: Number.MAX_SAFE_INTEGER }];
-  }
-  return row.assignees.map((a) => ({ key: a.id, label: a.name, order: 0 }));
+  if (r.thucHien.length === 0) return [{ key: NONE_KEY, label: "⚠ Chưa giao", order: Number.MAX_SAFE_INTEGER }];
+  return r.thucHien.map((name, i) => ({ key: r.thucHienIds[i] ?? name, label: name, order: 0 }));
 }
 
 type Agg = {
@@ -86,40 +41,77 @@ type Agg = {
   priority: Record<string, number>;
 };
 
-export function PivotReport({
-  rows,
-  mode,
-  rowHeader,
-}: {
-  rows: ReportRow[];
-  mode: PivotMode;
-  rowHeader: string;
-}) {
-  const years = React.useMemo(() => {
-    const set = new Set<number>();
-    for (const r of rows) {
-      const y = yearOf(r.plannedEnd);
-      if (y != null) set.add(y);
-    }
-    return [...set].sort((a, b) => a - b);
-  }, [rows]);
+const STATUS_KEYS: EffStatus[] = ["CHUA_LAM", "DANG_LAM", "HOAN_THANH", "TAM_DUNG", "QUA_HAN"];
+const PRIO_KEYS = ["CAO", "TRUNG_BINH", "THAP"] as const;
 
-  const defaultYear = years.length ? years[years.length - 1]! : new Date().getFullYear();
+const AXIS_LABEL: Record<Mode, string> = { group: "Nhóm công việc", phong: "Phòng / Bộ môn", person: "Nhân sự" };
+const TITLE: Record<Mode, string> = { group: "Tổng hợp theo Nhóm công việc", phong: "Tổng hợp theo Phòng", person: "Tổng hợp theo Nhân sự" };
+
+export function PivotReport({ rows, mode }: { rows: TaskRow[]; mode: Mode }) {
+  const router = useRouter();
+  const years = React.useMemo(() => distinctYears(rows), [rows]);
+  const defaultYear = years.length ? years[years.length - 1] : new Date().getFullYear();
   const [type, setType] = React.useState<PeriodType>("month");
   const [year, setYear] = React.useState<number>(defaultYear);
   const byYear = type !== "year";
-  const router = useRouter();
 
-  // Link sang /manage lọc đúng chiều (nhóm/phòng/người) + khoảng Hạn khớp scope bảng.
-  // byYear → trọn năm đang xem; tất cả-năm → range rộng (ép /manage loại việc không-hạn, khớp báo cáo).
-  // NONE_KEY ("Chưa giao"/"Chưa phân phòng") không có đích filter → trả null (để trơ).
+  const inScope = React.useMemo(
+    () => rows.filter((r) => (byYear ? yearOf(r.ketThuc) === year : yearOf(r.ketThuc) != null)),
+    [rows, byYear, year],
+  );
+  const noDeadline = React.useMemo(() => rows.filter((r) => !r.ketThuc).length, [rows]);
+
+  // Biểu đồ cột chồng theo kỳ.
+  const buckets: StackBucket[] = React.useMemo(() => {
+    const map = new Map<number, StackBucket>();
+    for (const r of inScope) {
+      const p = periodOf(r.ketThuc, type);
+      if (!p) continue;
+      let b = map.get(p.idx);
+      if (!b) {
+        b = { label: periodLabel(type, p.idx), CHUA_LAM: 0, DANG_LAM: 0, HOAN_THANH: 0, TAM_DUNG: 0, QUA_HAN: 0 };
+        map.set(p.idx, b);
+      }
+      b[effStatus(r)]++;
+    }
+    return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+  }, [inScope, type]);
+
+  // Bảng pivot theo trục.
+  const aggs = React.useMemo(() => {
+    const map = new Map<string, Agg>();
+    for (const r of inScope) {
+      const eff = effStatus(r);
+      for (const b of bucketsOf(r, mode)) {
+        let a = map.get(b.key);
+        if (!a) {
+          a = { key: b.key, label: b.label, order: b.order, total: 0, status: {}, priority: {} };
+          map.set(b.key, a);
+        }
+        a.total += 1;
+        a.status[eff] = (a.status[eff] ?? 0) + 1;
+        a.priority[r.uuTien] = (a.priority[r.uuTien] ?? 0) + 1;
+      }
+    }
+    return [...map.values()].sort((x, y) => x.order - y.order || x.label.localeCompare(y.label, "vi"));
+  }, [inScope, mode]);
+
+  const totals = React.useMemo(() => {
+    const t = { total: 0, status: {} as Record<string, number>, priority: {} as Record<string, number> };
+    for (const a of aggs) {
+      t.total += a.total;
+      for (const k of STATUS_KEYS) t.status[k] = (t.status[k] ?? 0) + (a.status[k] ?? 0);
+      for (const k of PRIO_KEYS) t.priority[k] = (t.priority[k] ?? 0) + (a.priority[k] ?? 0);
+    }
+    return t;
+  }, [aggs]);
+
   function manageHref(key: string): string | null {
     if (key === NONE_KEY) return null;
     const p = new URLSearchParams();
     if (mode === "group") p.set("group", key);
     else if (mode === "phong") p.set("phong", key);
-    else if (mode === "user") p.set("user", key);
-    else return null;
+    else p.set("user", key);
     if (byYear) {
       p.set("from", `${year}-01-01`);
       p.set("to", `${year}-12-31`);
@@ -130,84 +122,32 @@ export function PivotReport({
     return `/manage?${p.toString()}`;
   }
 
-  // Việc trong phạm vi đang xem (theo Hạn). type=Năm → toàn bộ (có hạn).
-  const inScope = React.useMemo(
-    () => rows.filter((r) => (byYear ? yearOf(r.plannedEnd) === year : yearOf(r.plannedEnd) != null)),
-    [rows, byYear, year],
-  );
-  const noDeadline = React.useMemo(() => rows.filter((r) => !r.plannedEnd).length, [rows]);
-
-  // Bảng: gom theo trục (nhóm/phòng/người) cho phạm vi đang xem.
-  const aggs = React.useMemo(() => {
-    const map = new Map<string, Agg>();
-    const add = (rs: ReportRow[]) => {
-      for (const r of rs) {
-        const eff = effOf(r);
-        for (const b of bucketsOf(r, mode)) {
-          let a = map.get(b.key);
-          if (!a) {
-            a = { key: b.key, label: b.label, order: b.order, total: 0, status: {}, priority: {} };
-            map.set(b.key, a);
-          }
-          a.total += 1;
-          a.status[eff] = (a.status[eff] ?? 0) + 1;
-          a.priority[r.priority] = (a.priority[r.priority] ?? 0) + 1;
-        }
-      }
-    };
-    add(inScope);
-    return [...map.values()].sort((x, y2) => x.order - y2.order || x.label.localeCompare(y2.label, "vi"));
-  }, [inScope, mode]);
-
-
-  // Biểu đồ: số lượng + tình trạng theo kỳ.
-  const chart = React.useMemo(() => {
-    const map = new Map<number, Record<string, number>>();
-    for (const r of inScope) {
-      const p = periodOf(r.plannedEnd, type);
-      if (!p) continue;
-      let row = map.get(p.idx);
-      if (!row) {
-        row = {};
-        map.set(p.idx, row);
-      }
-      const eff = effOf(r);
-      row[eff] = (row[eff] ?? 0) + 1;
-    }
-    return [...map.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([idx, counts]) => ({ name: periodLabel(type, idx), ...counts }));
-  }, [inScope, type]);
-
-  const series: StackSeries[] = STATUS_KEYS.map((k) => ({
-    key: k,
-    label: TASK_STATUS_LABEL[k] ?? k,
-    color: STATUS_COLOR[k] ?? "#999",
-  }));
-
-  const totalRow = React.useMemo(() => {
-    const t = { total: 0, status: {} as Record<string, number>, priority: {} as Record<string, number> };
-    for (const a of aggs) {
-      t.total += a.total;
-      for (const k of STATUS_KEYS) t.status[k] = (t.status[k] ?? 0) + (a.status[k] ?? 0);
-      for (const k of PRIORITY_KEYS) t.priority[k] = (t.priority[k] ?? 0) + (a.priority[k] ?? 0);
-    }
-    return t;
-  }, [aggs]);
+  const num = (n: number, red = false) =>
+    n ? (
+      red ? (
+        <span className="inline-flex min-w-[22px] items-center justify-center rounded-md bg-red-600 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-white">
+          {n}
+        </span>
+      ) : (
+        <span className="tabular-nums text-slate-700">{n}</span>
+      )
+    ) : (
+      <span className="text-slate-300">·</span>
+    );
 
   return (
-    <div className="space-y-4">
-      {/* Điều khiển kỳ */}
+    <div className="grid gap-4">
+      {/* Chọn kỳ */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1 rounded-md border bg-card p-1">
+        <div className="inline-flex rounded-lg border border-slate-200 bg-card p-1 shadow-sm">
           {PERIOD_TYPES.map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setType(t)}
               className={cn(
-                "rounded px-3 py-1 text-sm transition-colors",
-                type === t ? "bg-primary text-primary-foreground" : "hover:bg-muted",
+                "rounded-md px-3.5 py-1.5 text-sm font-medium transition",
+                type === t ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-100",
               )}
             >
               {PERIOD_LABEL[t]}
@@ -215,143 +155,122 @@ export function PivotReport({
           ))}
         </div>
         {byYear ? (
-          <div className="flex items-center gap-2">
+          <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-card px-1.5 py-1 shadow-sm">
             <button
               type="button"
               onClick={() => setYear((y) => y - 1)}
-              className="grid size-8 place-items-center rounded-md border hover:bg-muted"
+              className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"
               aria-label="Năm trước"
             >
               <ChevronLeft className="size-4" />
             </button>
-            <span className="min-w-16 text-center text-sm font-medium">Năm {year}</span>
+            <span className="px-2 text-sm font-medium text-slate-700">Năm {year}</span>
             <button
               type="button"
               onClick={() => setYear((y) => y + 1)}
-              className="grid size-8 place-items-center rounded-md border hover:bg-muted"
+              className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"
               aria-label="Năm sau"
             >
               <ChevronRight className="size-4" />
             </button>
           </div>
         ) : (
-          <span className="text-sm text-muted-foreground">Tất cả các năm (theo Hạn)</span>
+          <span className="text-sm text-slate-500">Tất cả các năm (theo Hạn)</span>
         )}
       </div>
 
-      {noDeadline > 0 ? (
-        <p className="text-xs text-muted-foreground">
-          ⚠ {noDeadline} việc <b>chưa có hạn</b> — không tính vào trục thời gian.
+      {noDeadline > 0 && (
+        <p className="flex items-center gap-1.5 text-xs text-slate-500">
+          <AlertCircle className="size-3.5 text-amber-500" />
+          <span>
+            <span className="font-semibold">{noDeadline} việc chưa có hạn</span> — không tính vào trục thời gian.
+          </span>
         </p>
-      ) : null}
+      )}
 
-      {/* Biểu đồ theo kỳ */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Số lượng &amp; tình trạng theo {PERIOD_LABEL[type]} {byYear ? `· ${year}` : ""}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <StackedBarChart data={chart} series={series} />
-        </CardContent>
-      </Card>
+      {/* Biểu đồ cột chồng */}
+      <Panel title={`Số lượng & tình trạng theo ${PERIOD_LABEL[type]}${byYear ? ` · ${year}` : ""}`}>
+        {buckets.length ? (
+          <>
+            <StackedBars buckets={buckets} colors={STATUS_COLOR} labels={STATUS_LABEL} height={250} />
+            <div className="mt-4">
+              <MiniLegend items={STATUS_LEGEND} />
+            </div>
+          </>
+        ) : (
+          <div className="grid h-40 place-items-center text-sm text-slate-400">Không có việc có hạn trong phạm vi</div>
+        )}
+      </Panel>
 
-      {/* Bảng theo trục + ưu tiên */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Tổng hợp theo {rowHeader} {byYear ? `· năm ${year}` : "· tất cả"} ({inScope.length} việc)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="min-w-40">{rowHeader}</TableHead>
-                <TableHead className="text-right">Tổng</TableHead>
-                {STATUS_KEYS.map((k) => (
-                  <TableHead key={k} className="text-right text-xs">
-                    {TASK_STATUS_LABEL[k]}
-                  </TableHead>
-                ))}
-                {PRIORITY_KEYS.map((k) => (
-                  <TableHead key={k} className="text-right text-xs">
-                    {PRIORITY_LABEL[k]}
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+      {/* Bảng pivot */}
+      <Panel title={`${TITLE[mode]}${byYear ? ` · năm ${year}` : ""} (${inScope.length} việc)`} bodyClass="!px-0 !py-0">
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm" style={{ minWidth: 920 }}>
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
+                <th className="px-3 py-2.5 text-left">{AXIS_LABEL[mode]}</th>
+                <th className="px-3 py-2.5 text-center">Tổng</th>
+                <th className="px-3 py-2.5 text-center">Chưa làm</th>
+                <th className="px-3 py-2.5 text-center">Đang TH</th>
+                <th className="px-3 py-2.5 text-center">Hoàn thành</th>
+                <th className="px-3 py-2.5 text-center">Tạm dừng</th>
+                <th className="px-3 py-2.5 text-center">Quá hạn</th>
+                <th className="px-3 py-2.5 text-center">Cao</th>
+                <th className="px-3 py-2.5 text-center">Trung bình</th>
+                <th className="px-3 py-2.5 text-center">Thấp</th>
+              </tr>
+            </thead>
+            <tbody>
               {aggs.map((a) => {
                 const href = manageHref(a.key);
                 return (
-                <TableRow
-                  key={a.key}
-                  className={cn(href && "cursor-pointer hover:bg-muted/50")}
-                  onClick={href ? () => router.push(href) : undefined}
-                >
-                  <TableCell className="font-medium">
-                    {href ? (
-                      <Link
-                        href={href}
-                        className="text-primary underline-offset-2 hover:underline"
-                        title={`Mở ở Quản lý công việc: ${a.label}`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {a.label}
-                      </Link>
-                    ) : (
-                      a.label
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right font-semibold">{a.total}</TableCell>
-                  {STATUS_KEYS.map((k) => (
-                    <TableCell key={k} className="text-right text-sm">
-                      {k === "QUA_HAN" && (a.status[k] ?? 0) > 0 ? (
-                        <Badge variant="destructive">{a.status[k]}</Badge>
-                      ) : (
-                        (a.status[k] ?? 0) || <span className="text-muted-foreground">·</span>
-                      )}
-                    </TableCell>
-                  ))}
-                  {PRIORITY_KEYS.map((k) => (
-                    <TableCell key={k} className="text-right text-sm">
-                      {(a.priority[k] ?? 0) || <span className="text-muted-foreground">·</span>}
-                    </TableCell>
-                  ))}
-                </TableRow>
+                  <tr
+                    key={a.key}
+                    className={cn("border-b border-slate-100 hover:bg-slate-50/70", href && "cursor-pointer")}
+                    onClick={href ? () => router.push(href) : undefined}
+                  >
+                    <td className="px-3 py-3 font-medium text-slate-800">
+                      {href ? <span className="text-primary underline-offset-2 hover:underline">{a.label}</span> : a.label}
+                    </td>
+                    <td className="px-3 py-3 text-center font-semibold tabular-nums text-slate-800">{a.total}</td>
+                    <td className="px-3 py-3 text-center">{num(a.status.CHUA_LAM ?? 0)}</td>
+                    <td className="px-3 py-3 text-center">{num(a.status.DANG_LAM ?? 0)}</td>
+                    <td className="px-3 py-3 text-center">{num(a.status.HOAN_THANH ?? 0)}</td>
+                    <td className="px-3 py-3 text-center">{num(a.status.TAM_DUNG ?? 0)}</td>
+                    <td className="px-3 py-3 text-center">{num(a.status.QUA_HAN ?? 0, true)}</td>
+                    <td className="px-3 py-3 text-center">{num(a.priority.CAO ?? 0)}</td>
+                    <td className="px-3 py-3 text-center">{num(a.priority.TRUNG_BINH ?? 0)}</td>
+                    <td className="px-3 py-3 text-center">{num(a.priority.THAP ?? 0)}</td>
+                  </tr>
                 );
               })}
-              {aggs.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+              {aggs.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="py-10 text-center text-sm text-slate-400">
                     Không có việc trong phạm vi này
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-            {aggs.length > 0 ? (
-              <TableFooter>
-                <TableRow>
-                  <TableCell className="font-semibold">Tổng cộng</TableCell>
-                  <TableCell className="text-right font-semibold">{totalRow.total}</TableCell>
+                  </td>
+                </tr>
+              )}
+              {aggs.length > 0 && (
+                <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold text-slate-800">
+                  <td className="px-3 py-3">Tổng cộng</td>
+                  <td className="px-3 py-3 text-center tabular-nums">{totals.total}</td>
                   {STATUS_KEYS.map((k) => (
-                    <TableCell key={k} className="text-right font-medium">
-                      {totalRow.status[k] ?? 0}
-                    </TableCell>
+                    <td key={k} className={cn("px-3 py-3 text-center tabular-nums", k === "QUA_HAN" && "text-red-600")}>
+                      {totals.status[k] ?? 0}
+                    </td>
                   ))}
-                  {PRIORITY_KEYS.map((k) => (
-                    <TableCell key={k} className="text-right font-medium">
-                      {totalRow.priority[k] ?? 0}
-                    </TableCell>
+                  {PRIO_KEYS.map((k) => (
+                    <td key={k} className="px-3 py-3 text-center tabular-nums">
+                      {totals.priority[k] ?? 0}
+                    </td>
                   ))}
-                </TableRow>
-              </TableFooter>
-            ) : null}
-          </Table>
-        </CardContent>
-      </Card>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
     </div>
   );
 }

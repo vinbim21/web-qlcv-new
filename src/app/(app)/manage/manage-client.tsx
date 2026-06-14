@@ -6,15 +6,19 @@ import {
   ArrowDown,
   ArrowUp,
   Calendar,
+  Check,
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
   Clock,
+  Filter,
+  Flag,
   Pause,
   Pencil,
   Play,
   Plus,
+  RotateCcw,
   Search,
   ShieldCheck,
   Trash2,
@@ -23,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
@@ -33,17 +38,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   PRIORITY_LABEL,
   PRIORITY_OPTIONS,
   TASK_STATUS_LABEL,
   TASK_STATUS_OPTIONS,
   priorityVariant,
-  statusVariant,
 } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
-import { PHONG_LABEL, PHONG_ORDER, phongOf } from "@/lib/dept-map";
+import { PHONG_LABEL, phongOf } from "@/lib/dept-map";
 import { completionDateError, effectiveStatus, isCompletedLate } from "@/lib/task-status";
 import {
   bulkReassign,
@@ -58,11 +61,14 @@ import {
   updateTaskStatus,
 } from "@/server/actions/tasks";
 
-// Tạm ẩn dòng đường dẫn (Nhóm › Cấp 2 › Cấp 3) dưới tên việc. Đổi true để hiện lại.
-const SHOW_TASK_PATH = false;
-
 // Nhóm việc hiện Level 3 ở cột "Dự án" (vì nhóm này không gắn dự án).
 const WG_SHOW_L3_IN_PROJECT = "Phát triển BIM Tools";
+
+// Tinh chỉnh hiển thị bảng (mặc định chốt theo bản thiết kế — chưa làm panel Tweaks).
+const DENSITY: "compact" | "regular" | "comfy" = "regular";
+const GROUPING: "dim" | "merge" | "flat" = "dim"; // gộp cấp trực quan: làm mờ giá trị cha lặp
+const FREEZE = true; // ghim checkbox + 4 cột phân cấp khi cuộn ngang
+const SHOW_MA = false; // ẩn cột Mã mặc định
 
 type Opt = { id: string; name: string };
 // Nhóm công việc kèm mã + tiền tố Id (abbr) + bộ đếm (lastSeq) cho editor.
@@ -125,6 +131,14 @@ function effOf(t: TaskRow): string {
   });
 }
 
+// Trạng thái duyệt cho cột Tình trạng (dòng phụ): chờ duyệt khởi tạo / đã hoàn thành chưa duyệt / đã duyệt.
+type DuyetState = "CHO_DUYET" | "CHUA_DUYET" | "DA_DUYET";
+function duyetState(t: TaskRow): DuyetState {
+  if (isPendingApproval(t)) return "CHO_DUYET";
+  if (effOf(t) === "HOAN_THANH" && !t.approved) return "CHUA_DUYET";
+  return "DA_DUYET";
+}
+
 // Số ngày từ hôm nay đến hạn (âm = đã quá hạn). null nếu không có hạn / sai định dạng.
 function daysUntil(end: string): number | null {
   if (!end) return null;
@@ -159,77 +173,203 @@ function localIso(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-// Khoảng [from, to] (YYYY-MM-DD) suy ra từ preset thời gian, mốc hôm nay.
-function presetRange(preset: string): { from: string; to: string } {
-  const today = new Date(new Date().toDateString());
-  switch (preset) {
-    case "TODAY":
-      return { from: localIso(today), to: localIso(today) };
-    case "NEXT7": {
-      const end = new Date(today);
-      end.setDate(end.getDate() + 7);
-      return { from: localIso(today), to: localIso(end) };
-    }
-    case "MONTH": {
-      const first = new Date(today.getFullYear(), today.getMonth(), 1);
-      const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      return { from: localIso(first), to: localIso(last) };
-    }
+// Tháng hiện tại (YYYY-MM) — mốc cho preset "Trong tháng này".
+const THIS_MONTH = localIso(new Date()).slice(0, 7);
+function thisMonth(iso: string): boolean {
+  return !!iso && iso.slice(0, 7) === THIS_MONTH;
+}
+
+const norm = removeVietnameseTones;
+
+// ---- Cấu hình cột bảng (4 cấp phân cấp: Dự án → Loại hình → Hạng mục → Công việc) ----
+type FilterKind = "text" | "multi" | "status" | "date";
+type SortKey =
+  | "sumId"
+  | "duAn"
+  | "loaiHinh"
+  | "hangMuc"
+  | "congViec"
+  | "boMon"
+  | "thucHien"
+  | "uuTien"
+  | "tinhTrang"
+  | "batDau"
+  | "ketThuc"
+  | "thucTe";
+type ColDef = {
+  key: SortKey;
+  label: string;
+  lvl?: 1 | 2 | 3 | 4; // huy hiệu cấp + ghim trái
+  leaf?: boolean; // cấp lá (Công việc)
+  mono?: boolean;
+  filter: FilterKind;
+  opts?: string[]; // cho filter "multi"
+  labelMap?: Record<string, string>;
+};
+
+// Giá trị text của một ô (cho hiển thị + lọc multi). "thucHien" trả mảng (xem riêng).
+function colText(t: TaskRow, key: SortKey): string {
+  switch (key) {
+    case "sumId":
+      return t.sumId ?? "";
+    case "duAn":
+      return t.projectName ?? (t.workGroupName === WG_SHOW_L3_IN_PROJECT ? (t.level3 ?? "") : "");
+    case "loaiHinh":
+      return t.level2 ?? "";
+    case "hangMuc":
+      return t.level3 ?? "";
+    case "congViec":
+      return t.name;
+    case "boMon":
+      return t.disciplineName ?? "";
+    case "batDau":
+      return t.plannedStart;
+    case "ketThuc":
+      return t.plannedEnd;
+    case "thucTe":
+      return t.actualEnd;
     default:
-      return { from: "", to: "" };
+      return "";
   }
 }
 
-const DATE_PRESETS: { value: string; label: string }[] = [
-  { value: "", label: "— Thời gian —" },
-  { value: "TODAY", label: "Hôm nay" },
-  { value: "NEXT7", label: "7 ngày tới" },
-  { value: "MONTH", label: "Tháng này" },
-  { value: "QUA_HAN", label: "Quá hạn" },
-  { value: "CUSTOM", label: "Khoảng tùy chọn…" },
-];
+// Preset của các cột ngày.
+const DATE_PRESETS: Record<string, [string, string][]> = {
+  batDau: [
+    ["thang", "Trong tháng này"],
+    ["co", "Đã có ngày"],
+    ["trong", "Chưa có ngày"],
+  ],
+  ketThuc: [
+    ["quahan", "Quá hạn"],
+    ["sap", "Sắp đến hạn (≤3 ngày)"],
+    ["thang", "Trong tháng này"],
+    ["co", "Đã có ngày"],
+    ["trong", "Chưa có ngày"],
+  ],
+  thucTe: [
+    ["co", "Đã hoàn thành"],
+    ["trong", "Chưa hoàn thành"],
+    ["tre", "Hoàn thành trễ hạn"],
+  ],
+};
+function matchDate(t: TaskRow, key: SortKey, val: string): boolean {
+  const iso = colText(t, key);
+  switch (val) {
+    case "co":
+      return !!iso;
+    case "trong":
+      return !iso;
+    case "thang":
+      return thisMonth(iso);
+    case "quahan":
+      return isOverdue(t);
+    case "sap":
+      return isDueSoon(t);
+    case "tre":
+      return isCompletedLate(t);
+    default:
+      return true;
+  }
+}
 
-// Thứ tự cột Kanban + số thẻ tối đa hiển thị mỗi cột trước khi gập (bấm "xem thêm").
-const KANBAN_ORDER = ["CHUA_LAM", "DANG_LAM", "TAM_DUNG", "HOAN_THANH"] as const;
-const KANBAN_COL_LIMIT = 40;
+type StatusFilterVal = { status: string[]; duyet: string[]; tre?: boolean };
+type ColFilterVal = string | string[] | StatusFilterVal | undefined;
 
-// Kéo giãn cột bảng /manage (theo SortKey). Checkbox + Thao tác cố định, không giãn.
+function colActive(col: ColDef, v: ColFilterVal): boolean {
+  if (v == null) return false;
+  if (col.filter === "status") {
+    const sv = v as StatusFilterVal;
+    return (sv.status?.length ?? 0) > 0 || (sv.duyet?.length ?? 0) > 0 || !!sv.tre;
+  }
+  if (col.filter === "multi") return Array.isArray(v) && v.length > 0;
+  return !!v; // text / date string
+}
+
+function rowMatchesCol(t: TaskRow, col: ColDef, v: ColFilterVal): boolean {
+  if (!colActive(col, v)) return true;
+  switch (col.filter) {
+    case "text":
+      return norm(colText(t, col.key)).includes(norm(v as string));
+    case "date":
+      return matchDate(t, col.key, v as string);
+    case "status": {
+      const sv = v as StatusFilterVal;
+      const okS = !sv.status?.length || sv.status.includes(effOf(t));
+      const okD = !sv.duyet?.length || sv.duyet.includes(duyetState(t));
+      const okTre = !sv.tre || isCompletedLate(t);
+      return okS && okD && okTre;
+    }
+    case "multi": {
+      const arr = v as string[];
+      if (col.key === "thucHien") return arr.some((x) => t.assigneeNames.includes(x));
+      if (col.key === "uuTien") return arr.includes(t.priority);
+      return arr.includes(colText(t, col.key));
+    }
+    default:
+      return true;
+  }
+}
+
+// Tóm tắt điều kiện lọc của 1 cột → chip.
+function chipText(col: ColDef, v: ColFilterVal): string {
+  if (col.filter === "text") return `"${v as string}"`;
+  if (col.filter === "date") {
+    const found = DATE_PRESETS[col.key]?.find(([k]) => k === (v as string));
+    return found ? found[1] : (v as string);
+  }
+  if (col.filter === "status") {
+    const sv = v as StatusFilterVal;
+    const parts = [
+      ...(sv.status ?? []).map((s) => TASK_STATUS_LABEL[s] ?? s),
+      ...(sv.duyet ?? []).map((d) => DUYET_LABEL[d] ?? d),
+      ...(sv.tre ? ["Trễ hạn"] : []),
+    ];
+    return parts.length <= 2 ? parts.join(", ") : `${parts.length} mục`;
+  }
+  const arr = v as string[];
+  if (arr.length === 1) return col.labelMap ? (col.labelMap[arr[0]] ?? arr[0]) : arr[0];
+  return `${arr.length} mục`;
+}
+
+const DUYET_LABEL: Record<string, string> = {
+  DA_DUYET: "Đã duyệt",
+  CHO_DUYET: "Chờ duyệt",
+  CHUA_DUYET: "Chưa duyệt",
+};
+
+// Pill mềm "chấm + chữ" cho cột Tình trạng (nhẹ màu hơn badge tô đặc).
+const STATUS_SOFT: Record<string, { dot: string; pill: string }> = {
+  CHUA_LAM: { dot: "bg-slate-400", pill: "bg-slate-50 text-slate-600 ring-slate-200" },
+  DANG_LAM: { dot: "bg-blue-500", pill: "bg-blue-50 text-blue-700 ring-blue-200" },
+  HOAN_THANH: { dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+  TAM_DUNG: { dot: "bg-amber-500", pill: "bg-amber-50 text-amber-700 ring-amber-200" },
+  QUA_HAN: { dot: "bg-red-500", pill: "bg-red-50 text-red-700 ring-red-200" },
+};
+
+// Kéo giãn cột bảng /manage.
 const MANAGE_MIN_W = 80;
 const MANAGE_MAX_W = 600;
-// Sàn riêng cho các cột chứa <input type="date"> — native date input cần ~150px để hiện đủ "dd/mm/yyyy" + icon lịch,
-// hẹp hơn sẽ bị cắt còn "dd/mm/y". Áp dụng khi kéo giãn để cột ngày không bao giờ xuống dưới ngưỡng cắt chữ.
-const MANAGE_COL_MIN_W: Record<string, number> = { actualEnd: 120 };
-// v3: bỏ width cũ (v2) đang giữ giá trị hẹp cho actualEnd khiến cột bị che → nạp lại default rộng hơn.
-const MANAGE_WIDTH_KEY = "manage-col-widths-v3";
+const MANAGE_COL_MIN_W: Record<string, number> = { thucTe: 120 };
+const MANAGE_WIDTH_KEY = "manage-col-widths-v4";
+const MANAGE_SEL_PX = 36; // cột checkbox (ghim trái)
+const MANAGE_ACT_PX = 132; // cột "Thao tác"
+const MANAGE_COL_W: Record<string, number> = {
+  sumId: 150,
+  duAn: 162,
+  loaiHinh: 150,
+  hangMuc: 168,
+  congViec: 212,
+  boMon: 120,
+  thucHien: 170,
+  uuTien: 106,
+  tinhTrang: 160,
+  batDau: 116,
+  ketThuc: 116,
+  thucTe: 150,
+};
 const clampManageW = (n: number, key?: string) =>
   Math.min(MANAGE_MAX_W, Math.max(key ? (MANAGE_COL_MIN_W[key] ?? MANAGE_MIN_W) : MANAGE_MIN_W, Math.round(n)));
-const MANAGE_SEL_PX = 36; // cột checkbox
-const MANAGE_ACT_PX = 132; // cột "Thao tác" (✔ Duyệt + ✎ Sửa + 🗑 Xóa cạnh nhau)
-const MANAGE_COL_PX: Record<string, number> = {
-  sumId: 150,
-  project: 150,
-  name: 240,
-  discipline: 120,
-  assignee: 170,
-  priority: 90,
-  status: 150,
-  start: 100,
-  deadline: 110,
-  actualEnd: 130,
-};
-// Thứ tự hiển thị cột: Mã · Dự án · Công việc · Bộ môn · Người · Ưu tiên · Trạng thái · Bắt đầu · Hạn · Thực tế HT.
-const MANAGE_SORT_KEYS = [
-  "sumId",
-  "project",
-  "name",
-  "discipline",
-  "assignee",
-  "priority",
-  "status",
-  "start",
-  "deadline",
-  "actualEnd",
-] as const;
 
 // Nhãn gọn cho khoảng Hạn đến từ deep-link Báo cáo (năm trọn / tất cả thời gian / khoảng tùy ý).
 function rangeLabel(from: string, to: string): string {
@@ -239,11 +379,14 @@ function rangeLabel(from: string, to: string): string {
   return `${from || "?"} → ${to || "?"}`;
 }
 
+// Thứ tự cột Kanban + số thẻ tối đa hiển thị mỗi cột trước khi gập (bấm "xem thêm").
+const KANBAN_ORDER = ["CHUA_LAM", "DANG_LAM", "TAM_DUNG", "HOAN_THANH"] as const;
+const KANBAN_COL_LIMIT = 40;
+
 export function ManageClient({
   currentUserId,
   canManage,
   canAssign,
-  isAdmin,
   tasks,
   workGroups,
   disciplines,
@@ -269,51 +412,44 @@ export function ManageClient({
   initial?: { user: string; group: string; phong: string; from: string; to: string };
 }) {
   const router = useRouter();
-  // Deep-link từ Báo cáo: giá trị khởi tạo do server (page.tsx) đọc ?user/group/phong/from/to và truyền xuống.
-  // Seed thẳng vào state (không dùng effect → tránh setState-in-effect & SSR-safe).
+  // Deep-link từ Báo cáo: chỉ còn các điều kiện không nằm trong filter-theo-cột
+  // (1 nhân sự, 1 Phòng, khoảng Hạn từ/đến). Các điều kiện còn lại đã chuyển thành filter cột.
   const [f, setF] = React.useState({
-    projectId: "",
-    disciplineId: "",
-    status: "",
-    priority: "",
-    // Lọc theo trạng thái duyệt. "" = tất cả | CHO_DUYET (chờ duyệt khởi tạo) | CHUA_DUYET (đã HT, chưa duyệt) | DA_DUYET.
-    approval: "",
-    // Lọc theo 1 nhân sự (userId). "" = tất cả. Có thể đến từ ?user=<id> (deep-link từ Báo cáo).
     userId: initial?.user ?? "",
-    // Lọc theo 1 Phòng (XD/MEPF/HT/IT, suy từ bộ môn). "" = tất cả. Có thể đến từ ?phong=<mã>.
     phong: initial?.phong ?? "",
-    // Lọc theo thời gian (Hạn). datePreset: "" | TODAY | NEXT7 | MONTH | QUA_HAN | CUSTOM.
-    datePreset: initial?.from || initial?.to ? "CUSTOM" : "",
     dateFrom: initial?.from ?? "",
     dateTo: initial?.to ?? "",
   });
   const [activeWg, setActiveWg] = React.useState(initial?.group ?? ""); // "" = Tất cả (tab Bảng)
-  // Đã vào từ link Báo cáo (có ít nhất 1 tham số deep-link) → hiện dải "đang lọc theo Báo cáo".
   const fromReport = Boolean(
     initial && (initial.user || initial.group || initial.phong || initial.from || initial.to),
   );
   const [search, setSearch] = React.useState("");
-  // Gõ tới đâu ô phản hồi ngay; việc lọc dùng giá trị "trễ" nên không giật (React 19).
   const deferredSearch = React.useDeferredValue(search);
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
-  // Lưới "Giao việc" (module Giao việc cũ) mở trong modal gần kín màn hình.
   const [bulkOpen, setBulkOpen] = React.useState(false);
-  // Lọc nhanh từ dải KPI (riêng với dropdown Trạng thái để không xung đột).
-  const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">(
-    "",
-  );
+  // Lọc nhanh từ dải KPI.
+  const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">("");
   // Chế độ xem: gom theo người (mặc định) / bảng phẳng / Kanban.
   const [viewMode, setViewMode] = React.useState<"people" | "table" | "kanban">("people");
-  // Nhóm người đang thu gọn (mặc định mở hết).
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
-  // Cột Kanban đang được kéo card vào (để tô viền).
   const [dragCol, setDragCol] = React.useState<string | null>(null);
-  // Cột Kanban đã bấm "xem thêm" (hiện hết thẻ thay vì giới hạn).
   const [expandedCols, setExpandedCols] = React.useState<Set<string>>(() => new Set());
+
+  // Lọc theo từng cột (funnel + popover). key = col.key.
+  const [colFilters, setColFilters] = React.useState<Record<string, ColFilterVal>>({});
+  // Popover lọc đang mở: { key, rect }.
+  const [openFilter, setOpenFilter] = React.useState<{ key: SortKey; rect: DOMRect } | null>(null);
+  const setCF = (k: SortKey, v: ColFilterVal) => setColFilters((s) => ({ ...s, [k]: v }));
+  const clearCol = (k: SortKey) =>
+    setColFilters((s) => {
+      const n = { ...s };
+      delete n[k];
+      return n;
+    });
+
   // Bề rộng cột bảng (kéo giãn) — nhớ bằng localStorage.
-  const [colWidths, setColWidths] = React.useState<Record<string, number>>(() => ({
-    ...MANAGE_COL_PX,
-  }));
+  const [colWidths, setColWidths] = React.useState<Record<string, number>>(() => ({ ...MANAGE_COL_W }));
   const colWidthsRef = React.useRef(colWidths);
   React.useEffect(() => {
     colWidthsRef.current = colWidths;
@@ -321,15 +457,14 @@ export function ManageClient({
   const draggingRef = React.useRef(false);
   const resizeStartRef = React.useRef<{ x: number; w: number; key: string } | null>(null);
   React.useEffect(() => {
-    function loadWidths() {
-      try {
-        const raw = window.localStorage.getItem(MANAGE_WIDTH_KEY);
-        if (raw) setColWidths((w) => ({ ...w, ...(JSON.parse(raw) as Record<string, number>) }));
-      } catch {
-        /* bỏ qua localStorage lỗi */
-      }
+    try {
+      const raw = window.localStorage.getItem(MANAGE_WIDTH_KEY);
+      // Nạp bề rộng đã lưu 1 lần khi mount (window chỉ có ở client) — chấp nhận set-state trong effect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (raw) setColWidths((w) => ({ ...w, ...(JSON.parse(raw) as Record<string, number>) }));
+    } catch {
+      /* bỏ qua localStorage lỗi */
     }
-    loadWidths();
   }, []);
   const persistWidths = (w: Record<string, number>) => {
     try {
@@ -341,13 +476,13 @@ export function ManageClient({
   const setColW = (k: string, px: number) => setColWidths((w) => ({ ...w, [k]: px }));
   const endResize = () => persistWidths(colWidthsRef.current);
   const resetColW = (k: string) => {
-    const nw = { ...colWidthsRef.current, [k]: MANAGE_COL_PX[k] };
+    const nw = { ...colWidthsRef.current, [k]: MANAGE_COL_W[k] };
     setColWidths(nw);
     persistWidths(nw);
   };
+
   // Chọn nhiều việc để thao tác hàng loạt.
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
-  // Modal giao lại / đổi hạn (chụp lại danh sách id lúc mở).
   const [reassign, setReassign] = React.useState<{
     ids: string[];
     mode: "replace" | "add";
@@ -355,13 +490,13 @@ export function ManageClient({
   } | null>(null);
   const [deadline, setDeadline] = React.useState<{ ids: string[]; date: string } | null>(null);
 
-  // Chỉ mục tìm kiếm: chuẩn-hóa bỏ dấu MỘT LẦN cho mỗi công việc (không tính lại mỗi phím gõ).
+  // Chỉ mục tìm kiếm: chuẩn-hóa bỏ dấu MỘT LẦN cho mỗi công việc.
   const haystacks = React.useMemo(() => {
     const m = new Map<string, string>();
     for (const t of tasks) {
       m.set(
         t.id,
-        removeVietnameseTones(
+        norm(
           [t.name, t.sumId, t.level2, t.level3, t.level5, t.assigneeNames.join(" ")]
             .filter(Boolean)
             .join(" "),
@@ -371,54 +506,75 @@ export function ManageClient({
     return m;
   }, [tasks]);
 
-  // Nền KPI: lọc theo dự án/bộ môn/ưu tiên/của-tôi/tìm-kiếm, NHƯNG bỏ qua trạng thái,
-  // lọc nhanh KPI và tab nhóm → số trên dải KPI ổn định khi bấm vào một KPI.
+  // Giá trị phân biệt cho các cột lọc "multi".
+  const distinct = React.useMemo(() => {
+    const uniq = (vals: string[]) =>
+      [...new Set(vals.filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
+    return {
+      duAn: uniq(tasks.map((t) => colText(t, "duAn"))),
+      loaiHinh: uniq(tasks.map((t) => colText(t, "loaiHinh"))),
+      hangMuc: uniq(tasks.map((t) => colText(t, "hangMuc"))),
+      congViec: uniq(tasks.map((t) => colText(t, "congViec"))),
+      boMon: uniq(tasks.map((t) => colText(t, "boMon"))),
+      thucHien: uniq(tasks.flatMap((t) => t.assigneeNames)),
+    };
+  }, [tasks]);
+
+  // Danh sách cột (ẩn cột Mã mặc định).
+  const cols = React.useMemo<ColDef[]>(() => {
+    const all: ColDef[] = [
+      { key: "sumId", label: "Mã", mono: true, filter: "text" },
+      { key: "duAn", label: "Dự án", lvl: 1, filter: "multi", opts: distinct.duAn },
+      { key: "loaiHinh", label: "Loại hình", lvl: 2, filter: "multi", opts: distinct.loaiHinh },
+      { key: "hangMuc", label: "Hạng mục", lvl: 3, filter: "multi", opts: distinct.hangMuc },
+      { key: "congViec", label: "Công việc", lvl: 4, leaf: true, filter: "multi", opts: distinct.congViec },
+      { key: "boMon", label: "Bộ môn", filter: "multi", opts: distinct.boMon },
+      { key: "thucHien", label: "Thực hiện", filter: "multi", opts: distinct.thucHien },
+      {
+        key: "uuTien",
+        label: "Ưu tiên",
+        filter: "multi",
+        opts: [...PRIORITY_OPTIONS],
+        labelMap: PRIORITY_LABEL,
+      },
+      { key: "tinhTrang", label: "Tình trạng", filter: "status" },
+      { key: "batDau", label: "Bắt đầu", filter: "date" },
+      { key: "ketThuc", label: "Kết thúc", filter: "date" },
+      { key: "thucTe", label: "Hoàn thành thực tế", filter: "date" },
+    ];
+    return SHOW_MA ? all : all.filter((c) => c.key !== "sumId");
+  }, [distinct]);
+
+  const activeCols = cols.filter((c) => colActive(c, colFilters[c.key]));
+
+  // Nền KPI: deep-link + tìm + filter cột (KHÔNG gồm quick & tab) → số KPI ổn định khi bấm.
   const kpiBase = React.useMemo(() => {
-    const q = removeVietnameseTones(deferredSearch.trim());
+    const q = norm(deferredSearch.trim());
     return tasks.filter((t) => {
-      if (f.projectId && t.projectId !== f.projectId) return false;
-      if (f.disciplineId && t.disciplineId !== f.disciplineId) return false;
-      if (f.phong && phongOf(t.disciplineCode) !== f.phong) return false;
+      // deep-link Báo cáo
       if (f.userId && !t.assigneeIds.includes(f.userId)) return false;
-      if (f.priority && t.priority !== f.priority) return false;
-      if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
-      // Lọc theo thời gian (theo Hạn). "Quá hạn" dùng lại isOverdue.
-      if (f.datePreset === "QUA_HAN") {
-        if (!isOverdue(t)) return false;
-      } else if (f.datePreset) {
-        const { from, to } =
-          f.datePreset === "CUSTOM"
-            ? { from: f.dateFrom, to: f.dateTo }
-            : presetRange(f.datePreset);
-        if (from || to) {
-          if (!t.plannedEnd) return false; // không có Hạn → ẩn khi đang lọc thời gian
-          if (from && t.plannedEnd < from) return false;
-          if (to && t.plannedEnd > to) return false;
-        }
+      if (f.phong && phongOf(t.disciplineCode) !== f.phong) return false;
+      if (f.dateFrom || f.dateTo) {
+        if (!t.plannedEnd) return false;
+        if (f.dateFrom && t.plannedEnd < f.dateFrom) return false;
+        if (f.dateTo && t.plannedEnd > f.dateTo) return false;
       }
+      if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
+      for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
       return true;
     });
-  }, [
-    tasks,
-    f.projectId,
-    f.disciplineId,
-    f.phong,
-    f.userId,
-    f.priority,
-    f.datePreset,
-    f.dateFrom,
-    f.dateTo,
-    deferredSearch,
-    haystacks,
-  ]);
+  }, [tasks, f.userId, f.phong, f.dateFrom, f.dateTo, deferredSearch, haystacks, cols, colFilters]);
 
   const kpi = React.useMemo(() => {
+    // KPI bám theo tab nhóm (+ tìm kiếm + lọc cột) nhưng KHÔNG bám quick:
+    // bấm vào 1 thẻ không làm các thẻ khác về 0.
+    const scope = activeWg ? kpiBase.filter((t) => t.workGroupId === activeWg) : kpiBase;
     let overdue = 0;
     let soon = 0;
     let unassigned = 0;
     let doing = 0;
     let progSum = 0;
-    for (const t of kpiBase) {
+    for (const t of scope) {
       if (isOverdue(t)) overdue++;
       else if (isDueSoon(t)) soon++;
       if (t.assigneeIds.length === 0) unassigned++;
@@ -430,24 +586,20 @@ export function ManageClient({
       soon,
       unassigned,
       doing,
-      avg: kpiBase.length ? Math.round(progSum / kpiBase.length) : 0,
+      avg: scope.length ? Math.round(progSum / scope.length) : 0,
     };
-  }, [kpiBase]);
+  }, [kpiBase, activeWg]);
 
-  // Áp thêm dropdown Trạng thái + lọc nhanh KPI (vẫn TRỪ tab nhóm để đếm theo tab).
+  // Áp lọc nhanh KPI (vẫn TRỪ tab nhóm để đếm theo tab).
   const base = React.useMemo(() => {
     return kpiBase.filter((t) => {
-      if (f.status && effOf(t) !== f.status) return false;
-      // Duyệt khởi tạo: "Chưa duyệt" = đang chờ duyệt ("Chờ duyệt"); "Đã duyệt" = đã mở khóa / giao trực tiếp.
-      if (f.approval === "DA_DUYET" && isPendingApproval(t)) return false;
-      if (f.approval === "CHUA_DUYET" && !isPendingApproval(t)) return false;
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0) return false;
       if (quick === "DANG_LAM" && effOf(t) !== "DANG_LAM") return false;
       return true;
     });
-  }, [kpiBase, f.status, f.approval, quick]);
+  }, [kpiBase, quick]);
 
   const wgCounts = React.useMemo(() => {
     const m = new Map<string, number>();
@@ -460,19 +612,11 @@ export function ManageClient({
     [base, activeWg],
   );
 
-  // ---- Sắp xếp ----
-  type SortKey =
-    | "sumId"
-    | "name"
-    | "project"
-    | "discipline"
-    | "assignee"
-    | "priority"
-    | "status"
-    | "start"
-    | "deadline"
-    | "actualEnd";
-  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" } | null>(null);
+  // ---- Sắp xếp ---- (mặc định theo phân cấp Dự án → … để đọc như cây)
+  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "duAn",
+    dir: "asc",
+  });
 
   const PRIO_ORDER: Record<string, number> = { CAO: 0, TRUNG_BINH: 1, THAP: 2 };
   const STATUS_ORDER: Record<string, number> = {
@@ -482,55 +626,63 @@ export function ManageClient({
     TAM_DUNG: 3,
     HOAN_THANH: 4,
   };
+  const hierKey = (t: TaskRow) =>
+    norm(colText(t, "duAn") + colText(t, "loaiHinh") + colText(t, "hangMuc") + colText(t, "congViec"));
   function sortVal(t: TaskRow, key: SortKey): string | number {
     switch (key) {
-      case "sumId":
-        return t.sumId ?? "";
-      case "name":
-        return removeVietnameseTones(t.name);
-      case "project":
-        return removeVietnameseTones(t.projectName ?? "");
-      case "discipline":
-        return removeVietnameseTones(t.disciplineName ?? "");
-      case "assignee":
-        return removeVietnameseTones(t.assigneeNames.join(", "));
-      case "priority":
+      case "uuTien":
         return PRIO_ORDER[t.priority] ?? 9;
-      case "status":
+      case "tinhTrang":
         return STATUS_ORDER[effOf(t)] ?? 9;
-      case "start":
+      case "thucHien":
+        return norm(t.assigneeNames.join(", "));
+      case "batDau":
         return t.plannedStart || "9999-12-31";
-      case "deadline":
+      case "ketThuc":
         return t.plannedEnd || "9999-12-31";
-      case "actualEnd":
+      case "thucTe":
         return t.actualEnd || "9999-12-31";
+      default:
+        return norm(colText(t, key));
     }
   }
   const sorted = React.useMemo(() => {
-    if (!sort) return filtered;
     const arr = [...filtered];
     arr.sort((a, b) => {
       const va = sortVal(a, sort.key);
       const vb = sortVal(b, sort.key);
-      const c =
+      let c =
         typeof va === "number" && typeof vb === "number"
           ? va - vb
           : String(va).localeCompare(String(vb), "vi");
+      if (c === 0) c = hierKey(a).localeCompare(hierKey(b), "vi"); // tie-break giữ gom nhóm
       return sort.dir === "asc" ? c : -c;
     });
     return arr;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, sort]);
 
+  // Cờ gộp cấp (dedup giá trị cha lặp ở dòng liền kề) — tính trên danh sách đã sort.
+  const rowMeta = React.useMemo(
+    () =>
+      sorted.map((t, i) => {
+        const p = sorted[i - 1];
+        const sameDu = !!p && colText(p, "duAn") === colText(t, "duAn");
+        const sameLoai = sameDu && colText(p, "loaiHinh") === colText(t, "loaiHinh");
+        const sameHang = sameLoai && colText(p, "hangMuc") === colText(t, "hangMuc");
+        return {
+          repeat: { duAn: sameDu, loaiHinh: sameLoai, hangMuc: sameHang } as Record<string, boolean>,
+          newProject: !sameDu,
+        };
+      }),
+    [sorted],
+  );
+
   function toggleSort(key: SortKey) {
-    setSort((s) =>
-      s && s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
-    );
+    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
   }
 
   // ---- Gom theo người ----
-  // Việc nhiều người -> xuất hiện ở mỗi người (số là "lần tham gia", không phải unique).
-  // Việc chưa giao gom vào bucket "⚠ Chưa giao" ghim trên cùng.
   const NONE_KEY = "__none__";
   const groups = React.useMemo(() => {
     if (viewMode !== "people") return [];
@@ -549,16 +701,20 @@ export function ManageClient({
       }
     }
     const arr = [...map.values()].map((g) => {
-      // Trong nhóm: quá hạn lên đầu, rồi theo hạn tăng dần.
+      // Trong mỗi nhóm: sắp theo CỘT đang chọn ở header (để mũi tên ⇅ có tác dụng cả ở view này),
+      // tie-break theo chuỗi phân cấp để giữ gom nhóm.
       g.tasks.sort((a, b) => {
-        const oa = isOverdue(a) ? 0 : 1;
-        const ob = isOverdue(b) ? 0 : 1;
-        if (oa !== ob) return oa - ob;
-        return (a.plannedEnd || "9999-12-31").localeCompare(b.plannedEnd || "9999-12-31");
+        const va = sortVal(a, sort.key);
+        const vb = sortVal(b, sort.key);
+        let c =
+          typeof va === "number" && typeof vb === "number"
+            ? va - vb
+            : String(va).localeCompare(String(vb), "vi");
+        if (c === 0) c = hierKey(a).localeCompare(hierKey(b), "vi");
+        return sort.dir === "asc" ? c : -c;
       });
       return { ...g, overdue: g.tasks.filter(isOverdue).length };
     });
-    // Sắp nhóm: "Chưa giao" trước, rồi nhiều quá hạn trước, rồi theo tên.
     arr.sort((a, b) => {
       if (a.key === NONE_KEY) return -1;
       if (b.key === NONE_KEY) return 1;
@@ -566,7 +722,8 @@ export function ManageClient({
       return a.name.localeCompare(b.name, "vi");
     });
     return arr;
-  }, [viewMode, filtered]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, filtered, sort]);
 
   function toggleGroup(key: string) {
     setCollapsed((s) => {
@@ -583,76 +740,39 @@ export function ManageClient({
     setCollapsed(new Set());
   }
 
-  // Ô tiêu đề: bấm nhãn để sắp xếp (3 trạng thái) + kéo mép phải để giãn cột.
-  // Hàm render (không phải component) để tránh tạo component trong render.
-  const renderHeadCell = (label: string, sortKey: SortKey) => {
-    const active = sort?.key === sortKey;
-    return (
-      <TableHead style={{ width: colWidths[sortKey] }} className="relative select-none">
-        <button
-          type="button"
-          className="flex w-full items-center gap-1 text-left hover:text-foreground"
-          onClick={() => {
-            if (draggingRef.current) return;
-            toggleSort(sortKey);
-          }}
-        >
-          <span className="truncate">{label}</span>
-          {active ? (
-            sort?.dir === "asc" ? (
-              <ArrowUp className="size-3 shrink-0" />
-            ) : (
-              <ArrowDown className="size-3 shrink-0" />
-            )
-          ) : (
-            <ChevronsUpDown className="size-3 shrink-0 opacity-40" />
-          )}
-        </button>
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none hover:bg-primary/40"
-          title="Kéo để giãn cột · nhấp đúp để đặt lại"
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            (e.target as HTMLElement).setPointerCapture(e.pointerId);
-            resizeStartRef.current = { x: e.clientX, w: colWidths[sortKey], key: sortKey };
-            draggingRef.current = true;
-          }}
-          onPointerMove={(e) => {
-            const s = resizeStartRef.current;
-            if (!s) return;
-            setColW(s.key, clampManageW(s.w + (e.clientX - s.x), s.key));
-          }}
-          onPointerUp={(e) => {
-            if (!resizeStartRef.current) return;
-            resizeStartRef.current = null;
-            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-            endResize();
-            // Bỏ cờ kéo sau vòng sự kiện click → tránh kích hoạt sort.
-            setTimeout(() => {
-              draggingRef.current = false;
-            }, 0);
-          }}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            resetColW(sortKey);
-          }}
-        />
-      </TableHead>
-    );
-  };
+  // Việc được phép sửa Thực tế HT: quản lý hoặc người được giao, & không chờ duyệt.
+  const canEditDoneOf = (t: TaskRow) =>
+    (canManage || t.assigneeIds.includes(currentUserId)) && !isPendingApproval(t);
 
   // Đánh dấu/bỏ hoàn thành bằng ngày Thực tế hoàn thành → trạng thái tự suy.
+  // Nếu dòng vừa sửa đang nằm trong nhóm chọn (≥2) → áp cùng ngày cho TẤT CẢ dòng đang chọn được phép sửa.
   async function onCompletion(t: TaskRow, value: string) {
-    // Chặn sớm: ngày hoàn thành không được trước ngày bắt đầu (đỡ round-trip).
     if (value) {
       const err = completionDateError(value, t.plannedStart || null);
       if (err) {
         toast.error(err);
         return;
       }
+    }
+    if (selected.has(t.id) && selected.size >= 2) {
+      const targets = tasks.filter((x) => selected.has(x.id) && canEditDoneOf(x));
+      let ok = 0;
+      let skip = 0;
+      for (const x of targets) {
+        if (value && completionDateError(value, x.plannedStart || null)) {
+          skip++;
+          continue;
+        }
+        const r = await setTaskCompletion({ id: x.id, actualEnd: value || null });
+        if (r.ok) ok++;
+        else skip++;
+      }
+      toast.success(
+        (value ? `Đã cập nhật hoàn thành ${ok} việc đang chọn` : `Đã bỏ hoàn thành ${ok} việc đang chọn`) +
+          (skip ? ` · bỏ qua ${skip}` : ""),
+      );
+      router.refresh();
+      return;
     }
     const res = await setTaskCompletion({ id: t.id, actualEnd: value || null });
     if (res.ok) {
@@ -662,7 +782,6 @@ export function ManageClient({
     } else toast.error(res.error);
   }
 
-  // Tạm dừng / bỏ tạm dừng (chỉ quản lý).
   async function togglePause(t: TaskRow, paused: boolean) {
     const res = await setTaskPaused({ id: t.id, paused });
     if (res.ok) {
@@ -671,7 +790,6 @@ export function ManageClient({
     } else toast.error(res.error);
   }
 
-  // Duyệt khởi tạo / bỏ duyệt (luồng "Thêm công việc") — mở khóa nhập thời gian.
   async function toggleStartApproval(t: TaskRow, approved: boolean) {
     const res = await setTaskStartApproval({ id: t.id, approved });
     if (res.ok) {
@@ -710,26 +828,44 @@ export function ManageClient({
   function clearSel() {
     setSelected(new Set());
   }
+  // Thứ tự dòng đang hiển thị (để Shift+click chọn dải) — theo view hiện tại.
+  function visibleOrderIds(): string[] {
+    if (viewMode === "people") {
+      return groups.flatMap((g) => (collapsed.has(g.key) ? [] : g.tasks.map((t) => t.id)));
+    }
+    return sorted.map((t) => t.id);
+  }
+  // Shift+click = chọn dải (anchor → dòng hiện tại); click/Ctrl = bật-tắt 1 dòng.
+  const anchorRef = React.useRef<string | null>(null);
+  function onCheckClick(e: React.MouseEvent, id: string) {
+    if (e.shiftKey && anchorRef.current) {
+      const ids = visibleOrderIds();
+      const a = ids.indexOf(anchorRef.current);
+      const b = ids.indexOf(id);
+      if (a !== -1 && b !== -1) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        const range = ids.slice(lo, hi + 1);
+        setSelected((s) => {
+          const n = new Set(s);
+          range.forEach((r) => n.add(r));
+          return n;
+        });
+        anchorRef.current = id;
+        return;
+      }
+    }
+    toggleOne(id);
+    anchorRef.current = id;
+  }
 
-  // Xóa toàn bộ bộ lọc + dọn sạch query trên URL (gồm deep-link từ Báo cáo) + tắt dải thông báo.
+  // Xóa toàn bộ bộ lọc + dọn sạch query trên URL (gồm deep-link từ Báo cáo).
   function clearAllFilters() {
-    setF({
-      projectId: "",
-      disciplineId: "",
-      status: "",
-      priority: "",
-      approval: "",
-      userId: "",
-      phong: "",
-      datePreset: "",
-      dateFrom: "",
-      dateTo: "",
-    });
+    setF({ userId: "", phong: "", dateFrom: "", dateTo: "" });
+    setColFilters({});
     setSearch("");
     setActiveWg("");
     setQuick("");
     clearSel();
-    // Dọn sạch query trên URL (gồm deep-link Báo cáo) → dải thông báo tự ẩn (fromReport suy từ prop).
     if (window.location.search) router.replace("/manage", { scroll: false });
   }
 
@@ -763,10 +899,7 @@ export function ManageClient({
   }
   async function submitDeadline() {
     if (!deadline?.date) return;
-    await applyBatch(
-      bulkSetDeadline({ ids: deadline.ids, plannedEnd: deadline.date }),
-      "Đã đổi hạn",
-    );
+    await applyBatch(bulkSetDeadline({ ids: deadline.ids, plannedEnd: deadline.date }), "Đã đổi hạn");
     setDeadline(null);
   }
   async function submitReassign() {
@@ -780,153 +913,392 @@ export function ManageClient({
     setReassign(null);
   }
 
-  // Một dòng việc — dùng chung cho cả view Bảng và view Gom theo người.
-  // keyExtra để key duy nhất khi 1 việc hiện ở nhiều nhóm người.
-  function renderRow(t: TaskRow, keyExtra = "") {
-    const overdue = isOverdue(t);
+  // ---- Ghim cột (freeze) + bố cục ----
+  const dens = DENSITY === "compact" ? "py-1" : DENSITY === "comfy" ? "py-3" : "py-2";
+  const cellPad = `px-2.5 ${dens}`;
+  const widthOf = (k: string) => (k === "__sel__" ? MANAGE_SEL_PX : (colWidths[k] ?? MANAGE_COL_W[k] ?? 120));
+  const frozenKeys = FREEZE
+    ? ["__sel__", ...cols.filter((c) => c.lvl).map((c) => c.key)]
+    : ([] as string[]);
+  const isFrozen = (k: string) => frozenKeys.includes(k);
+  const frozenLast = frozenKeys[frozenKeys.length - 1];
+  const leftOf = (k: string): number | undefined => {
+    if (!isFrozen(k)) return undefined;
+    let x = 0;
+    for (const fk of frozenKeys) {
+      if (fk === k) return x;
+      x += widthOf(fk);
+    }
+    return undefined;
+  };
+  // Shadow tách mép phải của vùng cột ghim (đặt ở cột ghim cuối).
+  const FROZEN_SHADOW = "2px 0 0 rgba(15,23,42,0.06)";
+  // Ô THÂN bảng ở cột ghim: sticky-left, z=10, NỀN ĐỤC tường minh (KHÔNG dựa bg-inherit).
+  // Nền lấy theo biến --row-bg của <tr> (đổi khi hover/selected) để ô ghim luôn đồng màu hàng + đúng dark mode.
+  const bodyFrozenStyle = (k: string): React.CSSProperties | undefined =>
+    isFrozen(k)
+      ? {
+          position: "sticky",
+          left: leftOf(k),
+          zIndex: 10,
+          background: "var(--row-bg)",
+          boxShadow: k === frozenLast ? FROZEN_SHADOW : undefined,
+        }
+      : undefined;
+  // Ô TIÊU ĐỀ: sticky-top (đặt trên từng <th> vì border-collapse bỏ qua sticky ở <thead>),
+  // nền đục var(--muted). Cột ghim: thêm sticky-left + z=30 (góc trên-trái cao nhất).
+  // z: góc ghim trên-trái = 30 > header thường = 20 > ô ghim thân = 10 > ô thường = 0.
+  const headStyle = (k: string, width?: number): React.CSSProperties => ({
+    ...(width != null ? { width } : {}),
+    position: "sticky",
+    top: 0,
+    background: "var(--muted)",
+    ...(isFrozen(k)
+      ? { left: leftOf(k), zIndex: 30, boxShadow: k === frozenLast ? FROZEN_SHADOW : undefined }
+      : { zIndex: 20 }),
+  });
+
+  const totalMinW =
+    (canManage ? MANAGE_SEL_PX : 0) +
+    cols.reduce((s, c) => s + widthOf(c.key), 0) +
+    (canManage ? MANAGE_ACT_PX : 0);
+  const totalColsCount = (canManage ? 1 : 0) + cols.length + (canManage ? 1 : 0);
+
+  // ---- Header 1 cột ----
+  function renderHead(col: ColDef) {
+    const active = sort.key === col.key;
+    const filterOn = colActive(col, colFilters[col.key]);
+    return (
+      <th
+        key={col.key}
+        style={headStyle(col.key, colWidths[col.key])}
+        className={cn(
+          "group relative select-none border-b border-slate-200 px-2.5 py-2.5 text-left text-xs font-semibold text-slate-500",
+          col.lvl && "border-l border-slate-100",
+        )}
+      >
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-slate-800"
+            onClick={() => {
+              if (draggingRef.current) return;
+              toggleSort(col.key);
+            }}
+          >
+            <span className="truncate">{col.label}</span>
+            {active ? (
+              sort.dir === "asc" ? (
+                <ArrowUp className="size-3 shrink-0" />
+              ) : (
+                <ArrowDown className="size-3 shrink-0" />
+              )
+            ) : (
+              <ChevronsUpDown className="size-3 shrink-0 opacity-25" />
+            )}
+          </button>
+          <button
+            type="button"
+            title="Lọc cột này"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setOpenFilter((o) => (o && o.key === col.key ? null : { key: col.key, rect }));
+            }}
+            className={cn(
+              "grid size-5 shrink-0 place-items-center rounded transition",
+              filterOn
+                ? "bg-slate-800 text-white"
+                : "text-slate-400 hover:bg-slate-200 hover:text-slate-600",
+            )}
+          >
+            <Filter className="size-3" strokeWidth={filterOn ? 2.5 : 2} />
+          </button>
+        </div>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none hover:bg-primary/40"
+          title="Kéo để giãn cột · nhấp đúp để đặt lại"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+            resizeStartRef.current = { x: e.clientX, w: colWidths[col.key], key: col.key };
+            draggingRef.current = true;
+          }}
+          onPointerMove={(e) => {
+            const s = resizeStartRef.current;
+            if (!s) return;
+            setColW(s.key, clampManageW(s.w + (e.clientX - s.x), s.key));
+          }}
+          onPointerUp={(e) => {
+            if (!resizeStartRef.current) return;
+            resizeStartRef.current = null;
+            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+            endResize();
+            setTimeout(() => {
+              draggingRef.current = false;
+            }, 0);
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            resetColW(col.key);
+          }}
+        />
+      </th>
+    );
+  }
+
+  // ---- Một ô phân cấp (dedup giá trị cha lặp) ----
+  function hierTd(col: ColDef, t: TaskRow, meta?: { repeat: Record<string, boolean> }) {
+    const rep = meta?.repeat[col.key] ?? false;
+    const blank = rep && GROUPING === "merge";
+    const dim = rep && GROUPING === "dim";
+    const v = colText(t, col.key);
+    return (
+      <td
+        key={col.key}
+        style={bodyFrozenStyle(col.key)}
+        className={cn("border-l border-slate-100 align-top", cellPad)}
+      >
+        {blank ? null : !v ? (
+          <span className="text-slate-300">—</span>
+        ) : col.leaf ? (
+          <span className={dim ? "text-slate-400" : "font-medium text-slate-800"}>{v}</span>
+        ) : (
+          <span className={dim ? "text-slate-300" : col.lvl === 1 ? "font-medium text-slate-700" : "text-slate-600"}>
+            {v}
+          </span>
+        )}
+      </td>
+    );
+  }
+
+  // Cột Tình trạng: pill mềm + dòng duyệt + nút Tạm dừng/Play + badge Trễ hạn.
+  function statusTd(t: TaskRow) {
     const eff = effOf(t);
+    const soft = STATUS_SOFT[eff] ?? STATUS_SOFT.CHUA_LAM;
+    const late = isCompletedLate(t);
+    // Số ngày trễ = ngày hoàn thành thực tế − hạn (chỉ tính khi đã hoàn thành & sau hạn).
+    const lateDays = late
+      ? Math.round((new Date(t.actualEnd).getTime() - new Date(t.plannedEnd).getTime()) / 86400000)
+      : 0;
+    const dz = duyetState(t);
+    return (
+      <td key="tinhTrang" className={cn("align-top", cellPad)}>
+        <div className="flex flex-col items-start gap-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                soft.pill,
+              )}
+            >
+              <span className={cn("size-1.5 shrink-0 rounded-full", soft.dot)} />
+              {TASK_STATUS_LABEL[eff] ?? eff}
+            </span>
+            {late ? (
+              // Việc đã XONG nhưng muộn → chú thích rose mềm (không báo động đỏ), ghi rõ số ngày trễ.
+              <span
+                title={`Hoàn thành trễ hạn ${lateDays} ngày (hạn ${t.plannedEnd} · xong ${t.actualEnd})`}
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 ring-1 ring-inset ring-rose-200"
+              >
+                <Flag className="size-2.5 shrink-0" /> Trễ {lateDays} ngày
+              </span>
+            ) : null}
+            {canManage && eff !== "HOAN_THANH" ? (
+              t.status === "TAM_DUNG" ? (
+                <button
+                  type="button"
+                  title="Bỏ tạm dừng"
+                  onClick={() => togglePause(t, false)}
+                  className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <Play className="size-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title="Tạm dừng"
+                  onClick={() => togglePause(t, true)}
+                  className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <Pause className="size-3.5" />
+                </button>
+              )
+            ) : null}
+          </div>
+          {dz === "DA_DUYET" ? (
+            <span
+              className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-medium text-emerald-600/75"
+              title="Đã duyệt — cho phép nhập thời gian"
+            >
+              <Check className="size-3" strokeWidth={3} /> Đã duyệt
+            </span>
+          ) : dz === "CHO_DUYET" ? (
+            <span
+              className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600"
+              title={t.approverName ? `Chờ ${t.approverName} duyệt` : "Chờ quản lý duyệt"}
+            >
+              <span className="size-1.5 rounded-full bg-amber-500" /> Chờ duyệt
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-medium text-slate-400"
+              title="Hoàn thành nhưng chưa được duyệt"
+            >
+              <span className="size-1.5 rounded-full bg-slate-300" /> Chưa duyệt
+            </span>
+          )}
+        </div>
+      </td>
+    );
+  }
+
+  // Một dòng việc — dùng chung cho cả view Bảng và view Gom theo người.
+  function renderRow(
+    t: TaskRow,
+    opts?: { keyExtra?: string; meta?: { repeat: Record<string, boolean>; newProject: boolean } },
+  ) {
+    const overdue = isOverdue(t);
     const pendingApproval = isPendingApproval(t);
     const late = isCompletedLate(t);
-    // Sửa được Thực tế hoàn thành nếu là quản lý hoặc người được giao việc (và việc KHÔNG chờ duyệt).
     const canEditDone = (canManage || t.assigneeIds.includes(currentUserId)) && !pendingApproval;
+    const meta = opts?.meta;
+    const isSel = selected.has(t.id);
     return (
-      <TableRow key={`${keyExtra}${t.id}`} className={cn(selected.has(t.id) && "bg-muted/40")}>
+      <tr
+        key={`${opts?.keyExtra ?? ""}${t.id}`}
+        // --row-bg: nền đục của hàng (theme var) — ô ghim đọc lại biến này để luôn đồng màu + đúng dark mode.
+        // Viền dưới đặt trên td (qua tbody), viền-trên vạch nhóm cũng trên td (separate không vẽ viền <tr>).
+        className={cn(
+          "bg-[var(--row-bg)]",
+          isSel ? "[--row-bg:var(--muted)]" : "[--row-bg:var(--background)] hover:[--row-bg:var(--muted)]",
+          meta?.newProject && "[&>td]:border-t-2 [&>td]:border-t-slate-200/70",
+        )}
+      >
         {canManage ? (
-          <TableCell className="w-8">
+          <td style={bodyFrozenStyle("__sel__")} className={cn("px-2 align-top", dens)}>
             <input
               type="checkbox"
               checked={selected.has(t.id)}
-              onChange={() => toggleOne(t.id)}
-              aria-label="Chọn việc"
+              onChange={() => {}}
+              onClick={(e) => onCheckClick(e, t.id)}
+              className="mt-0.5 size-3.5 accent-slate-700"
+              aria-label="Chọn việc (Shift+click để chọn dải)"
+              title="Shift+click để chọn nhiều dòng liền nhau"
             />
-          </TableCell>
+          </td>
         ) : null}
-        <TableCell className="font-mono text-xs">{t.sumId ?? "—"}</TableCell>
-        <TableCell className="text-xs">
-          {t.workGroupName === WG_SHOW_L3_IN_PROJECT
-            ? t.level3 || t.projectName || "—"
-            : (t.projectName ?? "—")}
-        </TableCell>
-        <TableCell className="max-w-xs">
-          <div className="font-medium">{t.name}</div>
-          {SHOW_TASK_PATH ? (
-            <div className="text-xs text-muted-foreground">
-              {[t.workGroupName, t.level2, t.level3].filter(Boolean).join(" › ")}
-            </div>
-          ) : null}
-        </TableCell>
-        <TableCell className="text-xs">{t.disciplineName ?? "—"}</TableCell>
-        <TableCell className="text-xs">{t.assigneeNames.join(", ") || "—"}</TableCell>
-        <TableCell>
-          <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
-        </TableCell>
-        {/* Trạng thái: CHỈ XEM (suy từ Thực tế hoàn thành/ngày). Quản lý có nút Tạm dừng. */}
-        <TableCell>
-          <div className="flex flex-col items-start gap-1">
-            {/* Hàng 1: badge trạng thái + nút Tạm dừng/Bỏ tạm dừng (canh giữa dọc với badge) */}
-            <div className="flex items-center gap-1">
-              <Badge variant={statusVariant(eff)}>{TASK_STATUS_LABEL[eff] ?? eff}</Badge>
-              {late ? (
-                <Badge variant="destructive" title={`Hoàn thành trễ hạn (hạn ${t.plannedEnd})`}>
-                  Trễ hạn
-                </Badge>
-              ) : null}
-              {canManage && eff !== "HOAN_THANH" ? (
-                t.status === "TAM_DUNG" ? (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-6"
-                    title="Bỏ tạm dừng"
-                    onClick={() => togglePause(t, false)}
-                  >
-                    <Play className="size-3.5" />
-                  </Button>
+        {cols.map((c) => {
+          if (c.lvl) return hierTd(c, t, meta);
+          if (c.key === "sumId")
+            return (
+              <td key="sumId" className={cn("align-top", cellPad)}>
+                <span className="font-mono text-[11px] text-slate-500">{t.sumId ?? "—"}</span>
+              </td>
+            );
+          if (c.key === "boMon")
+            return (
+              <td key="boMon" className={cn("align-top text-xs text-slate-600", cellPad)}>
+                {t.disciplineName ?? "—"}
+              </td>
+            );
+          if (c.key === "thucHien")
+            return (
+              <td key="thucHien" className={cn("align-top text-xs", cellPad)}>
+                {t.assigneeNames.length ? (
+                  <span className="text-slate-700">{t.assigneeNames.join(", ")}</span>
                 ) : (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-6"
-                    title="Tạm dừng"
-                    onClick={() => togglePause(t, true)}
-                  >
-                    <Pause className="size-3.5" />
-                  </Button>
-                )
-              ) : null}
-            </div>
-            {/* Cờ duyệt khởi tạo: "Chờ duyệt" khi đang chờ; "Đã duyệt" (xanh) khi đã mở khóa / giao trực tiếp.
-                Nút duyệt đã chuyển sang cột Thao tác. */}
-            {pendingApproval ? (
-              <Badge variant="warning" title={t.approverName ? `Chờ ${t.approverName} duyệt` : "Chờ duyệt"}>
-                Chờ duyệt
-              </Badge>
-            ) : (
-              <Badge variant="success" title="Đã duyệt — cho phép nhập thời gian">
-                Đã duyệt
-              </Badge>
-            )}
-          </div>
-        </TableCell>
-        {/* Ngày bắt đầu — chỉ xem */}
-        <TableCell className="text-xs text-muted-foreground">{t.plannedStart || "—"}</TableCell>
-        {/* Hạn — chỉ xem (đỏ nếu quá hạn) */}
-        <TableCell className="text-xs">
-          {t.plannedEnd ? (
-            <span className={cn(overdue && "font-medium text-red-600")}>{t.plannedEnd}</span>
-          ) : (
-            "—"
-          )}
-        </TableCell>
-        {/* Thực tế hoàn thành — nhập ngày → trạng thái tự nhảy Hoàn thành */}
-        <TableCell>
-          <Input
-            type="date"
-            // Khớp ô lọc "Hạn từ" (h-9) để icon chọn ngày của input hiện đầy đủ; w-full tự co theo cột (kéo giãn được).
-            // px-2 (thay px-3 mặc định) chừa chỗ; mr-15 kéo icon lịch (webkit picker) sang trái khỏi mép.
-            className={cn(
-              "h-9 w-full px-2 text-xs [&::-webkit-calendar-picker-indicator]:mr-15",
-              late && "font-medium text-red-600",
-            )}
-            value={t.actualEnd}
-            min={t.plannedStart || undefined}
-            disabled={!canEditDone}
-            title={
-              pendingApproval
-                ? "Việc đang chờ duyệt — chưa thể nhập"
-                : canEditDone
-                  ? "Đặt/đổi ngày hoàn thành thực tế (không trước ngày bắt đầu)"
-                  : "Chỉ người được giao hoặc quản lý"
-            }
-            onChange={(e) => onCompletion(t, e.target.value)}
-          />
-        </TableCell>
+                  <span className="inline-flex items-center gap-1 text-amber-600">
+                    <UserX className="size-3" /> Chưa giao
+                  </span>
+                )}
+              </td>
+            );
+          if (c.key === "uuTien")
+            return (
+              <td key="uuTien" className={cn("align-top", cellPad)}>
+                <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
+              </td>
+            );
+          if (c.key === "tinhTrang") return statusTd(t);
+          if (c.key === "batDau")
+            return (
+              <td key="batDau" className={cn("align-top text-xs text-slate-500", cellPad)}>
+                {t.plannedStart || "—"}
+              </td>
+            );
+          if (c.key === "ketThuc")
+            return (
+              <td key="ketThuc" className={cn("align-top text-xs", cellPad)}>
+                {t.plannedEnd ? (
+                  <span className={cn(overdue && "font-medium text-red-600")}>{t.plannedEnd}</span>
+                ) : (
+                  <span className="text-slate-300">—</span>
+                )}
+              </td>
+            );
+          if (c.key === "thucTe")
+            return (
+              <td key="thucTe" className={cn("align-top", cellPad)}>
+                <Input
+                  type="date"
+                  className={cn(
+                    "h-9 w-full px-2 text-xs [&::-webkit-calendar-picker-indicator]:mr-15",
+                    late && "font-medium text-red-600",
+                  )}
+                  value={t.actualEnd}
+                  min={t.plannedStart || undefined}
+                  disabled={!canEditDone}
+                  title={
+                    pendingApproval
+                      ? "Việc đang chờ duyệt — chưa thể nhập"
+                      : canEditDone
+                        ? "Đặt/đổi ngày hoàn thành thực tế (không trước ngày bắt đầu)"
+                        : "Chỉ người được giao hoặc quản lý"
+                  }
+                  onChange={(e) => onCompletion(t, e.target.value)}
+                />
+              </td>
+            );
+          return <td key={c.key} className={cellPad} />;
+        })}
         {canManage ? (
-          <TableCell className="px-2">
-            <div className="flex items-center justify-center gap-0">
-              {/* Duyệt việc = cho phép người được giao NHẬP thời gian. Bấm để duyệt (mở) / thu hồi (khóa). */}
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => toggleStartApproval(t, pendingApproval)}
+          <td className={cn("px-2 align-top", dens)}>
+            <div className="flex items-center justify-center gap-0.5">
+              <button
+                type="button"
                 title={
                   pendingApproval
                     ? "Duyệt — cho phép người được giao nhập thời gian"
                     : "Đã duyệt — bấm để thu hồi (khóa nhập lại)"
                 }
+                onClick={() => toggleStartApproval(t, pendingApproval)}
+                className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-emerald-600"
               >
                 <ShieldCheck className={cn("size-4", !pendingApproval && "text-emerald-600")} />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => setEditing(t)} title="Sửa">
+              </button>
+              <button
+                type="button"
+                title="Sửa"
+                onClick={() => setEditing(t)}
+                className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
                 <Pencil className="size-4" />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => onDelete(t)} title="Xóa">
+              </button>
+              <button
+                type="button"
+                title="Xóa"
+                onClick={() => onDelete(t)}
+                className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600"
+              >
                 <Trash2 className="size-4" />
-              </Button>
+              </button>
             </div>
-          </TableCell>
+          </td>
         ) : null}
-      </TableRow>
+      </tr>
     );
   }
 
@@ -934,25 +1306,28 @@ export function ManageClient({
   function groupHeaderRow(g: { key: string; name: string; overdue: number; tasks: TaskRow[] }) {
     const Chevron = collapsed.has(g.key) ? ChevronRight : ChevronDown;
     return (
-      <TableRow key={`grp-${g.key}`} className="bg-muted/60 hover:bg-muted/60">
-        <TableCell colSpan={canManage ? 12 : 10} className="py-2">
-          <button
-            type="button"
-            onClick={() => toggleGroup(g.key)}
-            className="flex items-center gap-2 text-sm font-medium"
-          >
-            <Chevron className="size-4 text-muted-foreground" />
-            {g.name}
-            <span className="font-normal text-muted-foreground">
-              ({g.tasks.length} việc{g.overdue ? ` · ${g.overdue} quá hạn` : ""})
-            </span>
-          </button>
-        </TableCell>
-      </TableRow>
+      <tr key={`grp-${g.key}`} className="bg-slate-100">
+        {/* Ô span hết hàng; nội dung bọc trong lớp sticky-left để nhãn nhóm ghim trái khi cuộn ngang. */}
+        <td colSpan={totalColsCount} className="p-0">
+          <div className="sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center bg-slate-100 px-2.5 py-2">
+            <button
+              type="button"
+              onClick={() => toggleGroup(g.key)}
+              className="flex items-center gap-2 text-sm font-medium text-slate-700"
+            >
+              <Chevron className="size-4 text-slate-400" />
+              {g.name}
+              <span className="font-normal text-slate-400">
+                ({g.tasks.length} việc{g.overdue ? ` · ${g.overdue} quá hạn` : ""})
+              </span>
+            </button>
+          </div>
+        </td>
+      </tr>
     );
   }
 
-  // ---- Kanban (kéo-thả đổi trạng thái) ----
+  // ---- Kanban (kéo-thả đổi trạng thái) — tạm tắt, giữ code ----
   async function onDropStatus(status: string, e: React.DragEvent) {
     e.preventDefault();
     setDragCol(null);
@@ -993,10 +1368,7 @@ export function ManageClient({
           )}
         </div>
         <div
-          className={cn(
-            "mt-1 text-[11px]",
-            overdue ? "font-medium text-red-600" : "text-muted-foreground",
-          )}
+          className={cn("mt-1 text-[11px]", overdue ? "font-medium text-red-600" : "text-muted-foreground")}
         >
           {deadlineLabel(t)}
         </div>
@@ -1023,8 +1395,7 @@ export function ManageClient({
       <div className="space-y-2">
         {overflow ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Đang hiển thị tối đa {KANBAN_COL_LIMIT} thẻ/cột — lọc Nhóm/Dự án hoặc dùng ô tìm để xem
-            đầy đủ.
+            Đang hiển thị tối đa {KANBAN_COL_LIMIT} thẻ/cột — lọc Nhóm/Dự án hoặc dùng ô tìm để xem đầy đủ.
           </div>
         ) : null}
         <div className="flex gap-3 overflow-x-auto pb-2">
@@ -1078,6 +1449,9 @@ export function ManageClient({
     );
   }
 
+  const activeFilterCount = activeCols.length + (quick ? 1 : 0) + (activeWg ? 1 : 0);
+  const openCol = openFilter ? cols.find((c) => c.key === openFilter.key) : null;
+
   return (
     <div className="space-y-4 pb-[5px]">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1085,6 +1459,9 @@ export function ManageClient({
           <h1 className="text-2xl font-semibold tracking-tight">Quản lý công việc</h1>
           <p className="text-sm text-muted-foreground">
             {filtered.length} / {tasks.length} công việc
+            {activeFilterCount > 0 ? (
+              <span className="text-slate-400"> · đang lọc {activeFilterCount} điều kiện</span>
+            ) : null}
           </p>
         </div>
         {canAssign ? (
@@ -1101,7 +1478,6 @@ export function ManageClient({
             { key: "QUA_HAN", label: "Quá hạn", n: kpi.overdue, Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
             { key: "SAP_HAN", label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon, Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
             { key: "CHUA_GIAO", label: "Chưa giao người", n: kpi.unassigned, Icon: UserX, tone: "border-slate-200 bg-slate-50 text-slate-700" },
-            // "· TB {kpi.avg}%" tạm ẩn (tiến độ chưa nhập); bật lại: label: `Đang làm · TB ${kpi.avg}%`
             { key: "DANG_LAM", label: "Đang làm", n: kpi.doing, Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
           ] as const
         ).map(({ key, label, n, Icon, tone }) => (
@@ -1152,9 +1528,7 @@ export function ManageClient({
           onClick={() => setActiveWg("")}
           className={cn(
             "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-            activeWg === ""
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-muted",
+            activeWg === "" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
           )}
         >
           Tất cả <span className="opacity-70">({base.length})</span>
@@ -1166,9 +1540,7 @@ export function ManageClient({
             onClick={() => setActiveWg(w.id)}
             className={cn(
               "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-              activeWg === w.id
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted",
+              activeWg === w.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
             )}
           >
             {w.name} <span className="opacity-70">({wgCounts.get(w.id) ?? 0})</span>
@@ -1176,7 +1548,7 @@ export function ManageClient({
         ))}
       </div>
 
-      {/* Dải thông báo khi vào từ link Báo cáo — nói rõ đang lọc gì + cho gỡ nhanh. */}
+      {/* Dải thông báo khi vào từ link Báo cáo */}
       {fromReport ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
           <span className="text-muted-foreground">
@@ -1198,110 +1570,42 @@ export function ManageClient({
         </div>
       ) : null}
 
-      {/* Bộ lọc */}
-      <div className="space-y-2 rounded-lg border bg-card p-3">
-        <div className="flex items-start gap-2">
-          <div className="grid flex-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <Select value={f.userId} onChange={(e) => setF({ ...f, userId: e.target.value })} title="Lọc theo nhân sự">
-              <option value="">— Nhân sự —</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.fullName}
-                </option>
-              ))}
-            </Select>
-            <Select value={f.phong} onChange={(e) => setF({ ...f, phong: e.target.value })} title="Lọc theo phòng">
-              <option value="">— Phòng —</option>
-              {PHONG_ORDER.map((p) => (
-                <option key={p} value={p}>
-                  {PHONG_LABEL[p]}
-                </option>
-              ))}
-            </Select>
-            <Select value={f.projectId} onChange={(e) => setF({ ...f, projectId: e.target.value })}>
-              <option value="">— Dự án —</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-            <Select value={f.disciplineId} onChange={(e) => setF({ ...f, disciplineId: e.target.value })}>
-              <option value="">— Bộ môn —</option>
-              {disciplines.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </Select>
-            <Select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
-              <option value="">— Trạng thái —</option>
-              {TASK_STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {TASK_STATUS_LABEL[s]}
-                </option>
-              ))}
-              <option value="QUA_HAN">Quá hạn</option>
-            </Select>
-            <Select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
-              <option value="">— Ưu tiên —</option>
-              {PRIORITY_OPTIONS.map((p) => (
-                <option key={p} value={p}>
-                  {PRIORITY_LABEL[p]}
-                </option>
-              ))}
-            </Select>
-            <Select
-              value={f.datePreset}
-              onChange={(e) => setF({ ...f, datePreset: e.target.value })}
-              title="Lọc theo Hạn"
-            >
-              {DATE_PRESETS.map((d) => (
-                <option key={d.value} value={d.value}>
-                  {d.label}
-                </option>
-              ))}
-            </Select>
-            <Select
-              value={f.approval}
-              onChange={(e) => setF({ ...f, approval: e.target.value })}
-              title="Lọc theo trạng thái duyệt"
-            >
-              <option value="">— Duyệt —</option>
-              <option value="DA_DUYET">Đã duyệt</option>
-              <option value="CHUA_DUYET">Chưa duyệt</option>
-            </Select>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Xóa lọc"
-            aria-label="Xóa lọc"
-            className="shrink-0 text-muted-foreground hover:text-destructive"
+      {/* Thanh chip điều kiện đang lọc */}
+      {activeCols.length > 0 || quick || activeWg ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
+            <Filter className="size-3.5" /> Lọc:
+          </span>
+          {activeWg ? (
+            <Chip
+              label="Nhóm"
+              value={workGroups.find((w) => w.id === activeWg)?.name ?? "?"}
+              onRemove={() => setActiveWg("")}
+            />
+          ) : null}
+          {quick ? (
+            <Chip
+              label="Nhanh"
+              value={
+                { QUA_HAN: "Quá hạn", SAP_HAN: "Sắp đến hạn", CHUA_GIAO: "Chưa giao", DANG_LAM: "Đang làm" }[
+                  quick
+                ]
+              }
+              onRemove={() => setQuick("")}
+            />
+          ) : null}
+          {activeCols.map((c) => (
+            <Chip key={c.key} label={c.label} value={chipText(c, colFilters[c.key])} onRemove={() => clearCol(c.key)} />
+          ))}
+          <button
+            type="button"
             onClick={clearAllFilters}
+            className="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-400 hover:text-red-600"
           >
-            <X />
-          </Button>
+            <RotateCcw className="size-3" /> Xóa tất cả
+          </button>
         </div>
-        {f.datePreset === "CUSTOM" ? (
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Hạn từ</span>
-            <Input
-              type="date"
-              className="h-9 w-40"
-              value={f.dateFrom}
-              onChange={(e) => setF({ ...f, dateFrom: e.target.value })}
-            />
-            <span className="text-muted-foreground">đến</span>
-            <Input
-              type="date"
-              className="h-9 w-40"
-              value={f.dateTo}
-              onChange={(e) => setF({ ...f, dateTo: e.target.value })}
-            />
-          </div>
-        ) : null}
-      </div>
+      ) : null}
 
       {/* Chuyển chế độ xem */}
       <div className="flex flex-wrap items-center gap-2">
@@ -1310,9 +1614,6 @@ export function ManageClient({
             [
               { key: "people", label: "Gom theo người" },
               { key: "table", label: "Bảng" },
-              // Kanban tạm tắt (chưa dùng). Bật lại: thêm { key: "kanban", label: "Kanban" }.
-              // ⚠ Khi bật lại: Kanban đặt thẻ theo status THẬT (t.status), KHÔNG dùng
-              //   effectiveStatus — vì kéo-thả ghi thẳng status vào DB.
             ] as const
           ).map((v) => (
             <button
@@ -1321,9 +1622,7 @@ export function ManageClient({
               onClick={() => setViewMode(v.key)}
               className={cn(
                 "rounded-md px-3 py-1 text-sm font-medium transition-colors",
-                viewMode === v.key
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted",
+                viewMode === v.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
               )}
             >
               {v.label}
@@ -1357,73 +1656,113 @@ export function ManageClient({
       {viewMode === "kanban" ? (
         renderKanban()
       ) : (
-        <Table
-          className="table-fixed"
-          // Khung cuộn duy nhất: cuộn cả ngang + dọc; cao gần sát mép dưới màn hình (trừ ~chừa header + lề trên).
-          wrapperClassName="max-h-[calc(100svh-40px)] overflow-auto rounded-lg border"
-          style={{
-            minWidth:
-              (canManage ? MANAGE_SEL_PX + MANAGE_ACT_PX : 0) +
-              MANAGE_SORT_KEYS.reduce((s, k) => s + colWidths[k], 0),
-          }}
-        >
-          <TableHeader className="sticky top-0 z-10 bg-background">
-            <TableRow>
-              {canManage ? (
-                <TableHead style={{ width: MANAGE_SEL_PX }}>
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={toggleAllVisible}
-                    aria-label="Chọn tất cả việc đang hiển thị"
-                  />
-                </TableHead>
+        <div className="overflow-auto rounded-lg border bg-card shadow-sm max-h-[calc(100svh-40px)]">
+          {/* border-separate + border-spacing-0 + <colgroup>: bề rộng cột khớp tuyệt đối với leftOf
+              (cộng dồn colWidths) → cột ghim không lệch px → không hở khe khi cuộn ngang. */}
+          <table
+            className="text-sm"
+            style={{ width: totalMinW, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}
+          >
+            <colgroup>
+              {canManage ? <col style={{ width: MANAGE_SEL_PX }} /> : null}
+              {cols.map((c) => (
+                <col key={c.key} style={{ width: widthOf(c.key) }} />
+              ))}
+              {canManage ? <col style={{ width: MANAGE_ACT_PX }} /> : null}
+            </colgroup>
+            <thead>
+              <tr>
+                {canManage ? (
+                  <th
+                    style={headStyle("__sel__", MANAGE_SEL_PX)}
+                    className="border-b border-slate-200 px-2 py-2.5"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="size-3.5 align-middle accent-slate-700"
+                      aria-label="Chọn tất cả việc đang hiển thị"
+                    />
+                  </th>
+                ) : null}
+                {cols.map(renderHead)}
+                {canManage ? (
+                  <th
+                    style={headStyle("__act__", MANAGE_ACT_PX)}
+                    className="border-b border-slate-200 px-2 py-2.5 text-center text-xs font-semibold text-slate-500"
+                  >
+                    Thao tác
+                  </th>
+                ) : null}
+              </tr>
+            </thead>
+            <tbody className="[&_td]:border-b [&_td]:border-slate-100">
+              {viewMode === "people"
+                ? groups.flatMap((g) =>
+                    collapsed.has(g.key)
+                      ? [groupHeaderRow(g)]
+                      : [groupHeaderRow(g), ...g.tasks.map((t) => renderRow(t, { keyExtra: `${g.key}-` }))],
+                  )
+                : sorted.map((t, i) => renderRow(t, { meta: rowMeta[i] }))}
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={totalColsCount} className="py-12 text-center text-sm text-slate-400">
+                    Không có công việc phù hợp với bộ lọc
+                  </td>
+                </tr>
               ) : null}
-              {renderHeadCell("Mã", "sumId")}
-              {renderHeadCell("Dự án", "project")}
-              {renderHeadCell("Công việc", "name")}
-              {renderHeadCell("Bộ môn", "discipline")}
-              {renderHeadCell("Người thực hiện", "assignee")}
-              {renderHeadCell("Ưu tiên", "priority")}
-              {renderHeadCell("Trạng thái", "status")}
-              {renderHeadCell("Ngày bđ", "start")}
-              {renderHeadCell("Hạn", "deadline")}
-              {renderHeadCell("Thực tế ht", "actualEnd")}
-              {canManage ? (
-                <TableHead style={{ width: MANAGE_ACT_PX }} className="px-2 text-center">
-                  Thao tác
-                </TableHead>
-              ) : null}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {viewMode === "people"
-              ? groups.flatMap((g) =>
-                  collapsed.has(g.key)
-                    ? [groupHeaderRow(g)]
-                    : [groupHeaderRow(g), ...g.tasks.map((t) => renderRow(t, `${g.key}-`))],
-                )
-              : sorted.map((t) => renderRow(t))}
-            {filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={canManage ? 12 : 10} className="py-8 text-center text-muted-foreground">
-                  Không có công việc phù hợp
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
+            </tbody>
+          </table>
+        </div>
       )}
+
+      {/* Popover lọc theo cột */}
+      {openFilter && openCol ? (
+        <Popover
+          rect={openFilter.rect}
+          onClose={() => setOpenFilter(null)}
+          width={openCol.filter === "multi" && (openCol.opts?.length ?? 0) >= 5 ? 256 : 240}
+        >
+          <PopHeader
+            title={openCol.label}
+            showClear={colActive(openCol, colFilters[openCol.key])}
+            onClear={() => clearCol(openCol.key)}
+          />
+          {openCol.filter === "text" ? (
+            <TextBody col={openCol} value={colFilters[openCol.key] as string} onChange={(v) => setCF(openCol.key, v)} />
+          ) : null}
+          {openCol.filter === "multi" ? (
+            <MultiBody
+              col={openCol}
+              value={(colFilters[openCol.key] as string[]) ?? []}
+              onChange={(v) => setCF(openCol.key, v)}
+            />
+          ) : null}
+          {openCol.filter === "status" ? (
+            <StatusBody
+              value={(colFilters[openCol.key] as StatusFilterVal) ?? { status: [], duyet: [] }}
+              onChange={(v) => setCF(openCol.key, v)}
+            />
+          ) : null}
+          {openCol.filter === "date" ? (
+            <DateBody
+              col={openCol}
+              value={(colFilters[openCol.key] as string) ?? ""}
+              onChange={(v) => {
+                setCF(openCol.key, v);
+                setOpenFilter(null);
+              }}
+            />
+          ) : null}
+        </Popover>
+      ) : null}
 
       {/* Thanh thao tác hàng loạt — dính đáy khi đã chọn việc */}
       {canManage && selected.size > 0 ? (
         <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border bg-card p-2 shadow-lg">
           <span className="px-2 text-sm font-medium">Đã chọn {selected.size}</span>
-          <Select
-            className="h-8 w-36 text-xs"
-            value=""
-            onChange={(e) => batchStatus(e.target.value)}
-          >
+          <Select className="h-8 w-36 text-xs" value="" onChange={(e) => batchStatus(e.target.value)}>
             <option value="">Đổi trạng thái…</option>
             {TASK_STATUS_OPTIONS.map((s) => (
               <option key={s} value={s}>
@@ -1431,11 +1770,7 @@ export function ManageClient({
               </option>
             ))}
           </Select>
-          <Select
-            className="h-8 w-32 text-xs"
-            value=""
-            onChange={(e) => batchPriority(e.target.value)}
-          >
+          <Select className="h-8 w-32 text-xs" value="" onChange={(e) => batchPriority(e.target.value)}>
             <option value="">Đổi ưu tiên…</option>
             {PRIORITY_OPTIONS.map((p) => (
               <option key={p} value={p}>
@@ -1443,11 +1778,7 @@ export function ManageClient({
               </option>
             ))}
           </Select>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setDeadline({ ids: [...selected], date: "" })}
-          >
+          <Button size="sm" variant="outline" onClick={() => setDeadline({ ids: [...selected], date: "" })}>
             <Calendar className="size-4" /> Đổi hạn
           </Button>
           <Button
@@ -1475,12 +1806,7 @@ export function ManageClient({
 
       {/* Modal giao lại người hàng loạt */}
       {reassign ? (
-        <Modal
-          open
-          onClose={() => setReassign(null)}
-          title={`Giao lại ${reassign.ids.length} công việc`}
-          className="max-w-md"
-        >
+        <Modal open onClose={() => setReassign(null)} title={`Giao lại ${reassign.ids.length} công việc`} className="max-w-md">
           <div className="space-y-3">
             <div className="flex gap-4 text-sm">
               <label className="flex items-center gap-1.5">
@@ -1523,18 +1849,9 @@ export function ManageClient({
 
       {/* Modal đổi hạn hàng loạt */}
       {deadline ? (
-        <Modal
-          open
-          onClose={() => setDeadline(null)}
-          title={`Đổi hạn ${deadline.ids.length} công việc`}
-          className="max-w-sm"
-        >
+        <Modal open onClose={() => setDeadline(null)} title={`Đổi hạn ${deadline.ids.length} công việc`} className="max-w-sm">
           <div className="space-y-3">
-            <Input
-              type="date"
-              value={deadline.date}
-              onChange={(e) => setDeadline({ ...deadline, date: e.target.value })}
-            />
+            <Input type="date" value={deadline.date} onChange={(e) => setDeadline({ ...deadline, date: e.target.value })} />
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setDeadline(null)}>
                 Hủy
@@ -1567,12 +1884,7 @@ export function ManageClient({
 
       {/* "Giao việc" → lưới nhập (1 hoặc nhiều việc) trong modal gần kín màn hình. */}
       {bulkOpen && canAssign ? (
-        <Modal
-          open
-          onClose={() => setBulkOpen(false)}
-          title="Giao việc"
-          className="max-w-[96vw]"
-        >
+        <Modal open onClose={() => setBulkOpen(false)} title="Giao việc" className="max-w-[96vw]">
           <AssignClient
             embedded
             workGroups={workGroups}
@@ -1588,8 +1900,258 @@ export function ManageClient({
           />
         </Modal>
       ) : null}
-
     </div>
+  );
+}
+
+// ---- Popover lọc (portal, neo dưới nút funnel, đóng khi click ngoài/cuộn/Esc) ----
+function Popover({
+  rect,
+  onClose,
+  children,
+  width = 248,
+}: {
+  rect: DOMRect;
+  onClose: () => void;
+  children: React.ReactNode;
+  width?: number;
+}) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    function onScroll(e: Event) {
+      if (ref.current && ref.current.contains(e.target as Node)) return;
+      onClose();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("scroll", onScroll, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("scroll", onScroll, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  const left = Math.min(rect.left, window.innerWidth - width - 12);
+  const top = Math.min(rect.bottom + 6, window.innerHeight - 80);
+  return createPortal(
+    <div
+      ref={ref}
+      style={{ position: "fixed", left: Math.max(8, left), top, width }}
+      className="z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5"
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+function PopHeader({ title, onClear, showClear }: { title: string; onClear: () => void; showClear: boolean }) {
+  return (
+    <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+      <span className="text-xs font-semibold text-slate-700">{title}</span>
+      {showClear ? (
+        <button type="button" onClick={onClear} className="text-[11px] font-medium text-slate-400 hover:text-red-600">
+          Xóa
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function MultiBody({ col, value, onChange }: { col: ColDef; value: string[]; onChange: (v: string[]) => void }) {
+  const [q, setQ] = React.useState("");
+  const sel = value ?? [];
+  const opts = (col.opts ?? []).filter((o) => norm(col.labelMap ? (col.labelMap[o] ?? o) : o).includes(norm(q)));
+  const toggle = (o: string) => onChange(sel.includes(o) ? sel.filter((x) => x !== o) : [...sel, o]);
+  return (
+    <div>
+      {(col.opts?.length ?? 0) >= 5 ? (
+        <div className="relative border-b border-slate-100 p-2">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Tìm…"
+            className="h-7 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-xs outline-none focus:border-slate-400 focus:bg-white"
+          />
+        </div>
+      ) : null}
+      <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-slate-400">
+        <span>{sel.length ? `${sel.length} đã chọn` : "Chọn giá trị"}</span>
+        {sel.length > 0 ? (
+          <button type="button" onClick={() => onChange([])} className="hover:text-slate-600">
+            Bỏ chọn
+          </button>
+        ) : null}
+      </div>
+      <ul className="max-h-60 overflow-auto pb-1">
+        {opts.map((o) => {
+          const on = sel.includes(o);
+          return (
+            <li key={o}>
+              <button
+                type="button"
+                onClick={() => toggle(o)}
+                className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              >
+                <span
+                  className={cn(
+                    "grid size-4 shrink-0 place-items-center rounded border",
+                    on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+                  )}
+                >
+                  {on ? <Check className="size-3" strokeWidth={3} /> : null}
+                </span>
+                <span className="truncate">{col.labelMap ? (col.labelMap[o] ?? o) : o}</span>
+              </button>
+            </li>
+          );
+        })}
+        {opts.length === 0 ? <li className="px-3 py-2 text-xs text-slate-400">Không có kết quả</li> : null}
+      </ul>
+    </div>
+  );
+}
+
+function StatusBody({ value, onChange }: { value: StatusFilterVal; onChange: (v: StatusFilterVal) => void }) {
+  const v = value ?? { status: [], duyet: [] };
+  const tog = (grp: "status" | "duyet", code: string) => {
+    const cur = v[grp] ?? [];
+    const next = cur.includes(code) ? cur.filter((x) => x !== code) : [...cur, code];
+    onChange({ ...v, [grp]: next });
+  };
+  const item = (grp: "status" | "duyet", code: string, label: string, dot: string) => {
+    const on = (v[grp] ?? []).includes(code);
+    return (
+      <button
+        key={`${grp}-${code}`}
+        type="button"
+        onClick={() => tog(grp, code)}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+      >
+        <span
+          className={cn(
+            "grid size-4 shrink-0 place-items-center rounded border",
+            on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+          )}
+        >
+          {on ? <Check className="size-3" strokeWidth={3} /> : null}
+        </span>
+        <span className={cn("size-2 shrink-0 rounded-full", dot)} />
+        <span className="truncate">{label}</span>
+      </button>
+    );
+  };
+  return (
+    <div className="pb-1">
+      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Trạng thái</p>
+      {item("status", "QUA_HAN", "Quá hạn", "bg-red-500")}
+      {item("status", "DANG_LAM", "Đang thực hiện", "bg-blue-500")}
+      {item("status", "CHUA_LAM", "Chưa làm", "bg-slate-400")}
+      {item("status", "TAM_DUNG", "Tạm dừng", "bg-amber-500")}
+      {item("status", "HOAN_THANH", "Hoàn thành", "bg-emerald-500")}
+      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Duyệt</p>
+      {item("duyet", "DA_DUYET", "Đã duyệt", "bg-emerald-500")}
+      {item("duyet", "CHO_DUYET", "Chờ duyệt", "bg-amber-500")}
+      {item("duyet", "CHUA_DUYET", "Chưa duyệt", "bg-slate-400")}
+      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Khác</p>
+      <button
+        type="button"
+        onClick={() => onChange({ ...v, tre: !v.tre })}
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+      >
+        <span
+          className={cn(
+            "grid size-4 shrink-0 place-items-center rounded border",
+            v.tre ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+          )}
+        >
+          {v.tre ? <Check className="size-3" strokeWidth={3} /> : null}
+        </span>
+        <span className="size-2 shrink-0 rounded-full bg-rose-500" />
+        <span className="truncate">Trễ hạn (hoàn thành muộn)</span>
+      </button>
+    </div>
+  );
+}
+
+function TextBody({ col, value, onChange }: { col: ColDef; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="p-2">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+        <input
+          autoFocus
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={`Lọc theo ${col.label.toLowerCase()}…`}
+          className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-[13px] outline-none focus:border-slate-400 focus:bg-white"
+        />
+      </div>
+    </div>
+  );
+}
+
+function DateBody({ col, value, onChange }: { col: ColDef; value: string; onChange: (v: string) => void }) {
+  return (
+    <ul className="py-1">
+      <li>
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] hover:bg-slate-50"
+        >
+          <span
+            className={cn("grid size-3.5 place-items-center rounded-full border", !value ? "border-slate-800" : "border-slate-300")}
+          >
+            {!value ? <span className="size-1.5 rounded-full bg-slate-800" /> : null}
+          </span>
+          <span className="text-slate-500">Tất cả</span>
+        </button>
+      </li>
+      {(DATE_PRESETS[col.key] ?? []).map(([val, label]) => {
+        const on = value === val;
+        return (
+          <li key={val}>
+            <button
+              type="button"
+              onClick={() => onChange(val)}
+              className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+            >
+              <span
+                className={cn("grid size-3.5 place-items-center rounded-full border", on ? "border-slate-800" : "border-slate-300")}
+              >
+                {on ? <span className="size-1.5 rounded-full bg-slate-800" /> : null}
+              </span>
+              <span className="truncate">{label}</span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function Chip({ label, value, onRemove }: { label: string; value: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-xs shadow-sm">
+      <span className="text-slate-400">{label}:</span>
+      <span className="font-medium text-slate-700">{value}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+      >
+        <X className="size-3" />
+      </button>
+    </span>
   );
 }
 
@@ -1615,12 +2177,7 @@ function TaskDialog({
   onClose: () => void;
 }) {
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={task ? "Sửa công việc" : "Thêm công việc"}
-      className="max-w-3xl"
-    >
+    <Modal open onClose={onClose} title={task ? "Sửa công việc" : "Thêm công việc"} className="max-w-3xl">
       <TaskRowEditor
         task={task}
         defaultWorkGroupId={defaultWorkGroupId}

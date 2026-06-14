@@ -117,9 +117,23 @@ model Phase {
   tasks Task[]
 }
 
-/// Dự án (mã như B.DSHNQN.DMF)
+/// Dự án (cấp cha) — 1 mã = 1 dự án. Tên do người dùng đặt (seed tạm = mã).
+/// Mỗi dự án chứa nhiều Hạng mục (= model Project bên dưới).
+model ProjectGroup {
+  id        String   @id @default(cuid())
+  code      String   @unique // = mã dự án (B.DSHNQN.STA…)
+  name      String // tên dự án thật
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items Project[] // các hạng mục thuộc dự án
+}
+
+/// Hạng mục của dự án (UI gọi "Hạng mục"; mã như B.DSHNQN.DMF + tên hạng mục).
 model Project {
   id                 String        @id @default(cuid())
+  groupId            String? // FK → ProjectGroup (Dự án cha); nullable trước backfill
   code               String // KHÔNG unique đơn lẻ: nhóm Quản lý BIM mỗi (mã + tên) là 1 dự án riêng
   name               String
   scale              String? // Quy mô công trình (nhập tay, dùng cho nhóm Quản lý BIM)
@@ -133,12 +147,14 @@ model Project {
   deletedAt          DateTime?
 
   constructionType ConstructionType? @relation(fields: [constructionTypeId], references: [id])
+  group            ProjectGroup?     @relation(fields: [groupId], references: [id])
   tasks            Task[]
   timeSheets       TimeSheetEntry[]
 
   @@unique([code, name])
   @@index([status])
   @@index([constructionTypeId])
+  @@index([groupId])
 }
 
 // ---------- Người dùng ----------

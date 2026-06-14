@@ -1,19 +1,66 @@
 import { prisma } from "@/server/db/client";
-import { CatalogManager } from "./catalog-manager";
+import { CatalogClient } from "./catalog-client";
 
 export default async function CatalogPage() {
-  const [workGroups, phases, constructionTypes, disciplines] = await Promise.all([
-    prisma.workGroup.findMany({ orderBy: { order: "asc" } }),
+  const [workGroups, phases, constructionTypes, disciplines, projectGroups, projects, level5] = await Promise.all([
+    prisma.workGroup.findMany({
+      orderBy: { order: "asc" },
+      include: { _count: { select: { tasks: true } } },
+    }),
     prisma.phase.findMany({ orderBy: { order: "asc" } }),
     prisma.constructionType.findMany({ orderBy: { order: "asc" } }),
     prisma.discipline.findMany({ orderBy: { order: "asc" } }),
+    prisma.projectGroup.findMany({
+      orderBy: [{ order: "asc" }, { name: "asc" }],
+      include: { _count: { select: { items: true } } },
+    }),
+    prisma.project.findMany({
+      where: { deletedAt: null },
+      orderBy: [{ code: "asc" }, { name: "asc" }],
+      include: { _count: { select: { tasks: true } } },
+    }),
+    // Tab "Công việc" = danh mục Đầu việc (CatalogItem level 5) theo từng Nhóm công việc.
+    prisma.catalogItem.findMany({
+      where: { level: 5 },
+      orderBy: [{ order: "asc" }, { value: "asc" }],
+    }),
   ]);
+
   return (
-    <CatalogManager
-      workGroups={workGroups.map((w) => ({ id: w.id, code: w.code, name: w.name, order: w.order, abbr: w.abbr }))}
+    <CatalogClient
+      workGroups={workGroups.map((w) => ({
+        id: w.id,
+        code: w.code,
+        abbr: w.abbr,
+        name: w.name,
+        order: w.order,
+        taskCount: w._count.tasks,
+      }))}
       phases={phases.map((p) => ({ id: p.id, code: p.code, name: p.name, order: p.order }))}
-      constructionTypes={constructionTypes.map((c) => ({ id: c.id, code: c.code, name: c.name, order: c.order }))}
       disciplines={disciplines.map((d) => ({ id: d.id, code: d.code, name: d.name, order: d.order }))}
+      constructionTypes={constructionTypes.map((c) => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        order: c.order,
+      }))}
+      projectGroups={projectGroups.map((g) => ({
+        id: g.id,
+        code: g.code,
+        name: g.name,
+        order: g.order,
+        itemCount: g._count.items,
+      }))}
+      projects={projects.map((p) => ({
+        id: p.id,
+        groupId: p.groupId,
+        code: p.code,
+        name: p.name,
+        scale: p.scale,
+        constructionTypeId: p.constructionTypeId,
+        taskCount: p._count.tasks,
+      }))}
+      works={level5.map((i) => ({ id: i.id, workGroupId: i.workGroupId, value: i.value, order: i.order }))}
     />
   );
 }

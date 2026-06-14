@@ -68,4 +68,14 @@ prisma/import/.pgpass
 prisma/import/backup-*.json
 prisma/import/created-missing-*.json
 prisma/import/local-backup-*.sql
+prisma/import/prod-backup-*.sql
 prisma/import/supabase-data.sql
+
+# Tài liệu/ảnh thiết kế & artifact nghiệm thu (không cần trong repo)
+/_shots/
+/handoff-baocao/
+/handoff-cong-viec-cua-toi/
+/handoff-cong-viec-cua-toi.zip
+/ui/
+/web-qlcv-code-only.md
+/BAO-CAO-design-handoff.md
