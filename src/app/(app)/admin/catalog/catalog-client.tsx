@@ -193,7 +193,7 @@ export function CatalogClient({
       rowExtra={(r) => (
         <Link
           href={`/admin/catalog/${r.id}`}
-          title="Khai báo Hạng mục / Chi tiết / Đầu việc của nhóm này"
+          title="Khai báo Loại hình / Hạng mục / Đầu việc của nhóm này"
           className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
         >
           <SlidersHorizontal className="size-4" />

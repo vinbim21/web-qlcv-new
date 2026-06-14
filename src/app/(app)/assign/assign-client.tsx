@@ -61,8 +61,8 @@ function columnsFor(code?: string, withApprover = false): ColKey[] {
 const COL_LABEL: Record<ColKey, string> = {
   id: "Id",
   project: "Dự án",
-  level2: "Hạng mục (L2)",
-  level3: "Chi tiết (L3)",
+  level2: "Loại hình (L2)",
+  level3: "Hạng mục (L3)",
   discipline: "Bộ môn (L4)",
   level5: "Đầu việc (L5)",
   phase: "Giai đoạn",
@@ -434,7 +434,7 @@ export function AssignClient({
     }));
 
     if (payload.length === 0) {
-      toast.error("Chưa có dòng nào để giao (cần nhập Hạng mục/Chi tiết/Đầu việc)");
+      toast.error("Chưa có dòng nào để giao (cần nhập Loại hình/Hạng mục/Đầu việc)");
       return;
     }
 

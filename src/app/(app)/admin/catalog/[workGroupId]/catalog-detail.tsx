@@ -79,8 +79,8 @@ export function CatalogDetail({
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-3">
-          <LevelColumn title="Level 2 — Hạng mục" workGroupId={workGroupId} level={2} items={level2} />
-          <LevelColumn title="Level 3 — Chi tiết" workGroupId={workGroupId} level={3} items={level3} />
+          <LevelColumn title="Level 2 — Loại hình" workGroupId={workGroupId} level={2} items={level2} />
+          <LevelColumn title="Level 3 — Hạng mục" workGroupId={workGroupId} level={3} items={level3} />
           <LevelColumn title="Level 5 — Đầu việc" workGroupId={workGroupId} level={5} items={level5} />
         </div>
       )}

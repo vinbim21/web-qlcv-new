@@ -525,8 +525,8 @@ export function ManageClient({
     const all: ColDef[] = [
       { key: "sumId", label: "Mã", mono: true, filter: "text" },
       { key: "duAn", label: "Dự án", lvl: 1, filter: "multi", opts: distinct.duAn },
-      { key: "loaiHinh", label: "Hạng mục", lvl: 2, filter: "multi", opts: distinct.loaiHinh },
-      { key: "hangMuc", label: "Chi tiết", lvl: 3, filter: "multi", opts: distinct.hangMuc },
+      { key: "loaiHinh", label: "Loại hình", lvl: 2, filter: "multi", opts: distinct.loaiHinh },
+      { key: "hangMuc", label: "Hạng mục", lvl: 3, filter: "multi", opts: distinct.hangMuc },
       { key: "congViec", label: "Công việc", lvl: 4, leaf: true, filter: "multi", opts: distinct.congViec },
       { key: "boMon", label: "Bộ môn", filter: "multi", opts: distinct.boMon },
       { key: "thucHien", label: "Thực hiện", filter: "multi", opts: distinct.thucHien },
