@@ -53,6 +53,7 @@ export type TaskRow = {
   workGroupName: string;
   projectId: string | null;
   projectName: string | null;
+  groupName: string | null; // tên Dự án (ProjectGroup)
   disciplineId: string | null;
   disciplineName: string | null;
   phaseId: string | null;
@@ -123,7 +124,11 @@ function effOf(t: TaskRow): string {
   return effectiveStatus({ status: t.status, plannedEnd: t.plannedEnd });
 }
 function duAnText(t: TaskRow): string {
-  return t.workGroupName === WG_SHOW_L3_IN_PROJECT ? (t.level3 || t.projectName || "") : (t.projectName ?? "");
+  // Ưu tiên tên Dự án (ProjectGroup); nhóm không gắn dự án (BIM Tools…) → giữ hành vi cũ.
+  return (
+    t.groupName ??
+    (t.workGroupName === WG_SHOW_L3_IN_PROJECT ? (t.level3 || t.projectName || "") : (t.projectName ?? ""))
+  );
 }
 
 // ---------- pill mềm trạng thái (đồng bộ /manage) ----------

@@ -84,6 +84,8 @@ export type TaskRow = {
   workGroupName: string;
   projectId: string | null;
   projectName: string | null;
+  groupName: string | null; // tên Dự án (ProjectGroup) — tách từ mã
+  loaiHinhName: string | null; // tên Loại hình công trình (constructionType) — tách từ mã
   disciplineId: string | null;
   disciplineName: string | null;
   disciplineCode: string | null;
@@ -213,9 +215,15 @@ function colText(t: TaskRow, key: SortKey): string {
     case "sumId":
       return t.sumId ?? "";
     case "duAn":
-      return t.projectName ?? (t.workGroupName === WG_SHOW_L3_IN_PROJECT ? (t.level3 ?? "") : "");
+      // Việc có dự án → tên Dự án (ProjectGroup). Nhóm không gắn dự án (BIM Tools…) → giữ hành vi cũ.
+      return (
+        t.groupName ??
+        (t.workGroupName === WG_SHOW_L3_IN_PROJECT ? (t.level3 ?? "") : (t.projectName ?? ""))
+      );
     case "loaiHinh":
-      return t.level2 ?? "";
+      // Việc có dự án → Loại hình công trình (đọc được); 19 hạng mục chưa suy được → trống.
+      // Nhóm không gắn dự án → giữ level2 (phân cấp tự do, vd "Công cụ & Tự động hóa").
+      return t.loaiHinhName ?? (t.projectId ? "" : (t.level2 ?? ""));
     case "hangMuc":
       return t.level3 ?? "";
     case "congViec":
