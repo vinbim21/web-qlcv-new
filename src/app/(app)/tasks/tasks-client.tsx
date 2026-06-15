@@ -891,19 +891,6 @@ export function TasksClient({
     return arr;
   }, [filtered, sort]);
 
-  // Cờ làm mờ giá trị cha lặp ở dòng liền kề (đọc như cây) — tính trên danh sách đã sort.
-  const rowMeta = React.useMemo(
-    () =>
-      sorted.map((t, i) => {
-        const p = sorted[i - 1];
-        const sameDu = !!p && colText(p, "duAn") === colText(t, "duAn");
-        const sameLoai = sameDu && colText(p, "loaiHinh") === colText(t, "loaiHinh");
-        const sameHang = sameLoai && colText(p, "hangMuc") === colText(t, "hangMuc");
-        return { duAn: sameDu, loaiHinh: sameLoai, hangMuc: sameHang } as Record<string, boolean>;
-      }),
-    [sorted],
-  );
-
   function toggleSort(key: SortKey) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
   }
@@ -1132,7 +1119,7 @@ export function TasksClient({
     );
   }
 
-  function renderRow(t: TaskRow, meta?: Record<string, boolean>) {
+  function renderRow(t: TaskRow) {
     const overdue = isOverdue(t);
     const pending = isPendingApproval(t);
     const canEditDone = (canManage || t.assigneeIds.includes(currentUserId)) && !pending;
@@ -1160,18 +1147,13 @@ export function TasksClient({
         {cols.map((c) => {
           if (c.key === "duAn" || c.key === "loaiHinh" || c.key === "hangMuc") {
             const v = colText(t, c.key);
-            const dim = meta?.[c.key] ?? false;
             return (
               <td
                 key={c.key}
                 style={bodyFrozenStyle(c.key)}
                 className={cn("px-2.5 py-2.5 align-top", c.key !== "duAn" && "border-l border-slate-100")}
               >
-                {!v ? (
-                  <span className="text-slate-300">—</span>
-                ) : (
-                  <span className={dim ? "text-slate-300" : "text-slate-600"}>{v}</span>
-                )}
+                {!v ? <span className="text-slate-300">—</span> : <span className="text-slate-600">{v}</span>}
               </td>
             );
           }
@@ -1467,7 +1449,7 @@ export function TasksClient({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((t, i) => renderRow(t, rowMeta[i]))}
+            {sorted.map((t) => renderRow(t))}
             {sorted.length === 0 ? (
               <tr>
                 <td colSpan={colSpan} className="py-12 text-center text-sm text-slate-400">
