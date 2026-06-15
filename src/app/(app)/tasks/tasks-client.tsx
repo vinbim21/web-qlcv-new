@@ -54,6 +54,7 @@ export type TaskRow = {
   projectId: string | null;
   projectName: string | null;
   groupName: string | null; // tên Dự án (ProjectGroup)
+  loaiHinhName: string | null; // tên Loại hình công trình (constructionType)
   disciplineId: string | null;
   disciplineName: string | null;
   phaseId: string | null;
@@ -145,6 +146,8 @@ type FilterKind = "text" | "multi" | "status" | "date";
 type SortKey =
   | "sumId"
   | "duAn"
+  | "loaiHinh"
+  | "hangMuc"
   | "congViec"
   | "boMon"
   | "thucHien"
@@ -172,6 +175,11 @@ function colText(t: TaskRow, key: SortKey): string {
       return t.sumId ?? "";
     case "duAn":
       return duAnText(t);
+    case "loaiHinh":
+      // Việc có dự án → Loại hình công trình; nhóm không gắn dự án → giữ level2 (phân cấp tự do).
+      return t.loaiHinhName ?? (t.projectId ? "" : (t.level2 ?? ""));
+    case "hangMuc":
+      return t.level3 ?? "";
     case "congViec":
       return t.name;
     case "boMon":
@@ -729,7 +737,7 @@ export function TasksClient({
   const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM">("");
   const [colFilters, setColFilters] = React.useState<Record<string, ColFilterVal>>({});
   const [openFilter, setOpenFilter] = React.useState<{ key: SortKey; rect: DOMRect } | null>(null);
-  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "ketThuc", dir: "asc" });
+  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "duAn", dir: "asc" });
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [logging, setLogging] = React.useState<TaskRow | null>(null);
@@ -756,17 +764,21 @@ export function TasksClient({
     const uniq = (vals: string[]) => [...new Set(vals.filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
     return {
       duAn: uniq(tasks.map((t) => duAnText(t))),
+      loaiHinh: uniq(tasks.map((t) => colText(t, "loaiHinh"))),
+      hangMuc: uniq(tasks.map((t) => t.level3 ?? "")),
       congViec: uniq(tasks.map((t) => t.name)),
       boMon: uniq(tasks.map((t) => t.disciplineName ?? "")),
       thucHien: uniq(tasks.flatMap((t) => t.assigneeNames)),
     };
   }, [tasks]);
 
-  // Cột — gộp phân cấp còn 2 cột định danh (Dự án + Công việc); không cột Mã mặc định.
+  // Cột — phân cấp 4 cấp ghim trái như /manage: Dự án → Loại hình → Hạng mục → Công việc.
   const cols = React.useMemo<ColDef[]>(
     () => [
       { key: "duAn", label: "Dự án", w: 168, ident: true, filter: "multi", opts: distinct.duAn },
-      { key: "congViec", label: "Công việc", w: 252, ident: true, leaf: true, filter: "multi", opts: distinct.congViec },
+      { key: "loaiHinh", label: "Loại hình", w: 150, ident: true, filter: "multi", opts: distinct.loaiHinh },
+      { key: "hangMuc", label: "Hạng mục", w: 168, ident: true, filter: "multi", opts: distinct.hangMuc },
+      { key: "congViec", label: "Công việc", w: 240, ident: true, leaf: true, filter: "multi", opts: distinct.congViec },
       { key: "boMon", label: "Bộ môn", w: 120, filter: "multi", opts: distinct.boMon },
       { key: "thucHien", label: "Người thực hiện", w: 172, filter: "multi", opts: distinct.thucHien },
       { key: "uuTien", label: "Ưu tiên", w: 108, filter: "multi", opts: [...PRIORITY_OPTIONS], labelMap: PRIORITY_LABEL },
@@ -861,6 +873,9 @@ export function TasksClient({
         return norm(colText(t, key));
     }
   }
+  // Chuỗi phân cấp để tie-break (giữ gom nhóm Dự án→Loại hình→Hạng mục→Công việc).
+  const hierKey = (t: TaskRow) =>
+    norm(colText(t, "duAn") + colText(t, "loaiHinh") + colText(t, "hangMuc") + colText(t, "congViec"));
   const sorted = React.useMemo(() => {
     const arr = [...filtered];
     arr.sort((a, b) => {
@@ -870,11 +885,24 @@ export function TasksClient({
         typeof va === "number" && typeof vb === "number"
           ? va - vb
           : String(va).localeCompare(String(vb), "vi");
-      if (c === 0) c = (a.plannedEnd + a.name).localeCompare(b.plannedEnd + b.name, "vi");
+      if (c === 0) c = hierKey(a).localeCompare(hierKey(b), "vi");
       return sort.dir === "asc" ? c : -c;
     });
     return arr;
   }, [filtered, sort]);
+
+  // Cờ làm mờ giá trị cha lặp ở dòng liền kề (đọc như cây) — tính trên danh sách đã sort.
+  const rowMeta = React.useMemo(
+    () =>
+      sorted.map((t, i) => {
+        const p = sorted[i - 1];
+        const sameDu = !!p && colText(p, "duAn") === colText(t, "duAn");
+        const sameLoai = sameDu && colText(p, "loaiHinh") === colText(t, "loaiHinh");
+        const sameHang = sameLoai && colText(p, "hangMuc") === colText(t, "hangMuc");
+        return { duAn: sameDu, loaiHinh: sameLoai, hangMuc: sameHang } as Record<string, boolean>;
+      }),
+    [sorted],
+  );
 
   function toggleSort(key: SortKey) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
@@ -1104,7 +1132,7 @@ export function TasksClient({
     );
   }
 
-  function renderRow(t: TaskRow) {
+  function renderRow(t: TaskRow, meta?: Record<string, boolean>) {
     const overdue = isOverdue(t);
     const pending = isPendingApproval(t);
     const canEditDone = (canManage || t.assigneeIds.includes(currentUserId)) && !pending;
@@ -1130,11 +1158,20 @@ export function TasksClient({
           />
         </td>
         {cols.map((c) => {
-          if (c.key === "duAn") {
-            const v = duAnText(t);
+          if (c.key === "duAn" || c.key === "loaiHinh" || c.key === "hangMuc") {
+            const v = colText(t, c.key);
+            const dim = meta?.[c.key] ?? false;
             return (
-              <td key="duAn" style={bodyFrozenStyle("duAn")} className="px-2.5 py-2.5 align-top">
-                {v ? <span className="text-slate-600">{v}</span> : <span className="text-slate-300">—</span>}
+              <td
+                key={c.key}
+                style={bodyFrozenStyle(c.key)}
+                className={cn("px-2.5 py-2.5 align-top", c.key !== "duAn" && "border-l border-slate-100")}
+              >
+                {!v ? (
+                  <span className="text-slate-300">—</span>
+                ) : (
+                  <span className={dim ? "text-slate-300" : "text-slate-600"}>{v}</span>
+                )}
               </td>
             );
           }
@@ -1430,7 +1467,7 @@ export function TasksClient({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((t) => renderRow(t))}
+            {sorted.map((t, i) => renderRow(t, rowMeta[i]))}
             {sorted.length === 0 ? (
               <tr>
                 <td colSpan={colSpan} className="py-12 text-center text-sm text-slate-400">

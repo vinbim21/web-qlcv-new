@@ -71,6 +71,11 @@ prisma/import/local-backup-*.sql
 prisma/import/prod-backup-*.sql
 prisma/import/supabase-data.sql
 
+# Gói gửi đi (chứa dump dữ liệu thật) — TUYỆT ĐỐI không commit
+/_pkg/
+/web-qlcv-new.zip
+*.zip
+
 # Tài liệu/ảnh thiết kế & artifact nghiệm thu (không cần trong repo)
 /_shots/
 /handoff-baocao/
