@@ -118,3 +118,19 @@ export async function deleteCatalogValue(id: string) {
     revalidatePath("/assign");
   });
 }
+
+// ---------- Batch reorder (drag-and-drop) ----------
+
+type OrderModel = "workGroup" | "phase" | "discipline" | "constructionType" | "projectGroup" | "catalogItem";
+
+export async function batchReorderItems(model: OrderModel, ids: string[]) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = (prisma as any)[model];
+    await prisma.$transaction(
+      ids.map((id, index) => m.update({ where: { id }, data: { order: index } }))
+    );
+    revalidatePath("/admin/catalog");
+  });
+}

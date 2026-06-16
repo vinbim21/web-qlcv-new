@@ -157,6 +157,42 @@ export async function saveCatalogProject(input: {
   });
 }
 
+export async function batchSaveCatalogProjects(input: {
+  groupId: string;
+  constructionTypeId: string | null;
+  items: { name: string; scale: string | null }[];
+}) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    if (!input.groupId) throw new Error("Chọn dự án");
+    const validItems = input.items.map((i) => ({ ...i, name: i.name.trim() })).filter((i) => i.name);
+    if (!validItems.length) throw new Error("Nhập ít nhất 1 hạng mục");
+
+    const group = await prisma.projectGroup.findUnique({
+      where: { id: input.groupId },
+      select: { code: true },
+    });
+    if (!group) throw new Error("Dự án không tồn tại");
+    const code = group.code;
+    const constructionTypeId = input.constructionTypeId || null;
+
+    for (const item of validItems) {
+      const scale = item.scale?.trim() || null;
+      const dup = await prisma.project.findUnique({
+        where: { code_name: { code, name: item.name } },
+        select: { id: true },
+      });
+      if (dup) throw new Error(`Hạng mục "${item.name}" đã tồn tại trong dự án này`);
+      await prisma.project.create({
+        data: { groupId: input.groupId, code, name: item.name, scale, constructionTypeId },
+      });
+    }
+    revalidatePath("/admin/catalog", "layout");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
+  });
+}
+
 export async function deleteProject(id: string) {
   return runAction(async () => {
     await requireRole("ADMIN");

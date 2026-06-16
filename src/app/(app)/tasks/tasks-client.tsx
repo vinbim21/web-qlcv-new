@@ -9,6 +9,9 @@ import {
   Calendar,
   Check,
   ChevronsUpDown,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
   Clock,
   Filter,
   Flag,
@@ -30,6 +33,7 @@ import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client"
 import { TaskForm } from "@/components/task-form";
 import { TimesheetEntryDialog } from "@/components/timesheet-entry-dialog";
 import { bulkSaveTimesheetEntry } from "@/server/actions/timesheet";
+import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { PRIORITY_LABEL, PRIORITY_OPTIONS, TASK_STATUS_LABEL } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
@@ -160,6 +164,7 @@ type ColDef = {
   w: number;
   ident?: boolean; // ghim trái
   leaf?: boolean; // cột Công việc (đậm)
+  lvl?: 1 | 2 | 3; // cấp trong tree group (duAn=1, loaiHinh=2, hangMuc=3)
   mono?: boolean;
   action?: boolean; // cột thao tác (không sort/lọc)
   filter?: FilterKind;
@@ -744,6 +749,8 @@ export function TasksClient({
   // Chọn nhiều + thao tác hàng loạt.
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [bulkDeadline, setBulkDeadline] = React.useState<{ ids: string[]; date: string } | null>(null);
+  // Tree grouping: null = chưa tương tác (mặc định thu tất cả)
+  const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(null);
 
   const setCF = (k: SortKey, v: ColFilterVal) => setColFilters((s) => ({ ...s, [k]: v }));
   const clearCol = (k: SortKey) =>
@@ -776,9 +783,9 @@ export function TasksClient({
   // Cột — gộp phân cấp còn 2 cột định danh (Dự án + Công việc); không cột Mã mặc định.
   const cols = React.useMemo<ColDef[]>(
     () => [
-      { key: "duAn", label: "Dự án", w: 168, ident: true, filter: "multi", opts: distinct.duAn },
-      { key: "loaiHinh", label: "Loại hình", w: 150, filter: "multi", opts: distinct.loaiHinh },
-      { key: "hangMuc", label: "Hạng mục", w: 160, filter: "multi", opts: distinct.hangMuc },
+      { key: "duAn", label: "Dự án", w: 168, ident: true, lvl: 1, filter: "multi", opts: distinct.duAn },
+      { key: "loaiHinh", label: "Loại hình", w: 150, lvl: 2, filter: "multi", opts: distinct.loaiHinh },
+      { key: "hangMuc", label: "Hạng mục", w: 160, lvl: 3, filter: "multi", opts: distinct.hangMuc },
       { key: "congViec", label: "Công việc", w: 252, ident: true, leaf: true, filter: "multi", opts: distinct.congViec },
       { key: "giaiDoan", label: "Giai đoạn", w: 130, filter: "multi", opts: distinct.giaiDoan },
       { key: "boMon", label: "Bộ môn", w: 120, filter: "multi", opts: distinct.boMon },
@@ -891,6 +898,131 @@ export function TasksClient({
 
   function toggleSort(key: SortKey) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+  }
+
+  // ---- Tree grouping: Dự án → Loại hình → Hạng mục ----
+  type TreeNode =
+    | { type: "g1" | "g2" | "g3"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }
+    | { type: "task"; task: TaskRow };
+
+  const effectiveTreeCollapsed = React.useMemo(() => {
+    if (treeCollapsed) return treeCollapsed;
+    const keys = new Set<string>();
+    for (const t of sorted) {
+      const dk = colText(t, "duAn") || "—";
+      const lk = colText(t, "loaiHinh") || "—";
+      const hk = colText(t, "hangMuc") || "—";
+      keys.add(`d:${dk}`);
+      keys.add(`l:${dk}|${lk}`);
+      keys.add(`h:${dk}|${lk}|${hk}`);
+    }
+    return keys;
+  }, [treeCollapsed, sorted]);
+
+  const treeNodes = React.useMemo((): TreeNode[] => {
+    const nodes: TreeNode[] = [];
+    const byDuAn = new Map<string, TaskRow[]>();
+    for (const t of sorted) {
+      const k = colText(t, "duAn") || "—";
+      (byDuAn.get(k) ?? (byDuAn.set(k, []), byDuAn.get(k)!)).push(t);
+    }
+    for (const [dk, dTasks] of byDuAn) {
+      const d1 = `d:${dk}`;
+      nodes.push({ type: "g1", key: d1, label: dk, count: dTasks.length, overdue: dTasks.filter(isOverdue).length, tasks: dTasks });
+      if (effectiveTreeCollapsed.has(d1)) continue;
+      const byLoai = new Map<string, TaskRow[]>();
+      for (const t of dTasks) {
+        const k = colText(t, "loaiHinh") || "—";
+        (byLoai.get(k) ?? (byLoai.set(k, []), byLoai.get(k)!)).push(t);
+      }
+      for (const [lk, lTasks] of byLoai) {
+        const d2 = `l:${dk}|${lk}`;
+        nodes.push({ type: "g2", key: d2, label: lk, count: lTasks.length, overdue: lTasks.filter(isOverdue).length, tasks: lTasks });
+        if (effectiveTreeCollapsed.has(d2)) continue;
+        const byHang = new Map<string, TaskRow[]>();
+        for (const t of lTasks) {
+          const k = colText(t, "hangMuc") || "—";
+          (byHang.get(k) ?? (byHang.set(k, []), byHang.get(k)!)).push(t);
+        }
+        for (const [hk, hTasks] of byHang) {
+          const d3 = `h:${dk}|${lk}|${hk}`;
+          nodes.push({ type: "g3", key: d3, label: hk, count: hTasks.length, overdue: hTasks.filter(isOverdue).length, tasks: hTasks });
+          if (effectiveTreeCollapsed.has(d3)) continue;
+          for (const t of hTasks) nodes.push({ type: "task", task: t });
+        }
+      }
+    }
+    return nodes;
+  }, [sorted, effectiveTreeCollapsed]);
+
+  const allTreeKeys = React.useMemo(() => {
+    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>();
+    for (const t of sorted) {
+      const dk = colText(t, "duAn") || "—";
+      const lk = colText(t, "loaiHinh") || "—";
+      const hk = colText(t, "hangMuc") || "—";
+      d.add(`d:${dk}`);
+      l.add(`l:${dk}|${lk}`);
+      h.add(`h:${dk}|${lk}|${hk}`);
+    }
+    return { d: [...d], l: [...l], h: [...h] };
+  }, [sorted]);
+
+  // Khi có checkbox được chọn: chỉ tác động lên các nhóm chứa task đó.
+  const selectedGroupKeys = React.useMemo(() => {
+    if (selected.size === 0) return null;
+    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>();
+    for (const t of sorted) {
+      if (!selected.has(t.id)) continue;
+      const dk = colText(t, "duAn") || "—";
+      const lk = colText(t, "loaiHinh") || "—";
+      const hk = colText(t, "hangMuc") || "—";
+      d.add(`d:${dk}`);
+      l.add(`l:${dk}|${lk}`);
+      h.add(`h:${dk}|${lk}|${hk}`);
+    }
+    return { d: [...d], l: [...l], h: [...h] };
+  }, [selected, sorted]);
+
+  function toggleTreeNode(key: string) {
+    setTreeCollapsed((s) => {
+      const n = new Set(s ?? effectiveTreeCollapsed);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  }
+
+  // Expand từng cấp: d → l → h (chỉ nhóm có selection nếu đang chọn)
+  function expandOneLevel() {
+    const keys = selectedGroupKeys ?? allTreeKeys;
+    setTreeCollapsed((prev) => {
+      const n = new Set(prev ?? effectiveTreeCollapsed);
+      if (keys.d.some((k) => n.has(k))) {
+        keys.d.forEach((k) => n.delete(k));
+      } else if (keys.l.some((k) => n.has(k))) {
+        keys.l.forEach((k) => n.delete(k));
+      } else {
+        keys.h.forEach((k) => n.delete(k));
+      }
+      return n;
+    });
+  }
+
+  // Collapse từng cấp: h → l → d (chỉ nhóm có selection nếu đang chọn)
+  function collapseOneLevel() {
+    const keys = selectedGroupKeys ?? allTreeKeys;
+    setTreeCollapsed((prev) => {
+      const n = new Set(prev ?? effectiveTreeCollapsed);
+      if (keys.h.some((k) => !n.has(k))) {
+        keys.h.forEach((k) => n.add(k));
+      } else if (keys.l.some((k) => !n.has(k))) {
+        keys.l.forEach((k) => n.add(k));
+      } else {
+        keys.d.forEach((k) => n.add(k));
+      }
+      return n;
+    });
   }
 
   // Việc tôi được phép sửa Thực tế HT: quản lý hoặc người được giao, & không chờ duyệt.
@@ -1137,14 +1269,9 @@ export function TasksClient({
           />
         </td>
         {cols.map((c) => {
-          if (c.key === "duAn") {
-            const v = duAnText(t);
-            return (
-              <td key="duAn" style={bodyFrozenStyle("duAn")} className="px-2.5 py-2.5 align-top">
-                {v ? <span className="text-slate-600" title={t.groupName ?? undefined}>{v}</span> : <span className="text-slate-300">—</span>}
-              </td>
-            );
-          }
+          // lvl columns (duAn/loaiHinh/hangMuc): group header đã hiện → để trắng trong task row
+          if (c.lvl)
+            return <td key={c.key} style={bodyFrozenStyle(c.key)} className="px-2 py-2.5 align-top" />;
           if (c.key === "congViec")
             return (
               <td
@@ -1242,6 +1369,63 @@ export function TasksClient({
           >
             <Clock className="size-4" />
           </button>
+        </td>
+      </tr>
+    );
+  }
+
+  // Dòng tiêu đề nhóm trong tree view (3 cấp, indent khác nhau)
+  function treeGroupRow(node: { type: "g1" | "g2" | "g3"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
+    const { type, key, label, count, overdue, tasks: groupTasks } = node;
+    const isCollapsed = effectiveTreeCollapsed.has(key);
+    const Chevron = isCollapsed ? ChevronRight : ChevronDown;
+    const bg = type === "g1" ? "bg-slate-100" : "bg-slate-50";
+    const textCls =
+      type === "g1"
+        ? "text-[13px] font-semibold text-slate-700"
+        : type === "g2"
+          ? "text-[13px] font-medium text-slate-600"
+          : "text-xs font-medium text-slate-500";
+    const borderCls = type === "g1" ? "border-t border-slate-200" : type === "g2" ? "border-t border-slate-200" : "border-t border-slate-100";
+    const duAnW = cols.find((c) => c.key === "duAn")!.w;
+    const loaiHinhW = cols.find((c) => c.key === "loaiHinh")!.w;
+    const indent = type === "g1" ? 0 : type === "g2" ? duAnW : duAnW + loaiHinhW;
+    const allSel = groupTasks.length > 0 && groupTasks.every((t) => selected.has(t.id));
+    const someSel = !allSel && groupTasks.some((t) => selected.has(t.id));
+    return (
+      <tr key={`tree-${key}`} className={cn(bg, borderCls)}>
+        <td colSpan={colSpan} className="p-0">
+          <div className={cn("sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center gap-0 py-1.5", bg)}>
+            {/* Checkbox: cùng width + padding với <td className="px-2"> của task row */}
+            <div style={{ width: SEL_W }} className="flex shrink-0 items-center px-2">
+              <input
+                type="checkbox"
+                className="size-3.5 accent-slate-700"
+                checked={allSel}
+                ref={(el) => { if (el) el.indeterminate = someSel; }}
+                onChange={() => {
+                  setSelected((s) => {
+                    const n = new Set(s);
+                    if (allSel) groupTasks.forEach((t) => n.delete(t.id));
+                    else groupTasks.forEach((t) => n.add(t.id));
+                    return n;
+                  });
+                }}
+              />
+            </div>
+            {indent ? <div style={{ width: indent }} className="shrink-0" /> : null}
+            <button
+              type="button"
+              onClick={() => toggleTreeNode(key)}
+              className={cn("flex items-center gap-1.5", textCls)}
+            >
+              <Chevron className="size-3.5 shrink-0 text-slate-400" />
+              <span>{label === "—" ? "(Không có)" : label}</span>
+              <span className="text-xs font-normal text-slate-400">
+                ({count} việc{overdue ? ` · ${overdue} quá hạn` : ""})
+              </span>
+            </button>
+          </div>
         </td>
       </tr>
     );
@@ -1349,81 +1533,97 @@ export function TasksClient({
         })}
       </div>
 
-      {/* chip điều kiện */}
-      {activeCols.length > 0 || activeWg ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
-            <Filter className="size-3.5" /> Lọc:
-          </span>
-          {activeWg ? (
-            <Chip
-              label="Nhóm"
-              value={workGroups.find((w) => w.id === activeWg)?.name ?? ""}
-              onRemove={() => setActiveWg("")}
-            />
-          ) : null}
-          {false ? (
-            <Chip
-              label="Nhanh"
-              value={{ "": "", QUA_HAN: "Quá hạn", SAP_HAN: "Sắp đến hạn", DANG_LAM: "Đang làm" }[quick]}
-              onRemove={() => setQuick("")}
-            />
-          ) : null}
-          {activeCols.map((c) => (
-            <Chip key={c.key} label={c.label} value={chipText(c, colFilters[c.key])} onRemove={() => clearCol(c.key)} />
-          ))}
-          <button
-            type="button"
-            onClick={clearAll}
-            className="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-400 hover:text-red-600"
-          >
-            <RotateCcw className="size-3" /> Xóa tất cả
-          </button>
-        </div>
-      ) : null}
-
       {/* BẢNG */}
-      <div className="max-h-[calc(100svh-130px)] overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-        <table className="border-collapse text-sm" style={{ width: totalW, tableLayout: "fixed" }}>
-          <colgroup>
-            <col style={{ width: SEL_W }} />
-            {cols.map((c) => (
-              <col key={c.key} style={{ width: c.w }} />
-            ))}
-            <col style={{ width: GHI_GIO_W }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th style={headStyle("__sel__", SEL_W)} className="border-b border-slate-200 px-2 py-2.5">
-                <input
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleAllVisible}
-                  className="size-3.5 accent-slate-700"
-                  aria-label="Chọn tất cả"
-                  title="Chọn tất cả (theo bộ lọc hiện tại)"
-                />
-              </th>
-              {cols.map((c) => renderHead(c))}
-              <th
-                style={{ ...headStyle("thucTe", GHI_GIO_W), left: undefined, position: "sticky", top: 0, zIndex: 20 }}
-                className="border-b border-slate-200 px-2 py-2.5 text-center text-xs font-semibold text-slate-500"
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        {/* toolbar: collapse/expand + filter chips */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2">
+          <div className="inline-flex gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={collapseOneLevel}
+              title={selectedGroupKeys ? "Thu từng cấp cho nhóm đang chọn" : "Thu từng cấp: Hạng mục → Loại hình → Dự án"}
+            >
+              <ChevronsDownUp className="size-4" /> Collapse
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={expandOneLevel}
+              disabled={
+                selectedGroupKeys
+                  ? ![...selectedGroupKeys.d, ...selectedGroupKeys.l, ...selectedGroupKeys.h].some((k) => effectiveTreeCollapsed.has(k))
+                  : effectiveTreeCollapsed.size === 0
+              }
+              title={selectedGroupKeys ? "Xổ từng cấp cho nhóm đang chọn" : "Xổ từng cấp: Dự án → Loại hình → Hạng mục"}
+            >
+              <ChevronsUpDown className="size-4" /> Expand
+            </Button>
+          </div>
+          {/* Filter chips */}
+          {activeCols.length > 0 ? (
+            <>
+              <span className="h-4 w-px bg-slate-200" />
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
+                <Filter className="size-3" /> Lọc:
+              </span>
+              {activeCols.map((c) => (
+                <Chip key={c.key} label={c.label} value={chipText(c, colFilters[c.key])} onRemove={() => clearCol(c.key)} />
+              ))}
+              <button
+                type="button"
+                onClick={clearAll}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-slate-400 hover:text-red-600"
               >
-                Ghi giờ
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((t) => renderRow(t))}
-            {sorted.length === 0 ? (
+                <RotateCcw className="size-3" /> Xóa lọc
+              </button>
+            </>
+          ) : null}
+        </div>
+        <div className="max-h-[calc(100svh-170px)] overflow-auto">
+          <table className="border-separate border-spacing-0 text-sm" style={{ width: totalW, tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: SEL_W }} />
+              {cols.map((c) => (
+                <col key={c.key} style={{ width: c.w }} />
+              ))}
+              <col style={{ width: GHI_GIO_W }} />
+            </colgroup>
+            <thead>
               <tr>
-                <td colSpan={colSpan} className="py-12 text-center text-sm text-slate-400">
-                  Không có công việc phù hợp với bộ lọc
-                </td>
+                <th style={headStyle("__sel__", SEL_W)} className="border-b border-slate-200 px-2 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    className="size-3.5 accent-slate-700"
+                    aria-label="Chọn tất cả"
+                    title="Chọn tất cả (theo bộ lọc hiện tại)"
+                  />
+                </th>
+                {cols.map((c) => renderHead(c))}
+                <th
+                  style={{ ...headStyle("thucTe", GHI_GIO_W), left: undefined, position: "sticky", top: 0, zIndex: 20 }}
+                  className="border-b border-slate-200 px-2 py-2.5 text-center text-xs font-semibold text-slate-500"
+                >
+                  Ghi giờ
+                </th>
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {treeNodes.map((n) =>
+                n.type === "task" ? renderRow(n.task) : treeGroupRow(n),
+              )}
+              {sorted.length === 0 ? (
+                <tr>
+                  <td colSpan={colSpan} className="py-12 text-center text-sm text-slate-400">
+                    Không có công việc phù hợp với bộ lọc
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* popover lọc */}

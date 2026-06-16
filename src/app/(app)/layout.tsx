@@ -46,7 +46,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="grid min-h-svh bg-muted/30 lg:grid-cols-[260px_minmax(0,1fr)]">
-      <aside className="hidden border-r lg:block">
+      <aside className="hidden border-r lg:sticky lg:top-0 lg:block lg:h-svh lg:overflow-y-auto">
         <SidebarContent isAdmin={isAdmin} canAssignWork={canAssignWork} />
       </aside>
 

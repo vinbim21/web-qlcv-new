@@ -1,8 +1,11 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
-  // Để các package native/nặng chạy ở server runtime, không bundle vào client.
   serverExternalPackages: ["@prisma/client", "exceljs", "bcryptjs"],
+  turbopack: {
+    root: path.resolve(__dirname),
+  },
 };
 
 export default nextConfig;
