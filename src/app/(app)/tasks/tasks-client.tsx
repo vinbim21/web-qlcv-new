@@ -146,6 +146,7 @@ type SortKey =
   | "loaiHinh"
   | "hangMuc"
   | "congViec"
+  | "giaiDoan"
   | "boMon"
   | "thucHien"
   | "uuTien"
@@ -178,6 +179,8 @@ function colText(t: TaskRow, key: SortKey): string {
       return t.level3 ?? "";
     case "congViec":
       return t.name;
+    case "giaiDoan":
+      return t.phaseName ?? t.phaseCode ?? "";
     case "boMon":
       return t.disciplineCode ?? "";
     case "batDau":
@@ -764,6 +767,7 @@ export function TasksClient({
       loaiHinh: uniq(tasks.map((t) => t.loaiHinhCode ?? (t.projectId ? "" : (t.level2 ?? "")))),
       hangMuc: uniq(tasks.map((t) => t.level3 ?? "")),
       congViec: uniq(tasks.map((t) => t.name)),
+      giaiDoan: uniq(tasks.map((t) => t.phaseName ?? t.phaseCode ?? "")),
       boMon: uniq(tasks.map((t) => t.disciplineCode ?? "")),
       thucHien: uniq(tasks.flatMap((t) => t.assigneeNames)),
     };
@@ -776,6 +780,7 @@ export function TasksClient({
       { key: "loaiHinh", label: "Loại hình", w: 150, filter: "multi", opts: distinct.loaiHinh },
       { key: "hangMuc", label: "Hạng mục", w: 160, filter: "multi", opts: distinct.hangMuc },
       { key: "congViec", label: "Công việc", w: 252, ident: true, leaf: true, filter: "multi", opts: distinct.congViec },
+      { key: "giaiDoan", label: "Giai đoạn", w: 130, filter: "multi", opts: distinct.giaiDoan },
       { key: "boMon", label: "Bộ môn", w: 120, filter: "multi", opts: distinct.boMon },
       { key: "thucHien", label: "Người thực hiện", w: 172, filter: "multi", opts: distinct.thucHien },
       { key: "uuTien", label: "Ưu tiên", w: 108, filter: "multi", opts: [...PRIORITY_OPTIONS], labelMap: PRIORITY_LABEL },
@@ -789,7 +794,6 @@ export function TasksClient({
 
   // Cột phụ (không thuộc dữ liệu sort/lọc): Ghi giờ + Thao tác.
   const GHI_GIO_W = 84;
-  const ACT_W = 104;
 
   const activeCols = cols.filter((c) => colActive(c, colFilters[c.key]));
   const activeFilterCount = activeCols.length + (activeWg ? 1 : 0);
@@ -799,7 +803,7 @@ export function TasksClient({
     for (const t of tasks) {
       m.set(
         t.id,
-        norm([t.name, t.sumId, duAnText(t), t.loaiHinhCode, t.level3, t.disciplineCode, t.disciplineName, t.assigneeNames.join(" ")].filter(Boolean).join(" ")),
+        norm([t.name, t.sumId, duAnText(t), t.loaiHinhCode, t.level3, t.phaseName, t.phaseCode, t.disciplineCode, t.disciplineName, t.assigneeNames.join(" ")].filter(Boolean).join(" ")),
       );
     }
     return m;
@@ -938,14 +942,6 @@ export function TasksClient({
       router.refresh();
     } else toast.error(res.error);
   }
-  async function onDelete(t: TaskRow) {
-    if (!confirm(`Xóa công việc "${t.name}"?`)) return;
-    const res = await deleteTask(t.id);
-    if (res.ok) {
-      toast.success("Đã xóa");
-      router.refresh();
-    } else toast.error(res.error);
-  }
 
   // ---- chọn nhiều ----
   function toggleOne(id: string) {
@@ -1060,8 +1056,8 @@ export function TasksClient({
       : { zIndex: 20 }),
   });
 
-  const totalW = SEL_W + cols.reduce((s, c) => s + c.w, 0) + GHI_GIO_W + (canManage ? ACT_W : 0);
-  const colSpan = 1 + cols.length + 1 + (canManage ? 1 : 0);
+  const totalW = SEL_W + cols.reduce((s, c) => s + c.w, 0) + GHI_GIO_W;
+  const colSpan = 1 + cols.length + 1;
 
   const openCol = openFilter ? cols.find((c) => c.key === openFilter.key) ?? null : null;
 
@@ -1122,8 +1118,10 @@ export function TasksClient({
     return (
       <tr
         key={t.id}
+        onDoubleClick={canManage ? () => setEditing(t) : undefined}
         className={cn(
           "border-b border-slate-100 bg-[var(--row-bg)]",
+          canManage && "cursor-default",
           isSel ? "[--row-bg:#eff6ff]" : "[--row-bg:#ffffff] hover:[--row-bg:#f8fafc]",
         )}
       >
@@ -1167,6 +1165,12 @@ export function TasksClient({
             return (
               <td key="hangMuc" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
                 {t.level3 || <span className="text-slate-300">—</span>}
+              </td>
+            );
+          if (c.key === "giaiDoan")
+            return (
+              <td key="giaiDoan" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
+                {t.phaseName || t.phaseCode || <span className="text-slate-300">—</span>}
               </td>
             );
           if (c.key === "boMon")
@@ -1239,38 +1243,6 @@ export function TasksClient({
             <Clock className="size-4" />
           </button>
         </td>
-        {canManage ? (
-          <td className="px-2 py-2.5 align-top">
-            <div className="flex items-center justify-center gap-0.5">
-              {pending ? (
-                <button
-                  type="button"
-                  title="Duyệt khởi tạo — cho phép nhập thời gian"
-                  onClick={() => approveStart(t)}
-                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-emerald-600"
-                >
-                  <ShieldCheck className="size-4" />
-                </button>
-              ) : null}
-              <button
-                type="button"
-                title="Sửa"
-                onClick={() => setEditing(t)}
-                className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                <Pencil className="size-4" />
-              </button>
-              <button
-                type="button"
-                title="Xóa"
-                onClick={() => onDelete(t)}
-                className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600"
-              >
-                <Trash2 className="size-4" />
-              </button>
-            </div>
-          </td>
-        ) : null}
       </tr>
     );
   }
@@ -1419,7 +1391,6 @@ export function TasksClient({
               <col key={c.key} style={{ width: c.w }} />
             ))}
             <col style={{ width: GHI_GIO_W }} />
-            {canManage ? <col style={{ width: ACT_W }} /> : null}
           </colgroup>
           <thead>
             <tr>
@@ -1440,14 +1411,6 @@ export function TasksClient({
               >
                 Ghi giờ
               </th>
-              {canManage ? (
-                <th
-                  style={{ position: "sticky", top: 0, zIndex: 20, background: "#f8fafc" }}
-                  className="border-b border-slate-200 px-2 py-2.5 text-center text-xs font-semibold text-slate-500"
-                >
-                  Thao tác
-                </th>
-              ) : null}
             </tr>
           </thead>
           <tbody>

@@ -54,13 +54,19 @@ const COLS_B3: ColKey[] = [
   "id", "project", "level2", "level3", "discipline", "level5", "phase",
   "priority", "assignees", "plannedStart", "plannedEnd",
 ];
+// Bảng 4 (Thanh tra BIM): như mặc định + cột Dự án trước Loại hình (không có Giai đoạn).
+const COLS_B4: ColKey[] = [
+  "id", "project", "level2", "level3", "discipline", "level5",
+  "priority", "assignees", "plannedStart", "plannedEnd",
+];
 // Bảng 6 (Quản lý phần mềm): chỉ 1 người (giới hạn bằng max).
 const COLS_B6: ColKey[] = [
   "id", "level2", "level3", "discipline", "level5", "priority", "assignees", "plannedStart", "plannedEnd",
 ];
 
 function columnsFor(code?: string, withApprover = false): ColKey[] {
-  const base = code === "3" ? COLS_B3 : code === "6" ? COLS_B6 : COLS_DEFAULT;
+  const base =
+    code === "3" ? COLS_B3 : code === "4" ? COLS_B4 : code === "6" ? COLS_B6 : COLS_DEFAULT;
   if (!withApprover) return base;
   return [...base, "approver"];
 }
@@ -566,13 +572,14 @@ export function AssignClient({
       case "level2":
       case "level3":
       case "level5": {
-        const isB3 = activeGroup?.code === "3";
+        // Cascade Dự án→Loại hình→Hạng mục: bật cho mọi bảng có cột "Dự án" (B3, Thanh tra BIM…).
+        const hasProjectCascade = cols.includes("project");
         let opts: string[];
-        if (isB3 && col === "level2") {
+        if (hasProjectCascade && col === "level2") {
           // Cascade bước 2: Loại hình → lọc theo ProjectGroup đã chọn
           const pool = r.projectGroupId ? projects.filter((p) => p.groupId === r.projectGroupId) : projects;
           opts = [...new Set(pool.map((p) => p.constructionTypeCode).filter(Boolean))];
-        } else if (isB3 && col === "level3") {
+        } else if (hasProjectCascade && col === "level3") {
           // Cascade bước 3: Hạng mục → lọc theo ProjectGroup + Loại hình
           const pool = r.projectGroupId ? projects.filter((p) => p.groupId === r.projectGroupId) : projects;
           const l2 = r.level2.trim();
@@ -587,7 +594,7 @@ export function AssignClient({
             value={r[col]}
             onChange={(v) => {
               const patch: Partial<GridRow> = { [col]: v };
-              if (isB3 && cols.includes("project") && col !== "level5") {
+              if (hasProjectCascade && col !== "level5") {
                 if (col === "level2") {
                   // Đổi Loại hình → xóa Hạng mục + projectId vì cascade thay đổi
                   patch.level3 = "";

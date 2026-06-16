@@ -15,13 +15,11 @@ import {
   Filter,
   Flag,
   Pause,
-  Pencil,
   Play,
   Plus,
   RotateCcw,
   Search,
   ShieldCheck,
-  Trash2,
   UserX,
   Users,
   X,
@@ -56,7 +54,6 @@ import {
   bulkSetMeasureNorm,
   bulkSetPriority,
   bulkSetStatus,
-  deleteTask,
   saveTask,
   setTaskCompletion,
   setTaskPaused,
@@ -194,6 +191,7 @@ type SortKey =
   | "loaiHinh"
   | "hangMuc"
   | "congViec"
+  | "giaiDoan"
   | "boMon"
   | "thucHien"
   | "uuTien"
@@ -225,6 +223,8 @@ function colText(t: TaskRow, key: SortKey): string {
       return t.level3 ?? "";
     case "congViec":
       return t.name;
+    case "giaiDoan":
+      return t.phaseName ?? "";
     case "boMon":
       return t.disciplineCode ?? "";
     case "batDau":
@@ -358,13 +358,13 @@ const MANAGE_MAX_W = 600;
 const MANAGE_COL_MIN_W: Record<string, number> = { thucTe: 120 };
 const MANAGE_WIDTH_KEY = "manage-col-widths-v4";
 const MANAGE_SEL_PX = 36; // cột checkbox (ghim trái)
-const MANAGE_ACT_PX = 132; // cột "Thao tác"
 const MANAGE_COL_W: Record<string, number> = {
   sumId: 150,
   duAn: 162,
   loaiHinh: 150,
   hangMuc: 168,
   congViec: 212,
+  giaiDoan: 130,
   boMon: 120,
   thucHien: 170,
   uuTien: 106,
@@ -533,6 +533,7 @@ export function ManageClient({
       loaiHinh: uniq(tasks.map((t) => colText(t, "loaiHinh"))),
       hangMuc: uniq(tasks.map((t) => colText(t, "hangMuc"))),
       congViec: uniq(tasks.map((t) => colText(t, "congViec"))),
+      giaiDoan: uniq(tasks.map((t) => colText(t, "giaiDoan"))),
       boMon: uniq(tasks.map((t) => colText(t, "boMon"))),
       thucHien: uniq(tasks.flatMap((t) => t.assigneeNames)),
     };
@@ -546,6 +547,7 @@ export function ManageClient({
       { key: "loaiHinh", label: "Loại hình", lvl: 2, filter: "multi", opts: distinct.loaiHinh },
       { key: "hangMuc", label: "Hạng mục", lvl: 3, filter: "multi", opts: distinct.hangMuc },
       { key: "congViec", label: "Công việc", lvl: 4, leaf: true, filter: "multi", opts: distinct.congViec },
+      { key: "giaiDoan", label: "Giai đoạn", filter: "multi", opts: distinct.giaiDoan },
       { key: "boMon", label: "Bộ môn", filter: "multi", opts: distinct.boMon },
       { key: "thucHien", label: "Thực hiện", filter: "multi", opts: distinct.thucHien },
       {
@@ -979,14 +981,6 @@ export function ManageClient({
     } else toast.error(res.error);
   }
 
-  async function onDelete(t: TaskRow) {
-    if (!confirm(`Xóa công việc "${t.name}"?`)) return;
-    const res = await deleteTask(t.id);
-    if (res.ok) {
-      toast.success("Đã xóa");
-      router.refresh();
-    } else toast.error(res.error);
-  }
 
   // ---- Chọn nhiều + thao tác hàng loạt ----
   const allVisibleSelected = sorted.length > 0 && sorted.every((t) => selected.has(t.id));
@@ -1155,10 +1149,8 @@ export function ManageClient({
 
   const totalMinW =
     (canManage ? MANAGE_SEL_PX : 0) +
-    cols.reduce((s, c) => s + widthOf(c.key), 0) +
-    ((canManage || sorted.some((t) => t.approverId === currentUserId)) ? MANAGE_ACT_PX : 0);
-  const canUseRowActions = canManage || sorted.some((t) => t.approverId === currentUserId);
-  const totalColsCount = (canManage ? 1 : 0) + cols.length + (canUseRowActions ? 1 : 0);
+    cols.reduce((s, c) => s + widthOf(c.key), 0);
+  const totalColsCount = (canManage ? 1 : 0) + cols.length;
 
   // ---- Header 1 cột ----
   function renderHead(col: ColDef) {
@@ -1283,6 +1275,8 @@ export function ManageClient({
       ? Math.round((new Date(t.actualEnd).getTime() - new Date(t.plannedEnd).getTime()) / 86400000)
       : 0;
     const dz = duyetState(t);
+    const pendingApproval = isPendingApproval(t);
+    const canApproveStart = canManage || t.approverId === currentUserId;
     return (
       <td key="tinhTrang" className={cn("align-top", cellPad)}>
         <div className="flex flex-col items-start gap-1">
@@ -1325,6 +1319,20 @@ export function ManageClient({
                   <Pause className="size-3.5" />
                 </button>
               )
+            ) : null}
+            {t.approverId && canApproveStart ? (
+              <button
+                type="button"
+                title={
+                  pendingApproval
+                    ? "Duyệt khởi tạo — cho phép người được giao nhập thời gian"
+                    : "Đã duyệt — bấm để thu hồi (khóa nhập lại)"
+                }
+                onClick={() => toggleStartApproval(t, pendingApproval)}
+                className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-emerald-600"
+              >
+                <ShieldCheck className={cn("size-3.5", !pendingApproval && "text-emerald-600")} />
+              </button>
             ) : null}
           </div>
           {dz !== "DA_DUYET" ? (
@@ -1374,10 +1382,13 @@ export function ManageClient({
     return (
       <tr
         key={`${opts?.keyExtra ?? ""}${t.id}`}
+        onDoubleClick={canApproveStart ? () => setEditing(t) : undefined}
+        title={canApproveStart ? "Bấm đúp để sửa" : undefined}
         // --row-bg: nền đục của hàng (theme var) — ô ghim đọc lại biến này để luôn đồng màu + đúng dark mode.
         // Viền dưới đặt trên td (qua tbody), viền-trên vạch nhóm cũng trên td (separate không vẽ viền <tr>).
         className={cn(
           "bg-[var(--row-bg)]",
+          canApproveStart && "cursor-default",
           isSel ? "[--row-bg:var(--muted)]" : "[--row-bg:var(--background)] hover:[--row-bg:var(--muted)]",
           meta?.newProject && "[&>td]:border-t-2 [&>td]:border-t-slate-200/70",
         )}
@@ -1404,6 +1415,12 @@ export function ManageClient({
             return (
               <td key="sumId" className={cn("align-top", cellPad)}>
                 <span className="font-mono text-[11px] text-slate-500">{t.sumId ?? "—"}</span>
+              </td>
+            );
+          if (c.key === "giaiDoan")
+            return (
+              <td key="giaiDoan" className={cn("align-top text-xs text-slate-600", cellPad)}>
+                {t.phaseName || <span className="text-slate-300">—</span>}
               </td>
             );
           if (c.key === "boMon")
@@ -1472,46 +1489,6 @@ export function ManageClient({
             );
           return <td key={c.key} className={cellPad} />;
         })}
-        {canUseRowActions ? (
-          <td className={cn("px-2 align-top", dens)}>
-            <div className="flex items-center justify-center gap-0.5">
-              {canApproveStart ? (
-                <button
-                  type="button"
-                  title={
-                    pendingApproval
-                      ? "Duyệt — cho phép người được giao nhập thời gian"
-                      : "Đã duyệt — bấm để thu hồi (khóa nhập lại)"
-                  }
-                  onClick={() => toggleStartApproval(t, pendingApproval)}
-                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-emerald-600"
-                >
-                  <ShieldCheck className={cn("size-4", !pendingApproval && "text-emerald-600")} />
-                </button>
-              ) : null}
-              {canApproveStart ? (
-                <button
-                  type="button"
-                  title="Sửa"
-                  onClick={() => setEditing(t)}
-                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                >
-                  <Pencil className="size-4" />
-                </button>
-              ) : null}
-              {canManage ? (
-                <button
-                  type="button"
-                  title="Xóa"
-                  onClick={() => onDelete(t)}
-                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              ) : null}
-            </div>
-          </td>
-        ) : null}
       </tr>
     );
   }
@@ -1969,11 +1946,10 @@ export function ManageClient({
               {cols.map((c) => (
                 <col key={c.key} style={{ width: widthOf(c.key) }} />
               ))}
-              {canUseRowActions ? <col style={{ width: MANAGE_ACT_PX }} /> : null}
             </colgroup>
             <thead>
               <tr>
-                {canUseRowActions ? (
+                {canManage ? (
                   <th
                     style={headStyle("__sel__", MANAGE_SEL_PX)}
                     className="border-b border-slate-200 px-2 py-2.5"
@@ -1988,14 +1964,6 @@ export function ManageClient({
                   </th>
                 ) : null}
                 {cols.map(renderHead)}
-                {canManage ? (
-                  <th
-                    style={headStyle("__act__", MANAGE_ACT_PX)}
-                    className="border-b border-slate-200 px-2 py-2.5 text-center text-xs font-semibold text-slate-500"
-                  >
-                    Thao tác
-                  </th>
-                ) : null}
               </tr>
             </thead>
             <tbody className="[&_td]:border-b [&_td]:border-slate-100">
@@ -2363,6 +2331,17 @@ function InlineTaskEditRow({
               <datalist id={`edit-level5-${task.id}`}>
                 {level5Opts.map((name) => <option key={name} value={name} />)}
               </datalist>
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <Button size="sm" onClick={() => void save()} disabled={pending}>{pending ? "Dang luu..." : "Luu"}</Button>
+                <Button size="sm" variant="outline" onClick={onCancel}>Huy</Button>
+              </div>
+            </td>
+          );
+        }
+        if (col.key === "giaiDoan") {
+          return (
+            <td key={col.key} className={cn(cellCls, "text-xs text-slate-500")}>
+              {task.phaseName || none}
             </td>
           );
         }
@@ -2409,12 +2388,6 @@ function InlineTaskEditRow({
         }
         return <td key={col.key} className={cellCls} />;
       })}
-      <td className="bg-amber-50/50 px-2 py-2 align-top">
-        <div className="flex items-center justify-center gap-1.5">
-          <Button size="sm" onClick={() => void save()} disabled={pending}>{pending ? "Dang luu..." : "Luu"}</Button>
-          <Button size="sm" variant="outline" onClick={onCancel}>Huy</Button>
-        </div>
-      </td>
     </tr>
   );
 }
@@ -2867,6 +2840,12 @@ function TreeInsertRow({
               <datalist id={`level5-${ctx.groupKey}`}>
                 {level5Opts.map((name) => <option key={name} value={name} />)}
               </datalist>
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <Button size="sm" onClick={() => void save()} disabled={pending}>
+                  {pending ? "Dang luu..." : "Luu"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={onCancel}>Huy</Button>
+              </div>
             </td>
           );
         }
@@ -2918,16 +2897,6 @@ function TreeInsertRow({
         }
         return <td key={col.key} className={cellCls} />;
       })}
-      {canManage ? (
-        <td className="bg-blue-50/40 px-2 py-2 align-top">
-          <div className="flex items-center justify-center gap-1.5">
-            <Button size="sm" onClick={() => void save()} disabled={pending}>
-              {pending ? "Dang luu..." : "Luu"}
-            </Button>
-            <Button size="sm" variant="outline" onClick={onCancel}>Huy</Button>
-          </div>
-        </td>
-      ) : null}
     </tr>
   );
 
