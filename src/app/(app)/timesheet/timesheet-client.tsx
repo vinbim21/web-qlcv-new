@@ -16,11 +16,20 @@ type Entry = {
   id: string;
   taskId: string | null;
   taskName: string | null;
+  taskGroupCode: string | null;
+  taskLoaiHinhCode: string | null;
+  taskLevel3: string | null;
   date: string;
   hours: number;
   note: string | null;
 };
-type TaskOpt = { id: string; name: string };
+type TaskOpt = {
+  id: string;
+  name: string;
+  groupCode: string | null;
+  loaiHinhCode: string | null;
+  level3: string | null;
+};
 
 export function TimesheetClient({
   weekStartISO,

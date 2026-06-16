@@ -9,7 +9,11 @@ export async function getTaskLookups() {
     prisma.workGroup.findMany({ orderBy: { order: "asc" } }),
     prisma.discipline.findMany({ orderBy: { order: "asc" } }),
     prisma.phase.findMany({ orderBy: { order: "asc" } }),
-    prisma.project.findMany({ where: { deletedAt: null }, orderBy: { code: "asc" } }),
+    prisma.project.findMany({
+      where: { deletedAt: null },
+      include: { group: true, constructionType: true },
+      orderBy: { code: "asc" },
+    }),
     prisma.user.findMany({
       where: { deletedAt: null, isActive: true },
       orderBy: { fullName: "asc" },
@@ -37,8 +41,17 @@ export async function getTaskLookups() {
     })),
     disciplines: disciplines.map((d) => ({ id: d.id, name: d.name })),
     phases: phases.map((p) => ({ id: p.id, name: p.name })),
-    // name = nhãn hiển thị "mã — tên"; code = mã (L2), l3 = tên (L3) thô để đồng bộ lưới Giao việc.
-    projects: projects.map((p) => ({ id: p.id, name: `${p.code} — ${p.name}`, code: p.code, l3: p.name })),
+    projects: projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      code: p.code,
+      l3: p.name,
+      groupId: p.group?.id ?? "",
+      groupCode: p.group?.code ?? "",
+      groupName: p.group?.name ?? "",
+      constructionTypeId: p.constructionTypeId ?? "",
+      constructionTypeCode: p.constructionType?.code ?? "",
+    })),
     users: users.map((u) => ({ id: u.id, fullName: u.fullName })),
     // Người duyệt (luồng "Thêm công việc"): chỉ tài khoản ADMIN / Cấp 1 / Cấp 2.
     approvers: users

@@ -216,9 +216,7 @@ export function CatalogClient({
           text: (r) => String(r.abbr ?? ""),
           cell: (r) =>
             r.abbr ? (
-              <span className="inline-block rounded bg-amber-50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200">
-                {String(r.abbr)}
-              </span>
+              <span className="font-mono text-xs text-slate-600">{String(r.abbr)}</span>
             ) : (
               <Dash />
             ),
@@ -235,8 +233,8 @@ export function CatalogClient({
   );
 
   // ============== TAB 2 — Dự án · Hạng mục ==============
-  const ctOptions = constructionTypes.map((c) => ({ value: c.id, label: `${c.code} · ${c.name}` }));
-  const groupSelectOptions = projectGroups.map((g) => ({ value: g.id, label: g.name }));
+  const ctOptions = constructionTypes.map((c) => ({ value: c.id, label: c.code }));
+  const groupSelectOptions = projectGroups.map((g) => ({ value: g.id, label: g.code }));
   const itemFields: Field[] = [
     {
       key: "groupId",
@@ -334,11 +332,11 @@ export function CatalogClient({
           label: "Dự án",
           thClass: "w-60",
           filter: "multi",
-          text: (r) => pgById.get((r.groupId as string) ?? "")?.name ?? "",
+          text: (r) => pgById.get((r.groupId as string) ?? "")?.code ?? "",
           cell: (r) => {
             const g = pgById.get((r.groupId as string) ?? "");
             return g ? (
-              <strong className="font-medium text-slate-800">{g.name}</strong>
+              <span className="font-mono text-xs text-slate-600" title={g.name}>{g.code}</span>
             ) : (
               <Dash />
             );
@@ -353,9 +351,8 @@ export function CatalogClient({
           cell: (r) => {
             const ct = ctById.get((r.constructionTypeId as string) ?? "");
             return ct ? (
-              <span className="inline-flex items-center gap-1.5 rounded bg-slate-50 px-1.5 py-0.5 text-[11px] ring-1 ring-inset ring-slate-200">
-                <span className="font-mono font-semibold text-slate-600">{ct.code}</span>
-                <span className="text-slate-500">{ct.name}</span>
+              <span className="font-mono text-xs text-slate-600" title={ct.name}>
+                {ct.code}
               </span>
             ) : (
               <Dash />
@@ -388,83 +385,32 @@ export function CatalogClient({
   );
 
   // ============== TAB 3 — Công việc (CatalogItem level 5) ==============
-  const groupOptions = workGroups.map((w) => ({
-    value: w.id,
-    label: `${w.abbr ? `${w.abbr} · ` : ""}${w.name}`,
-  }));
   const worksView = () => (
-    <FilterTable
-      title="Công việc"
-      rows={works as unknown as Row[]}
-      addLabel="Thêm công việc"
-      minWidth={560}
-      infoBar={{
-        tone: "slate",
-        text: "Danh mục Đầu việc theo từng Nhóm công việc — nguồn gợi ý khi tạo công việc ở màn Giao việc.",
-      }}
-      onAdd={() =>
-        setRecord({
-          title: "Thêm công việc",
-          fields: [
-            { key: "workGroupId", label: "Nhóm công việc", type: "select", span: 3, required: true, options: groupOptions },
-            { key: "value", label: "Tên công việc", required: true, span: 3, autoFocus: true },
-          ],
-          initial: { workGroupId: workGroups[0]?.id ?? "", value: "" },
-          submit: (v) => addCatalogValue(v.workGroupId, 5, v.value),
-        })
-      }
+    <WorksPanel
+      workGroups={workGroups}
+      works={works}
+      onAdd={(workGroupId, value) => run(addCatalogValue(workGroupId, 5, value), "Đã thêm công việc")}
       onEdit={(r) => {
-        const w = r as unknown as WorkRow;
+        const groupOptions = workGroups.map((w) => ({
+          value: w.id,
+          label: `${w.abbr ? `${w.abbr} · ` : ""}${w.name}`,
+        }));
         setRecord({
           title: "Sửa công việc",
           fields: [
             { key: "workGroupId", label: "Nhóm công việc", type: "select", span: 3, required: true, options: groupOptions },
             { key: "value", label: "Tên công việc", required: true, span: 3, autoFocus: true },
           ],
-          initial: { workGroupId: w.workGroupId, value: w.value },
+          initial: { workGroupId: r.workGroupId, value: r.value },
           submit: async (v) => {
-            if (v.workGroupId === w.workGroupId) return updateCatalogValue(w.id, v.value);
-            // Đổi nhóm: xóa bản ghi cũ + thêm vào nhóm mới (CatalogItem không di chuyển trực tiếp).
-            const del = await deleteCatalogValue(w.id);
+            if (v.workGroupId === r.workGroupId) return updateCatalogValue(r.id, v.value);
+            const del = await deleteCatalogValue(r.id);
             if (!del.ok) return del;
             return addCatalogValue(v.workGroupId, 5, v.value);
           },
         });
       }}
-      onDelete={(r) => {
-        const w = r as unknown as WorkRow;
-        setConfirm({ name: w.value, run: () => deleteCatalogValue(w.id) });
-      }}
-      columns={[
-        {
-          key: "group",
-          label: "Nhóm công việc",
-          thClass: "w-60",
-          filter: "multi",
-          text: (r) => wgById.get(r.workGroupId as string)?.name ?? "",
-          cell: (r) => {
-            const w = wgById.get(r.workGroupId as string);
-            if (!w) return <Dash />;
-            return (
-              <span className="inline-flex items-center gap-1.5">
-                {w.abbr ? (
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-slate-600">
-                    {w.abbr}
-                  </span>
-                ) : null}
-                <span className="text-slate-600">{w.name}</span>
-              </span>
-            );
-          },
-        },
-        {
-          key: "value",
-          label: "Công việc",
-          filter: "text",
-          text: (r) => String(r.value ?? ""),
-          cell: (r) => <strong className="font-medium text-slate-800">{String(r.value)}</strong>,
-        },
-      ]}
+      onDelete={(r) => setConfirm({ name: r.value, run: () => deleteCatalogValue(r.id) })}
     />
   );
 
@@ -1373,10 +1319,155 @@ function ManageProjectsModal({
   );
 }
 
+// ===================================================================
+//  WorksPanel — Tab 3 Công việc: tabs nhóm ngang + list + thêm inline
+// ===================================================================
+function WorksPanel({
+  workGroups,
+  works,
+  onAdd,
+  onEdit,
+  onDelete,
+}: {
+  workGroups: WorkGroupRow[];
+  works: WorkRow[];
+  onAdd: (workGroupId: string, value: string) => void;
+  onEdit: (r: WorkRow) => void;
+  onDelete: (r: WorkRow) => void;
+}) {
+  const [activeWg, setActiveWg] = React.useState<string>(workGroups[0]?.id ?? "");
+  const [newValue, setNewValue] = React.useState("");
+  const [adding, setAdding] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const filtered = works.filter((w) => w.workGroupId === activeWg);
+  const activeGroup = workGroups.find((w) => w.id === activeWg);
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    const val = newValue.trim();
+    if (!val) { setErr("Vui lòng nhập tên công việc."); return; }
+    if (filtered.some((w) => norm(w.value) === norm(val))) {
+      setErr("Tên công việc đã tồn tại trong nhóm này."); return;
+    }
+    setErr("");
+    setAdding(true);
+    await onAdd(activeWg, val);
+    setAdding(false);
+    setNewValue("");
+    inputRef.current?.focus();
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-card shadow-sm">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
+        <h2 className="text-[15px] font-semibold text-slate-800">Công việc</h2>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{filtered.length}</span>
+        <span className="ml-auto text-xs text-slate-400">Nguồn gợi ý khi tạo công việc ở màn Giao việc</span>
+      </div>
+
+      {/* Tabs nhóm công việc */}
+      <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-4 py-2.5">
+        {workGroups.map((w) => {
+          const count = works.filter((x) => x.workGroupId === w.id).length;
+          const active = activeWg === w.id;
+          return (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() => { setActiveWg(w.id); setNewValue(""); setErr(""); }}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                active
+                  ? "border-slate-800 bg-slate-800 text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800",
+              )}
+            >
+              {w.abbr ? (
+                <span className={cn("rounded px-1 font-mono text-[10px] font-bold", active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500")}>
+                  {w.abbr}
+                </span>
+              ) : null}
+              {w.name}
+              <span className={cn("rounded-full px-1.5 text-[10px]", active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400")}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Danh sách công việc của nhóm đang chọn */}
+      <div className="px-4 py-3">
+        {filtered.length === 0 ? (
+          <p className="py-4 text-center text-sm text-slate-400">Chưa có công việc nào trong nhóm này</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+            {filtered.map((w) => (
+              <li key={w.id} className="group flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50">
+                <span className="min-w-0 flex-1 text-sm font-medium text-slate-800">{w.value}</span>
+                <div className="flex gap-0.5 opacity-0 transition group-hover:opacity-100">
+                  <button
+                    type="button"
+                    title="Sửa"
+                    onClick={() => onEdit(w)}
+                    className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Xóa"
+                    onClick={() => onDelete(w)}
+                    className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* Form thêm mới inline */}
+        <form onSubmit={handleAdd} className="mt-3 flex items-start gap-2">
+          <div className="flex-1 space-y-1">
+            <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 focus-within:border-slate-500 focus-within:bg-white">
+              <Plus className="size-4 shrink-0 text-slate-400" />
+              <input
+                ref={inputRef}
+                value={newValue}
+                onChange={(e) => { setNewValue(e.target.value); setErr(""); }}
+                placeholder={`Thêm công việc mới vào "${activeGroup?.name ?? ""}"…`}
+                className="flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+              />
+              {newValue && (
+                <button type="button" onClick={() => { setNewValue(""); setErr(""); }} className="text-slate-400 hover:text-slate-600">
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+            {err ? <p className="flex items-center gap-1 text-[11px] text-red-600"><AlertCircle className="size-3" />{err}</p> : null}
+          </div>
+          <button
+            type="submit"
+            disabled={adding || !newValue.trim()}
+            className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            <Check className="size-4" />{adding ? "Đang lưu…" : "Thêm"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ---------- mảnh nhỏ ----------
 function Code({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-slate-600">
+    <span className="font-mono text-xs text-slate-600">
       {children}
     </span>
   );

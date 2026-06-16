@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskForm } from "@/components/task-form";
 import { TimesheetEntryDialog } from "@/components/timesheet-entry-dialog";
+import { bulkSaveTimesheetEntry } from "@/server/actions/timesheet";
 import { Modal } from "@/components/ui/modal";
 import { PRIORITY_LABEL, PRIORITY_OPTIONS, TASK_STATUS_LABEL } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
@@ -53,11 +54,14 @@ export type TaskRow = {
   workGroupName: string;
   projectId: string | null;
   projectName: string | null;
-  groupName: string | null; // tên Dự án (ProjectGroup)
-  loaiHinhName: string | null; // tên Loại hình công trình (constructionType)
+  groupCode: string | null;
+  groupName: string | null;
+  loaiHinhCode: string | null;
   disciplineId: string | null;
+  disciplineCode: string | null;
   disciplineName: string | null;
   phaseId: string | null;
+  phaseCode: string | null;
   phaseName: string | null;
   level2: string | null;
   level3: string | null;
@@ -78,9 +82,6 @@ export type TaskRow = {
   assigneeIds: string[];
   assigneeNames: string[];
 };
-
-// Nhóm việc hiện Level 3 ở cột "Dự án" (vì nhóm này không gắn dự án).
-const WG_SHOW_L3_IN_PROJECT = "Phát triển BIM Tools";
 
 const norm = removeVietnameseTones;
 
@@ -125,11 +126,7 @@ function effOf(t: TaskRow): string {
   return effectiveStatus({ status: t.status, plannedEnd: t.plannedEnd });
 }
 function duAnText(t: TaskRow): string {
-  // Ưu tiên tên Dự án (ProjectGroup); nhóm không gắn dự án (BIM Tools…) → giữ hành vi cũ.
-  return (
-    t.groupName ??
-    (t.workGroupName === WG_SHOW_L3_IN_PROJECT ? (t.level3 || t.projectName || "") : (t.projectName ?? ""))
-  );
+  return t.groupCode ?? (t.projectName ?? "");
 }
 
 // ---------- pill mềm trạng thái (đồng bộ /manage) ----------
@@ -176,14 +173,13 @@ function colText(t: TaskRow, key: SortKey): string {
     case "duAn":
       return duAnText(t);
     case "loaiHinh":
-      // Việc có dự án → Loại hình công trình; nhóm không gắn dự án → giữ level2 (phân cấp tự do).
-      return t.loaiHinhName ?? (t.projectId ? "" : (t.level2 ?? ""));
+      return t.loaiHinhCode ?? (t.projectId ? "" : (t.level2 ?? ""));
     case "hangMuc":
       return t.level3 ?? "";
     case "congViec":
       return t.name;
     case "boMon":
-      return t.disciplineName ?? "";
+      return t.disciplineCode ?? "";
     case "batDau":
       return t.plannedStart;
     case "ketThuc":
@@ -463,9 +459,6 @@ function StatusBody({
       {renderItem("status", "CHUA_LAM", "Chưa làm", "bg-slate-400")}
       {renderItem("status", "TAM_DUNG", "Tạm dừng", "bg-amber-500")}
       {renderItem("status", "HOAN_THANH", "Hoàn thành", "bg-emerald-500")}
-      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Duyệt khởi tạo</p>
-      {renderItem("duyet", "DA_DUYET", "Đã duyệt", "bg-emerald-500")}
-      {renderItem("duyet", "CHO_DUYET", "Chờ duyệt", "bg-amber-500")}
     </div>
   );
 }
@@ -552,16 +545,11 @@ function Chip({ label, value, onRemove }: { label: string; value: string; onRemo
   );
 }
 
-// Badge ưu tiên — tô đặc (Cao=đỏ, TB=hổ phách) / outline (Thấp).
 function PrioBadge({ p }: { p: string }) {
-  const tone =
-    p === "CAO"
-      ? "bg-red-600 text-white"
-      : p === "TRUNG_BINH"
-        ? "bg-amber-500 text-white"
-        : "text-slate-500 ring-1 ring-inset ring-slate-300";
+  const color =
+    p === "CAO" ? "text-red-600" : p === "TRUNG_BINH" ? "text-amber-500" : "text-slate-400";
   return (
-    <span className={cn("inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-tight whitespace-nowrap", tone)}>
+    <span className={cn("text-[11px] font-medium whitespace-nowrap", color)}>
       {PRIORITY_LABEL[p] ?? p}
     </span>
   );
@@ -705,6 +693,14 @@ function CompletionCell({
   );
 }
 
+function CodeChip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600">
+      {children}
+    </span>
+  );
+}
+
 export function TasksClient({
   currentUserId,
   canManage,
@@ -737,10 +733,11 @@ export function TasksClient({
   const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM">("");
   const [colFilters, setColFilters] = React.useState<Record<string, ColFilterVal>>({});
   const [openFilter, setOpenFilter] = React.useState<{ key: SortKey; rect: DOMRect } | null>(null);
-  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "duAn", dir: "asc" });
+  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "ketThuc", dir: "asc" });
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [logging, setLogging] = React.useState<TaskRow | null>(null);
+  const [bulkLogging, setBulkLogging] = React.useState(false);
   // Chọn nhiều + thao tác hàng loạt.
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [bulkDeadline, setBulkDeadline] = React.useState<{ ids: string[]; date: string } | null>(null);
@@ -764,27 +761,27 @@ export function TasksClient({
     const uniq = (vals: string[]) => [...new Set(vals.filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
     return {
       duAn: uniq(tasks.map((t) => duAnText(t))),
-      loaiHinh: uniq(tasks.map((t) => colText(t, "loaiHinh"))),
+      loaiHinh: uniq(tasks.map((t) => t.loaiHinhCode ?? (t.projectId ? "" : (t.level2 ?? "")))),
       hangMuc: uniq(tasks.map((t) => t.level3 ?? "")),
       congViec: uniq(tasks.map((t) => t.name)),
-      boMon: uniq(tasks.map((t) => t.disciplineName ?? "")),
+      boMon: uniq(tasks.map((t) => t.disciplineCode ?? "")),
       thucHien: uniq(tasks.flatMap((t) => t.assigneeNames)),
     };
   }, [tasks]);
 
-  // Cột — phân cấp 4 cấp ghim trái như /manage: Dự án → Loại hình → Hạng mục → Công việc.
+  // Cột — gộp phân cấp còn 2 cột định danh (Dự án + Công việc); không cột Mã mặc định.
   const cols = React.useMemo<ColDef[]>(
     () => [
       { key: "duAn", label: "Dự án", w: 168, ident: true, filter: "multi", opts: distinct.duAn },
-      { key: "loaiHinh", label: "Loại hình", w: 150, ident: true, filter: "multi", opts: distinct.loaiHinh },
-      { key: "hangMuc", label: "Hạng mục", w: 168, ident: true, filter: "multi", opts: distinct.hangMuc },
-      { key: "congViec", label: "Công việc", w: 240, ident: true, leaf: true, filter: "multi", opts: distinct.congViec },
+      { key: "loaiHinh", label: "Loại hình", w: 150, filter: "multi", opts: distinct.loaiHinh },
+      { key: "hangMuc", label: "Hạng mục", w: 160, filter: "multi", opts: distinct.hangMuc },
+      { key: "congViec", label: "Công việc", w: 252, ident: true, leaf: true, filter: "multi", opts: distinct.congViec },
       { key: "boMon", label: "Bộ môn", w: 120, filter: "multi", opts: distinct.boMon },
       { key: "thucHien", label: "Người thực hiện", w: 172, filter: "multi", opts: distinct.thucHien },
       { key: "uuTien", label: "Ưu tiên", w: 108, filter: "multi", opts: [...PRIORITY_OPTIONS], labelMap: PRIORITY_LABEL },
       { key: "tinhTrang", label: "Trạng thái", w: 168, filter: "status" },
       { key: "batDau", label: "Bắt đầu", w: 112, filter: "date" },
-      { key: "ketThuc", label: "Hạn", w: 112, filter: "date" },
+      { key: "ketThuc", label: "Kết thúc", w: 112, filter: "date" },
       { key: "thucTe", label: "Thực tế hoàn thành", w: 188, filter: "date" },
     ],
     [distinct],
@@ -795,14 +792,14 @@ export function TasksClient({
   const ACT_W = 104;
 
   const activeCols = cols.filter((c) => colActive(c, colFilters[c.key]));
-  const activeFilterCount = activeCols.length + (quick ? 1 : 0) + (activeWg ? 1 : 0);
+  const activeFilterCount = activeCols.length + (activeWg ? 1 : 0);
 
   const haystacks = React.useMemo(() => {
     const m = new Map<string, string>();
     for (const t of tasks) {
       m.set(
         t.id,
-        norm([t.name, t.sumId, duAnText(t), t.disciplineName, t.assigneeNames.join(" ")].filter(Boolean).join(" ")),
+        norm([t.name, t.sumId, duAnText(t), t.loaiHinhCode, t.level3, t.disciplineCode, t.disciplineName, t.assigneeNames.join(" ")].filter(Boolean).join(" ")),
       );
     }
     return m;
@@ -873,9 +870,6 @@ export function TasksClient({
         return norm(colText(t, key));
     }
   }
-  // Chuỗi phân cấp để tie-break (giữ gom nhóm Dự án→Loại hình→Hạng mục→Công việc).
-  const hierKey = (t: TaskRow) =>
-    norm(colText(t, "duAn") + colText(t, "loaiHinh") + colText(t, "hangMuc") + colText(t, "congViec"));
   const sorted = React.useMemo(() => {
     const arr = [...filtered];
     arr.sort((a, b) => {
@@ -885,7 +879,7 @@ export function TasksClient({
         typeof va === "number" && typeof vb === "number"
           ? va - vb
           : String(va).localeCompare(String(vb), "vi");
-      if (c === 0) c = hierKey(a).localeCompare(hierKey(b), "vi");
+      if (c === 0) c = (a.plannedEnd + a.name).localeCompare(b.plannedEnd + b.name, "vi");
       return sort.dir === "asc" ? c : -c;
     });
     return arr;
@@ -1145,15 +1139,11 @@ export function TasksClient({
           />
         </td>
         {cols.map((c) => {
-          if (c.key === "duAn" || c.key === "loaiHinh" || c.key === "hangMuc") {
-            const v = colText(t, c.key);
+          if (c.key === "duAn") {
+            const v = duAnText(t);
             return (
-              <td
-                key={c.key}
-                style={bodyFrozenStyle(c.key)}
-                className={cn("px-2.5 py-2.5 align-top", c.key !== "duAn" && "border-l border-slate-100")}
-              >
-                {!v ? <span className="text-slate-300">—</span> : <span className="text-slate-600">{v}</span>}
+              <td key="duAn" style={bodyFrozenStyle("duAn")} className="px-2.5 py-2.5 align-top">
+                {v ? <span className="text-slate-600" title={t.groupName ?? undefined}>{v}</span> : <span className="text-slate-300">—</span>}
               </td>
             );
           }
@@ -1167,10 +1157,22 @@ export function TasksClient({
                 <span className="font-medium text-slate-800">{t.name}</span>
               </td>
             );
+          if (c.key === "loaiHinh")
+            return (
+              <td key="loaiHinh" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
+                {t.loaiHinhCode || <span className="text-slate-300">—</span>}
+              </td>
+            );
+          if (c.key === "hangMuc")
+            return (
+              <td key="hangMuc" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
+                {t.level3 || <span className="text-slate-300">—</span>}
+              </td>
+            );
           if (c.key === "boMon")
             return (
               <td key="boMon" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
-                {t.disciplineName ?? "—"}
+                {t.disciplineCode || <span className="text-slate-300">—</span>}
               </td>
             );
           if (c.key === "thucHien")
@@ -1376,7 +1378,7 @@ export function TasksClient({
       </div>
 
       {/* chip điều kiện */}
-      {activeCols.length > 0 || quick || activeWg ? (
+      {activeCols.length > 0 || activeWg ? (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
             <Filter className="size-3.5" /> Lọc:
@@ -1388,10 +1390,10 @@ export function TasksClient({
               onRemove={() => setActiveWg("")}
             />
           ) : null}
-          {quick ? (
+          {false ? (
             <Chip
               label="Nhanh"
-              value={{ QUA_HAN: "Quá hạn", SAP_HAN: "Sắp đến hạn", DANG_LAM: "Đang làm" }[quick]}
+              value={{ "": "", QUA_HAN: "Quá hạn", SAP_HAN: "Sắp đến hạn", DANG_LAM: "Đang làm" }[quick]}
               onRemove={() => setQuick("")}
             />
           ) : null}
@@ -1518,7 +1520,7 @@ export function TasksClient({
         <Modal open onClose={() => setAddOpen(false)} title="Thêm công việc (chờ duyệt)" className="max-w-[96vw]">
           <p className="mb-2 flex items-center gap-2 text-xs text-slate-500">
             <Info className="size-3.5 text-slate-400" />
-            Người thực hiện tự gán là chính bạn · ngày bắt đầu/hạn sẽ đặt sau khi quản lý duyệt.
+            Người thực hiện tự gán là chính bạn · nhập ngày bắt đầu/kết thúc nếu đã biết.
           </p>
           <AssignClient
             embedded
@@ -1540,10 +1542,32 @@ export function TasksClient({
         </Modal>
       ) : null}
 
+      {/* Ghi nhận giờ hàng loạt */}
+      {bulkLogging ? (
+        <BulkTimesheetDialog
+          count={selected.size}
+          onClose={() => setBulkLogging(false)}
+          onSubmit={async (date, hours, note) => {
+            const res = await bulkSaveTimesheetEntry({ taskIds: [...selected], date, hours, note });
+            if (res.ok) {
+              toast.success(`Đã ghi giờ cho ${res.data} công việc`);
+              setBulkLogging(false);
+              router.refresh();
+            } else toast.error(res.error);
+          }}
+        />
+      ) : null}
+
       {/* Ghi giờ */}
       {logging ? (
         <TimesheetEntryDialog
-          lockedTask={{ id: logging.id, name: logging.sumId ? `${logging.sumId} — ${logging.name}` : logging.name }}
+          lockedTask={{
+            id: logging.id,
+            name: logging.name,
+            groupCode: logging.groupCode,
+            loaiHinhCode: logging.loaiHinhCode,
+            level3: logging.level3,
+          }}
           defaultDate={dayjs().format("YYYY-MM-DD")}
           onClose={() => {
             setLogging(null);
@@ -1589,6 +1613,13 @@ export function TasksClient({
               </button>
             </>
           ) : null}
+          <button
+            type="button"
+            onClick={() => setBulkLogging(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            Ghi nhận giờ
+          </button>
           <button
             type="button"
             onClick={clearSel}
@@ -1656,7 +1687,7 @@ function TaskDialog({
   workGroups: Opt[];
   disciplines: Opt[];
   phases: Opt[];
-  projects: Opt[];
+  projects: ProjectOpt[];
   users: UserOpt[];
   catalog: Catalog;
   onClose: () => void;
@@ -1675,6 +1706,60 @@ function TaskDialog({
         onSuccess={onClose}
         onCancel={onClose}
       />
+    </Modal>
+  );
+}
+
+function BulkTimesheetDialog({
+  count,
+  onClose,
+  onSubmit,
+}: {
+  count: number;
+  onClose: () => void;
+  onSubmit: (date: string, hours: number, note: string | null) => Promise<void>;
+}) {
+  const [pending, setPending] = React.useState(false);
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const date = String(fd.get("date") || "");
+    const hours = Number(fd.get("hours") || 0);
+    const note = (fd.get("note") as string) || null;
+    setPending(true);
+    await onSubmit(date, hours, note);
+    setPending(false);
+  }
+  return (
+    <Modal open onClose={onClose} title={`Ghi nhận giờ — ${count} công việc`} className="max-w-sm">
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Ngày</label>
+            <input name="date" type="date" defaultValue={dayjs().format("YYYY-MM-DD")} required
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-400" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Số giờ</label>
+            <input name="hours" type="number" step="0.25" min="0.25" max="24" required
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-400" />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Nội dung công việc</label>
+          <textarea name="note" rows={3}
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-400" />
+        </div>
+        <p className="text-xs text-slate-500">Số giờ và nội dung sẽ được ghi cho tất cả {count} công việc đã chọn.</p>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose}
+            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Hủy</button>
+          <button type="submit" disabled={pending}
+            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-50">
+            {pending ? "Đang lưu..." : "Lưu"}
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 }

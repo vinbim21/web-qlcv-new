@@ -1,6 +1,7 @@
 "use client";
 
 // Báo cáo — biểu đồ (port từ design_files/baocao-charts.jsx, giữ y nguyên màu/tỉ lệ/nhãn).
+import * as React from "react";
 import type { EffStatus } from "./report-data";
 
 export type DonutSeg = { key: string; label: string; color: string; value: number };
@@ -11,28 +12,33 @@ export function Donut({
   thickness = 26,
   centerTop,
   centerBottom,
+  selected,
+  onSelect,
 }: {
   segments: DonutSeg[];
   size?: number;
   thickness?: number;
   centerTop: React.ReactNode;
   centerBottom: string;
+  selected?: string | null;
+  onSelect?: (key: string | null) => void;
 }) {
   const r = (size - thickness) / 2;
   const c = size / 2;
   const circ = 2 * Math.PI * r;
   const tot = segments.reduce((s, x) => s + x.value, 0) || 1;
-  // Offset luỹ kế cho từng cung (tính sẵn để tránh gán lại biến trong render).
   const offsets = segments.reduce<number[]>((acc, _s, i) => {
     acc.push(i === 0 ? 0 : acc[i - 1] + (segments[i - 1].value / tot) * circ);
     return acc;
   }, []);
+  const hasSelection = !!selected;
   return (
     <div className="flex items-center gap-6">
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
         <circle cx={c} cy={c} r={r} fill="none" stroke="#f1f5f9" strokeWidth={thickness} />
         {segments.map((s, i) => {
           const len = (s.value / tot) * circ;
+          const isSelected = selected === s.key;
           return (
             <circle
               key={s.key}
@@ -41,42 +47,49 @@ export function Donut({
               r={r}
               fill="none"
               stroke={s.color}
-              strokeWidth={thickness}
+              strokeWidth={isSelected ? thickness + 4 : thickness}
               strokeDasharray={`${len} ${circ - len}`}
               strokeDashoffset={-offsets[i]}
               strokeLinecap="butt"
+              style={{
+                opacity: hasSelection && !isSelected ? 0.25 : 1,
+                cursor: onSelect ? "pointer" : "default",
+                transition: "opacity 0.15s, stroke-width 0.15s",
+              }}
+              onClick={() => onSelect?.(isSelected ? null : s.key)}
             >
-              <title>
-                {s.label}: {s.value}
-              </title>
+              <title>{s.label}: {s.value}</title>
             </circle>
           );
         })}
-        <text
-          x={c}
-          y={c - 4}
-          textAnchor="middle"
-          transform={`rotate(90 ${c} ${c})`}
-          style={{ font: "700 26px system-ui", fill: "#0f172a" }}
-        >
+        <text x={c} y={c - 4} textAnchor="middle" transform={`rotate(90 ${c} ${c})`}
+          style={{ font: "700 26px system-ui", fill: "#0f172a" }}>
           {centerTop}
         </text>
-        <text
-          x={c}
-          y={c + 16}
-          textAnchor="middle"
-          transform={`rotate(90 ${c} ${c})`}
-          style={{ font: "500 11px system-ui", fill: "#64748b" }}
-        >
+        <text x={c} y={c + 16} textAnchor="middle" transform={`rotate(90 ${c} ${c})`}
+          style={{ font: "500 11px system-ui", fill: "#64748b" }}>
           {centerBottom}
         </text>
       </svg>
       <ul className="grid gap-2">
         {segments.map((s) => {
           const pct = Math.round((s.value / tot) * 100);
+          const isSelected = selected === s.key;
           return (
-            <li key={s.key} className="flex items-center gap-2.5 text-sm">
-              <span className="size-3 shrink-0 rounded-[3px]" style={{ background: s.color }} />
+            <li
+              key={s.key}
+              className="flex items-center gap-2.5 text-sm"
+              style={{
+                opacity: hasSelection && !isSelected ? 0.35 : 1,
+                cursor: onSelect ? "pointer" : "default",
+                transition: "opacity 0.15s",
+              }}
+              onClick={() => onSelect?.(isSelected ? null : s.key)}
+            >
+              <span
+                className="size-3 shrink-0 rounded-[3px]"
+                style={{ background: s.color, outline: isSelected ? `2px solid ${s.color}` : undefined, outlineOffset: 2 }}
+              />
               <span className="w-28 truncate text-slate-600">{s.label}</span>
               <span className="ml-auto font-semibold tabular-nums text-slate-800">{s.value}</span>
               <span className="w-9 text-right text-xs tabular-nums text-slate-400">{pct}%</span>
@@ -97,6 +110,8 @@ export function HBars({
   unit = "",
   maxRows = 99,
   valueFmt,
+  selected,
+  onSelect,
 }: {
   data: HBarDatum[];
   color?: string;
@@ -104,9 +119,12 @@ export function HBars({
   unit?: string;
   maxRows?: number;
   valueFmt?: (n: number) => string;
+  selected?: string | null;
+  onSelect?: (key: string | null) => void;
 }) {
   const rows = data.slice(0, maxRows);
   const mx = Math.max(1, ...rows.map((d) => d[valueKey]));
+  const hasSelection = !!selected;
   if (rows.length === 0) {
     return <div className="grid h-24 place-items-center text-sm text-slate-400">Không có dữ liệu</div>;
   }
@@ -115,18 +133,36 @@ export function HBars({
       {rows.map((d) => {
         const v = d[valueKey];
         const w = Math.max(2, (v / mx) * 100);
+        const isSelected = selected === d.key;
         return (
-          <li key={d.key} className="grid grid-cols-[140px_1fr] items-center gap-3 text-sm">
-            <span className="truncate text-right text-slate-600" title={d.key}>
+          <li
+            key={d.key}
+            className="grid grid-cols-[140px_1fr] items-center gap-3 text-sm"
+            style={{
+              opacity: hasSelection && !isSelected ? 0.3 : 1,
+              cursor: onSelect ? "pointer" : "default",
+              transition: "opacity 0.15s",
+            }}
+            onClick={() => onSelect?.(isSelected ? null : d.key)}
+          >
+            <span className="truncate text-right text-slate-600" title={d.key}
+              style={{ fontWeight: isSelected ? 600 : undefined, color: isSelected ? "#0f172a" : undefined }}>
               {d.key}
             </span>
             <div className="flex items-center gap-2">
               <div className="h-5 flex-1 overflow-hidden rounded-[5px] bg-slate-100">
-                <div className="h-full rounded-[5px] transition-all" style={{ width: w + "%", background: color }} />
+                <div
+                  className="h-full rounded-[5px] transition-all"
+                  style={{
+                    width: w + "%",
+                    background: color,
+                    outline: isSelected ? `2px solid ${color}` : undefined,
+                    outlineOffset: isSelected ? 1 : undefined,
+                  }}
+                />
               </div>
               <span className="w-12 shrink-0 text-right text-xs font-semibold tabular-nums text-slate-700">
-                {valueFmt ? valueFmt(v) : v}
-                {unit}
+                {valueFmt ? valueFmt(v) : v}{unit}
               </span>
             </div>
           </li>

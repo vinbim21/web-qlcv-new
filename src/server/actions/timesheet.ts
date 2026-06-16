@@ -5,7 +5,7 @@ import { prisma } from "@/server/db/client";
 import { canManage, requireUser } from "@/server/auth/permissions";
 import { isStartGateLocked } from "@/lib/task-status";
 import { canEditEntry } from "@/lib/timesheet";
-import { timesheetEntrySchema } from "@/lib/schemas/timesheet";
+import { bulkTimesheetEntrySchema, timesheetEntrySchema } from "@/lib/schemas/timesheet";
 import { runAction } from "./_helpers";
 
 export async function saveTimesheetEntry(input: unknown) {
@@ -81,6 +81,58 @@ export async function saveTimesheetEntry(input: unknown) {
     revalidatePath("/reports");
     revalidatePath("/tasks");
     revalidatePath("/manage");
+  });
+}
+
+/** Ghi giờ hàng loạt: tạo 1 entry cho mỗi task trong danh sách. */
+export async function bulkSaveTimesheetEntry(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const data = bulkTimesheetEntrySchema.parse(input);
+    const date = new Date(data.date);
+
+    if (!canEditEntry(date, user.role === "ADMIN")) {
+      throw new Error("Quá hạn ghi (chỉ trong 2 ngày). Liên hệ quản trị.");
+    }
+
+    // Lấy task info để kiểm cổng duyệt + projectId
+    const tasks = await prisma.task.findMany({
+      where: { id: { in: data.taskIds }, deletedAt: null },
+      select: {
+        id: true,
+        projectId: true,
+        status: true,
+        approverId: true,
+        startApprovedAt: true,
+        assignees: { where: { userId: user.id }, select: { id: true } },
+      },
+    });
+
+    const entries: { userId: string; taskId: string; projectId: string | null; date: Date; hours: number; note: string | null }[] = [];
+    const toStart: string[] = [];
+
+    for (const t of tasks) {
+      if (isStartGateLocked(t)) continue; // bỏ qua việc chưa duyệt
+      const isAssignee = t.assignees.length > 0;
+      if (!isAssignee && !canManage(user.role)) continue; // chỉ ghi giờ việc mình được giao
+      entries.push({ userId: user.id, taskId: t.id, projectId: t.projectId ?? null, date, hours: data.hours, note: data.note || null });
+      if (t.status === "CHUA_LAM" && (isAssignee || canManage(user.role))) toStart.push(t.id);
+    }
+
+    if (entries.length === 0) throw new Error("Không có công việc hợp lệ để ghi giờ (có thể đang chờ duyệt hoặc không phải việc của bạn)");
+
+    await prisma.$transaction([
+      prisma.timeSheetEntry.createMany({ data: entries }),
+      ...(toStart.length > 0
+        ? [prisma.task.updateMany({ where: { id: { in: toStart } }, data: { status: "DANG_LAM" } })]
+        : []),
+    ]);
+
+    revalidatePath("/timesheet");
+    revalidatePath("/reports");
+    revalidatePath("/tasks");
+    revalidatePath("/manage");
+    return entries.length;
   });
 }
 

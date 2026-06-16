@@ -10,8 +10,16 @@ import { SearchableCombobox } from "@/components/searchable-combobox";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import type { Catalog, Opt, UserOpt } from "@/components/task-form";
 
-// Dự án kèm mã (L2) + tên (L3) thô để đồng bộ 2 chiều với cột Hạng mục/Chi tiết ở Bảng 3.
-export type ProjectOpt = Opt & { code: string; l3: string };
+// Dự án kèm thông tin nhóm (ProjectGroup) và loại hình (ConstructionType) cho cascade 3 bước.
+export type ProjectOpt = Opt & {
+  code: string;
+  l3: string;
+  groupId: string;
+  groupCode: string;
+  groupName: string;
+  constructionTypeId: string;
+  constructionTypeCode: string;
+};
 import { PRIORITY_LABEL, PRIORITY_OPTIONS } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
 import { saveTasksBatch } from "@/server/actions/tasks";
@@ -54,8 +62,7 @@ const COLS_B6: ColKey[] = [
 function columnsFor(code?: string, withApprover = false): ColKey[] {
   const base = code === "3" ? COLS_B3 : code === "6" ? COLS_B6 : COLS_DEFAULT;
   if (!withApprover) return base;
-  // "Thêm công việc" (có người duyệt): bỏ cột ngày (đặt SAU khi duyệt), thêm cột Người duyệt.
-  return [...base.filter((c) => c !== "plannedStart" && c !== "plannedEnd"), "approver"];
+  return [...base, "approver"];
 }
 
 const COL_LABEL: Record<ColKey, string> = {
@@ -68,8 +75,8 @@ const COL_LABEL: Record<ColKey, string> = {
   phase: "Giai đoạn",
   priority: "Ưu tiên",
   assignees: "Người thực hiện",
-  plannedStart: "Ngày BĐ",
-  plannedEnd: "Ngày KT",
+  plannedStart: "Bắt đầu",
+  plannedEnd: "Kết thúc",
   approver: "Người duyệt",
 };
 
@@ -96,6 +103,7 @@ const ACT_PX = 96; // cột hành động
 type GridRow = {
   key: number;
   projectId: string;
+  projectGroupId: string; // UI only — dùng để cascade lọc Loại hình → Hạng mục
   level2: string;
   level3: string;
   level5: string;
@@ -110,6 +118,7 @@ type GridRow = {
 
 const EMPTY: Omit<GridRow, "key"> = {
   projectId: "",
+  projectGroupId: "",
   level2: "",
   level3: "",
   level5: "",
@@ -363,7 +372,11 @@ export function AssignClient({
       case "level2": return t(a.level2).localeCompare(t(b.level2));
       case "level3": return t(a.level3).localeCompare(t(b.level3));
       case "level5": return t(a.level5).localeCompare(t(b.level5));
-      case "project": return t(nameOf(projects, a.projectId)).localeCompare(t(nameOf(projects, b.projectId)));
+      case "project": {
+        const pa = projects.find((p) => p.id === a.projectId);
+        const pb = projects.find((p) => p.id === b.projectId);
+        return t(pa?.groupCode ?? "").localeCompare(t(pb?.groupCode ?? ""));
+      }
       case "discipline": return t(nameOf(disciplines, a.disciplineId)).localeCompare(t(nameOf(disciplines, b.disciplineId)));
       case "phase": return t(nameOf(phases, a.phaseId)).localeCompare(t(nameOf(phases, b.phaseId)));
       case "priority": {
@@ -426,8 +439,8 @@ export function AssignClient({
       level5: r.level5.trim() || null,
       priority: r.priority || "TRUNG_BINH",
       // withApprover: bỏ ngày (đặt sau khi duyệt) + gắn người duyệt.
-      plannedStart: withApprover ? null : r.plannedStart || null,
-      plannedEnd: withApprover ? null : r.plannedEnd || null,
+      plannedStart: r.plannedStart || null,
+      plannedEnd: r.plannedEnd || null,
       approverId: withApprover ? r.approverId || null : null,
       // "Tự note": ép người thực hiện = chính mình.
       assigneeIds: selfAssignUserId ? [selfAssignUserId] : r.assigneeIds,
@@ -460,26 +473,30 @@ export function AssignClient({
             {idOf(r)}
           </div>
         );
-      case "project":
+      case "project": {
+        // Cascade bước 1: chọn ProjectGroup (tên dự án như B.QNI.HLXHL)
+        const pgCodes = [...new Set(projects.map((p) => p.groupCode).filter(Boolean))].sort();
+        const curGroupCode = r.projectGroupId
+          ? (projects.find((p) => p.groupId === r.projectGroupId)?.groupCode ?? "")
+          : "";
         return (
           <SearchableCombobox
             className={CELL}
             creatable={false}
             placeholder="— Không —"
-            value={projects.find((p) => p.id === r.projectId)?.name ?? ""}
-            options={["— Không —", ...projects.map((p) => p.name)]}
-            onChange={(label) => {
-              // Chọn "— Không —" → chỉ bỏ Dự án, giữ nguyên L2/L3.
-              if (label === "— Không —") {
-                updateRow(r.key, { projectId: "" });
+            value={curGroupCode}
+            options={["— Không —", ...pgCodes]}
+            onChange={(v) => {
+              if (v === "— Không —") {
+                updateRow(r.key, { projectGroupId: "", level2: "", level3: "", projectId: "" });
                 return;
               }
-              // Chọn dự án → đè L2 (mã) + L3 (tên) theo dự án.
-              const p = projects.find((pp) => pp.name === label);
-              updateRow(r.key, p ? { projectId: p.id, level2: p.code, level3: p.l3 } : { projectId: "" });
+              const pg = projects.find((p) => p.groupCode === v);
+              updateRow(r.key, { projectGroupId: pg?.groupId ?? "", level2: "", level3: "", projectId: "" });
             }}
           />
         );
+      }
       case "discipline":
         return (
           <SearchableCombobox
@@ -549,14 +566,17 @@ export function AssignClient({
       case "level2":
       case "level3":
       case "level5": {
-        // Bảng 3: gợi ý L2/L3 lấy từ danh sách Dự án (L3 lọc theo L2 đang chọn — cascade).
         const isB3 = activeGroup?.code === "3";
         let opts: string[];
         if (isB3 && col === "level2") {
-          opts = [...new Set(projects.map((p) => p.code))];
+          // Cascade bước 2: Loại hình → lọc theo ProjectGroup đã chọn
+          const pool = r.projectGroupId ? projects.filter((p) => p.groupId === r.projectGroupId) : projects;
+          opts = [...new Set(pool.map((p) => p.constructionTypeCode).filter(Boolean))];
         } else if (isB3 && col === "level3") {
+          // Cascade bước 3: Hạng mục → lọc theo ProjectGroup + Loại hình
+          const pool = r.projectGroupId ? projects.filter((p) => p.groupId === r.projectGroupId) : projects;
           const l2 = r.level2.trim();
-          opts = [...new Set(projects.filter((p) => !l2 || p.code === l2).map((p) => p.l3))];
+          opts = [...new Set(pool.filter((p) => !l2 || p.constructionTypeCode === l2).map((p) => p.name))];
         } else {
           opts = col === "level2" ? sug.l2 : col === "level3" ? sug.l3 : sug.l5;
         }
@@ -567,12 +587,24 @@ export function AssignClient({
             value={r[col]}
             onChange={(v) => {
               const patch: Partial<GridRow> = { [col]: v };
-              // Bảng 3: khi đủ L2 + L3 khớp 1 dự án → tự điền Dự án; lệch/thiếu → bỏ Dự án.
-              if (cols.includes("project") && col !== "level5") {
-                const nl2 = (col === "level2" ? v : r.level2).trim();
-                const nl3 = (col === "level3" ? v : r.level3).trim();
-                const p = projects.find((pp) => pp.code === nl2 && pp.l3 === nl3);
-                patch.projectId = p ? p.id : "";
+              if (isB3 && cols.includes("project") && col !== "level5") {
+                if (col === "level2") {
+                  // Đổi Loại hình → xóa Hạng mục + projectId vì cascade thay đổi
+                  patch.level3 = "";
+                  patch.projectId = "";
+                } else if (col === "level3") {
+                  // Chọn Hạng mục → tự resolve projectId
+                  const nl2 = r.level2.trim();
+                  const nl3 = v.trim();
+                  if (r.projectGroupId && nl2 && nl3) {
+                    const p = projects.find(
+                      (pp) => pp.groupId === r.projectGroupId && pp.constructionTypeCode === nl2 && pp.name === nl3,
+                    );
+                    patch.projectId = p ? p.id : "";
+                  } else {
+                    patch.projectId = "";
+                  }
+                }
               }
               updateRow(r.key, patch);
             }}

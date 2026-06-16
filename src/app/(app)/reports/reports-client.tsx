@@ -59,7 +59,6 @@ function uniq(rows: TaskRow[], pick: (r: TaskRow) => string): string[] {
 }
 
 export function ReportsClient({ rows }: { rows: TaskRow[] }) {
-  const kpi = React.useMemo(() => buildKpi(rows), [rows]);
   const people = React.useMemo(
     () => [...new Set(rows.flatMap((r) => r.thucHien))].sort((a, b) => a.localeCompare(b, "vi")),
     [rows],
@@ -87,6 +86,13 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
   const [open, setOpen] = React.useState<{ key: string; rect: DOMRect } | null>(null);
   const [sort, setSort] = React.useState<{ key: string; dir: "asc" | "desc" }>({ key: "duAn", dir: "asc" });
 
+  // Cross-filter kiểu Power BI: click chart segment → lọc toàn bộ data.
+  type ChartSel = { field: "status" | "group" | "loaiHinh" | "boMon" | "person" | "duAn"; value: string } | null;
+  const [chartSel, setChartSel] = React.useState<ChartSel>(null);
+  function toggleChart(field: NonNullable<ChartSel>["field"], value: string) {
+    setChartSel((s) => (s?.field === field && s.value === value ? null : { field, value }));
+  }
+
   const setCF = (k: string, v: string | string[]) => setColFilters((f) => ({ ...f, [k]: v }));
   const clearCol = (k: string) =>
     setColFilters((f) => {
@@ -97,6 +103,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
   const clearAll = () => {
     setColFilters({});
     setSearch("");
+    setChartSel(null);
   };
 
   const filtered = React.useMemo(() => {
@@ -107,10 +114,20 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
         if (!hay.includes(q)) return false;
       }
       for (const c of cols) if (!rowMatch(r, c, colFilters[c.key])) return false;
+      if (chartSel) {
+        const { field, value } = chartSel;
+        if (field === "status" && effStatus(r) !== value) return false;
+        if (field === "group" && r.groupName !== value) return false;
+        if (field === "loaiHinh" && r.loaiHinh !== value) return false;
+        if (field === "boMon" && r.boMon !== value) return false;
+        if (field === "person" && !r.thucHien.includes(value)) return false;
+        if (field === "duAn" && r.duAn !== value) return false;
+      }
       return true;
     });
-  }, [rows, search, colFilters, cols]);
+  }, [rows, search, colFilters, cols, chartSel]);
 
+  const kpi = React.useMemo(() => buildKpi(filtered), [filtered]);
   const activeCols = cols.filter((c) => colActive(c, colFilters[c.key]));
 
   const agg = React.useMemo(() => {
@@ -185,7 +202,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
             className="h-10 w-full rounded-lg border border-slate-200 bg-card pl-9 pr-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
           />
         </div>
-        {(activeCols.length > 0 || search) && (
+        {(activeCols.length > 0 || search || chartSel) && (
           <button
             type="button"
             onClick={clearAll}
@@ -195,11 +212,24 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
           </button>
         )}
       </div>
-      {activeCols.length > 0 && (
+      {(activeCols.length > 0 || chartSel) && (
         <div className="-mt-1 flex flex-wrap items-center gap-1.5">
           <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
             <Filter className="size-3.5" /> Đang lọc:
           </span>
+          {chartSel && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 py-1 pl-2.5 pr-1 text-xs shadow-sm">
+              <span className="size-2 rounded-full bg-violet-400" />
+              <span className="font-medium text-violet-700">{chartSel.value}</span>
+              <button
+                type="button"
+                onClick={() => setChartSel(null)}
+                className="grid size-4 place-items-center rounded-full text-violet-400 hover:bg-violet-100 hover:text-violet-700"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          )}
           {activeCols.map((c) => (
             <span
               key={c.key}
@@ -223,19 +253,46 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
       {/* Lát cắt */}
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel title="Theo trạng thái" sub={`${agg.count} việc trong phạm vi lọc`}>
-          <Donut segments={agg.status} centerTop={agg.count} centerBottom="việc" />
+          <Donut
+            segments={agg.status}
+            centerTop={agg.count}
+            centerBottom="việc"
+            selected={chartSel?.field === "status" ? chartSel.value : null}
+            onSelect={(v) => v && toggleChart("status", v)}
+          />
         </Panel>
         <Panel title="Theo nhóm công việc">
-          <HBars data={agg.byGroup} color={VIOLET} />
+          <HBars
+            data={agg.byGroup}
+            color={VIOLET}
+            selected={chartSel?.field === "group" ? chartSel.value : null}
+            onSelect={(v) => v && toggleChart("group", v)}
+          />
         </Panel>
         <Panel title="Theo loại hình công trình">
-          <HBars data={agg.byLoaiHinh} color={BLUE} />
+          <HBars
+            data={agg.byLoaiHinh}
+            color={BLUE}
+            selected={chartSel?.field === "loaiHinh" ? chartSel.value : null}
+            onSelect={(v) => v && toggleChart("loaiHinh", v)}
+          />
         </Panel>
         <Panel title="Theo bộ môn">
-          <HBars data={agg.byBoMon} color={GREEN} />
+          <HBars
+            data={agg.byBoMon}
+            color={GREEN}
+            selected={chartSel?.field === "boMon" ? chartSel.value : null}
+            onSelect={(v) => v && toggleChart("boMon", v)}
+          />
         </Panel>
         <Panel title="Số việc theo nhân sự" sub="Top 12">
-          <HBars data={agg.byPerson} color={SLATE} maxRows={12} />
+          <HBars
+            data={agg.byPerson}
+            color={SLATE}
+            maxRows={12}
+            selected={chartSel?.field === "person" ? chartSel.value : null}
+            onSelect={(v) => v && toggleChart("person", v)}
+          />
         </Panel>
         <Panel title="Giờ công theo nhân sự" sub="Top 12">
           <HBars
@@ -245,10 +302,18 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
             maxRows={12}
             unit="h"
             valueFmt={(n) => Math.round(n).toString()}
+            selected={chartSel?.field === "person" ? chartSel.value : null}
+            onSelect={(v) => v && toggleChart("person", v)}
           />
         </Panel>
         <Panel title="Theo dự án" className="xl:col-span-2">
-          <HBars data={agg.byDuAn} color={CYAN} maxRows={20} />
+          <HBars
+            data={agg.byDuAn}
+            color={CYAN}
+            maxRows={20}
+            selected={chartSel?.field === "duAn" ? chartSel.value : null}
+            onSelect={(v) => v && toggleChart("duAn", v)}
+          />
         </Panel>
       </div>
 

@@ -21,13 +21,14 @@ export default async function TimesheetPage({
   const [entries, myTasks] = await Promise.all([
     prisma.timeSheetEntry.findMany({
       where: { userId, deletedAt: null, date: { gte: start, lte: end } },
-      include: { task: true },
+      include: { task: { include: { project: { include: { group: true, constructionType: true } } } } },
       orderBy: { date: "asc" },
     }),
     prisma.task.findMany({
       where: { deletedAt: null, assignees: { some: { userId } } },
       orderBy: { name: "asc" },
       take: 500,
+      include: { workGroup: true, project: { include: { group: true, constructionType: true } } },
     }),
   ]);
 
@@ -39,11 +40,20 @@ export default async function TimesheetPage({
         id: e.id,
         taskId: e.taskId,
         taskName: e.task?.name ?? null,
+        taskGroupCode: e.task?.project?.group?.code ?? null,
+        taskLoaiHinhCode: e.task?.project?.constructionType?.code ?? null,
+        taskLevel3: e.task?.level3 ?? null,
         date: e.date.toISOString().slice(0, 10),
         hours: Number(e.hours),
         note: e.note,
       }))}
-      tasks={myTasks.map((t) => ({ id: t.id, name: t.sumId ? `${t.sumId} — ${t.name}` : t.name }))}
+      tasks={myTasks.map((t) => ({
+        id: t.id,
+        name: t.name,
+        groupCode: t.project?.group?.code ?? null,
+        loaiHinhCode: t.project?.constructionType?.code ?? null,
+        level3: t.level3 ?? null,
+      }))}
     />
   );
 }

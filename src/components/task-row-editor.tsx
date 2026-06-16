@@ -4,6 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import type { Catalog, Opt, TaskRow, UserOpt } from "@/components/task-form";
+import type { ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +54,7 @@ export function TaskRowEditor({
   workGroups: WgOpt[];
   disciplines: Opt[];
   phases: Opt[];
-  projects: Opt[];
+  projects: ProjectOpt[];
   users: UserOpt[];
   catalog: Catalog;
   onSuccess?: () => void;
@@ -61,7 +62,6 @@ export function TaskRowEditor({
 }) {
   const isEdit = !!task;
   const [pending, setPending] = React.useState(false);
-  // Sửa: nhóm cố định (giữ seq/Id). Thêm: cho chọn (mặc định theo tab đang xem).
   const [wgId, setWgId] = React.useState(
     task?.workGroupId ?? defaultWorkGroupId ?? workGroups[0]?.id ?? "",
   );
@@ -84,9 +84,26 @@ export function TaskRowEditor({
   const set = (patch: Partial<typeof f>) => setF((s) => ({ ...s, ...patch }));
 
   const wg = workGroups.find((w) => w.id === wgId);
-  // Nhóm Quản lý BIM (mã "3") mới có cột Dự án + Giai đoạn — như /assign.
   const isB3 = wg?.code === "3";
   const sug = catalog[wgId] ?? { l2: [], l3: [], l5: [] };
+
+  // Cascade state cho isB3: Dự án (ProjectGroup) → Loại hình (ConstructionType) → Hạng mục
+  const initProject = task?.projectId ? projects.find((p) => p.id === task.projectId) : null;
+  const [pgCode, setPgCode] = React.useState(initProject?.groupCode ?? "");
+  const [ctCode, setCtCode] = React.useState(initProject?.constructionTypeCode ?? f.level2 ?? "");
+
+  const b3PgCodes = React.useMemo(
+    () => [...new Set(projects.map((p) => p.groupCode).filter(Boolean))].sort(),
+    [projects],
+  );
+  const b3CtCodes = React.useMemo(() => {
+    const pool = pgCode ? projects.filter((p) => p.groupCode === pgCode) : projects;
+    return [...new Set(pool.map((p) => p.constructionTypeCode).filter(Boolean))];
+  }, [projects, pgCode]);
+  const b3HangMucOpts = React.useMemo(() => {
+    const pool = pgCode ? projects.filter((p) => p.groupCode === pgCode) : projects;
+    return [...new Set(pool.filter((p) => !ctCode || p.constructionTypeCode === ctCode).map((p) => p.name))];
+  }, [projects, pgCode, ctCode]);
 
   const idLabel = (() => {
     const abbr = wg?.abbr || wg?.code || "—";
@@ -110,7 +127,7 @@ export function TaskRowEditor({
       disciplineId: f.disciplineId || null,
       phaseId: isB3 ? f.phaseId || null : null,
       sumId: task?.sumId ?? null,
-      level2: f.level2 || null,
+      level2: isB3 ? ctCode || null : f.level2 || null,
       level3: f.level3 || null,
       level5: f.level5 || null,
       name: f.name || null,
@@ -152,24 +169,59 @@ export function TaskRowEditor({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {isB3 ? (
-          <Field label="Dự án">
-            <Select value={f.projectId} onChange={(e) => set({ projectId: e.target.value })}>
-              <option value="">{NONE}</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
-
-        <Field label="Hạng mục (L2)">
-          <SearchableCombobox value={f.level2} onChange={(v) => set({ level2: v })} options={sug.l2} />
-        </Field>
-        <Field label="Chi tiết (L3)">
-          <SearchableCombobox value={f.level3} onChange={(v) => set({ level3: v })} options={sug.l3} />
-        </Field>
+          <>
+            <Field label="Dự án">
+              <SearchableCombobox
+                creatable={false}
+                placeholder={NONE}
+                value={pgCode}
+                options={[NONE, ...b3PgCodes]}
+                onChange={(v) => {
+                  const nv = v === NONE ? "" : v;
+                  setPgCode(nv);
+                  setCtCode("");
+                  set({ projectId: "", level2: "", level3: "" });
+                }}
+              />
+            </Field>
+            <Field label="Loại hình">
+              <SearchableCombobox
+                creatable={false}
+                placeholder={NONE}
+                value={ctCode}
+                options={[NONE, ...b3CtCodes]}
+                onChange={(v) => {
+                  const nv = v === NONE ? "" : v;
+                  setCtCode(nv);
+                  set({ level2: nv, level3: "", projectId: "" });
+                }}
+              />
+            </Field>
+            <Field label="Hạng mục">
+              <SearchableCombobox
+                creatable
+                placeholder="Chọn hoặc nhập mới..."
+                value={f.level3}
+                options={b3HangMucOpts}
+                onChange={(v) => {
+                  const p = projects.find(
+                    (pp) => pp.groupCode === pgCode && pp.constructionTypeCode === ctCode && pp.name === v,
+                  );
+                  set({ level3: v, projectId: p?.id ?? "" });
+                }}
+              />
+            </Field>
+          </>
+        ) : (
+          <>
+            <Field label="Hạng mục (L2)">
+              <SearchableCombobox value={f.level2} onChange={(v) => set({ level2: v })} options={sug.l2} />
+            </Field>
+            <Field label="Chi tiết (L3)">
+              <SearchableCombobox value={f.level3} onChange={(v) => set({ level3: v })} options={sug.l3} />
+            </Field>
+          </>
+        )}
         <Field label="Bộ môn (L4)">
           <SearchableCombobox
             creatable={false}

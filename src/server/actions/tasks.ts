@@ -13,7 +13,9 @@ import {
   notifyTasksChange,
 } from "@/server/notifications/service";
 import {
+  bulkApprovalSchema,
   bulkDeadlineSchema,
+  bulkDeleteSchema,
   bulkMeasureNormSchema,
   bulkPrioritySchema,
   bulkReassignSchema,
@@ -118,7 +120,6 @@ async function createTasksBatchTx(
     const r = rows[i];
     const assigneeIds = [...new Set((opts.forceAssigneeIds ?? r.assigneeIds ?? []).filter(Boolean))];
     const name = defaultTaskName(r);
-    const gated = !!r.approverId;
     const created = await tx.task.create({
       data: {
         workGroupId: r.workGroupId,
@@ -130,8 +131,8 @@ async function createTasksBatchTx(
         level5: r.level5 || null,
         name,
         priority: r.priority ?? "TRUNG_BINH",
-        plannedStart: gated ? null : toDate(r.plannedStart),
-        plannedEnd: gated ? null : toDate(r.plannedEnd),
+        plannedStart: toDate(r.plannedStart),
+        plannedEnd: toDate(r.plannedEnd),
         approverId: r.approverId || null,
         startApprovedAt: null,
         seq: seqByIndex[i],
@@ -159,15 +160,17 @@ export async function saveTask(input: unknown) {
     const data = taskSchema.parse(input);
 
     // Sửa việc có sẵn: chỉ Quản trị/Cấp 1. Tạo & giao việc mới: thêm cả Cấp 2.
+    let approverDateOnly = false;
     if (data.id) {
-      if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được sửa công việc");
-      // Cổng duyệt khởi tạo: việc đang chờ duyệt thì chưa cho đặt ngày kế hoạch.
-      if (data.plannedStart || data.plannedEnd) {
+      if (!canManage(user.role)) {
         const cur = await prisma.task.findUnique({
           where: { id: data.id },
-          select: { approverId: true, startApprovedAt: true },
+          select: { approverId: true },
         });
-        if (cur && isStartGateLocked(cur)) throw new Error(GATE_MSG);
+        if (!cur || cur.approverId !== user.id || !canAssign(user.role)) {
+          throw new Error("Không đủ quyền sửa công việc");
+        }
+        approverDateOnly = true;
       }
     } else {
       if (!canAssign(user.role)) throw new Error("Bạn không có quyền giao việc");
@@ -216,12 +219,22 @@ export async function saveTask(input: unknown) {
         const had = new Set(prev.map((p) => p.userId));
         newAssigneeIds = assigneeIds.filter((id) => !had.has(id));
 
-        await tx.task.update({ where: { id: data.id }, data: payload });
-        await tx.taskAssignee.deleteMany({ where: { taskId: data.id } });
-        if (assigneeIds.length > 0) {
-          await tx.taskAssignee.createMany({
-            data: assigneeIds.map((userId, i) => ({ taskId: data.id as string, userId, roleNo: i + 1 })),
+        if (approverDateOnly) {
+          await tx.task.update({
+            where: { id: data.id },
+            data: {
+              plannedStart: toDate(data.plannedStart),
+              plannedEnd: toDate(data.plannedEnd),
+            },
           });
+        } else {
+          await tx.task.update({ where: { id: data.id }, data: payload });
+          await tx.taskAssignee.deleteMany({ where: { taskId: data.id } });
+          if (assigneeIds.length > 0) {
+            await tx.taskAssignee.createMany({
+              data: assigneeIds.map((userId, i) => ({ taskId: data.id as string, userId, roleNo: i + 1 })),
+            });
+          }
         }
         taskId = data.id;
       } else {
@@ -697,5 +710,60 @@ export async function deleteTask(id: string) {
     if (!canManage(user.role)) throw new Error("Không đủ quyền");
     await prisma.task.update({ where: { id }, data: { deletedAt: new Date() } });
     revalidateTaskViews();
+  });
+}
+
+/** Duyệt / thu hồi duyệt khởi tạo hàng loạt. */
+export async function bulkSetApproval(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được duyệt hàng loạt");
+    const { ids, approved } = bulkApprovalSchema.parse(input);
+    const now = new Date();
+
+    if (approved) {
+      // Duyệt: updateMany là đủ.
+      const res = await prisma.task.updateMany({
+        where: { id: { in: ids }, deletedAt: null },
+        data: { startApprovedAt: now },
+      });
+      revalidateTaskViews();
+      return res.count;
+    }
+
+    // Thu hồi: task chưa có approverId → gán người thao tác làm approver
+    // (giống setTaskStartApproval đơn lẻ) để cổng isStartGateLocked kích hoạt.
+    const tasks = await prisma.task.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: { id: true, approverId: true },
+    });
+    await prisma.$transaction(
+      tasks.map((t) =>
+        prisma.task.update({
+          where: { id: t.id },
+          data: {
+            startApprovedAt: null,
+            ...(!t.approverId ? { approverId: user.id } : {}),
+          },
+        }),
+      ),
+    );
+    revalidateTaskViews();
+    return tasks.length;
+  });
+}
+
+/** Xóa mềm nhiều việc cùng lúc. */
+export async function bulkDelete(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được xóa hàng loạt");
+    const { ids } = bulkDeleteSchema.parse(input);
+    const res = await prisma.task.updateMany({
+      where: { id: { in: ids }, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    revalidateTaskViews();
+    return res.count;
   });
 }

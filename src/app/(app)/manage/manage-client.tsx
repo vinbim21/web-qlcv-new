@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   Activity,
@@ -49,20 +49,22 @@ import { cn, removeVietnameseTones } from "@/lib/utils";
 import { PHONG_LABEL, phongOf } from "@/lib/dept-map";
 import { completionDateError, effectiveStatus, isCompletedLate } from "@/lib/task-status";
 import {
+  bulkDelete,
   bulkReassign,
+  bulkSetApproval,
   bulkSetDeadline,
   bulkSetMeasureNorm,
   bulkSetPriority,
   bulkSetStatus,
   deleteTask,
+  saveTask,
   setTaskCompletion,
   setTaskPaused,
   setTaskStartApproval,
   updateTaskStatus,
 } from "@/server/actions/tasks";
+import { SearchableCombobox } from "@/components/searchable-combobox";
 
-// Nhóm việc hiện Level 3 ở cột "Dự án" (vì nhóm này không gắn dự án).
-const WG_SHOW_L3_IN_PROJECT = "Phát triển BIM Tools";
 
 // Tinh chỉnh hiển thị bảng (mặc định chốt theo bản thiết kế — chưa làm panel Tweaks).
 const DENSITY: "compact" | "regular" | "comfy" = "regular";
@@ -84,8 +86,9 @@ export type TaskRow = {
   workGroupName: string;
   projectId: string | null;
   projectName: string | null;
-  groupName: string | null; // tên Dự án (ProjectGroup) — tách từ mã
-  loaiHinhName: string | null; // tên Loại hình công trình (constructionType) — tách từ mã
+  groupCode: string | null; // mã Dự án (ProjectGroup.code)
+  groupName: string | null;
+  loaiHinhCode: string | null; // mã Loại hình công trình (constructionType)
   disciplineId: string | null;
   disciplineName: string | null;
   disciplineCode: string | null;
@@ -215,21 +218,15 @@ function colText(t: TaskRow, key: SortKey): string {
     case "sumId":
       return t.sumId ?? "";
     case "duAn":
-      // Việc có dự án → tên Dự án (ProjectGroup). Nhóm không gắn dự án (BIM Tools…) → giữ hành vi cũ.
-      return (
-        t.groupName ??
-        (t.workGroupName === WG_SHOW_L3_IN_PROJECT ? (t.level3 ?? "") : (t.projectName ?? ""))
-      );
+      return t.groupCode ?? (t.projectName ?? "");
     case "loaiHinh":
-      // Việc có dự án → Loại hình công trình (đọc được); 19 hạng mục chưa suy được → trống.
-      // Nhóm không gắn dự án → giữ level2 (phân cấp tự do, vd "Công cụ & Tự động hóa").
-      return t.loaiHinhName ?? (t.projectId ? "" : (t.level2 ?? ""));
+      return t.loaiHinhCode ?? (t.projectId ? "" : (t.level2 ?? ""));
     case "hangMuc":
       return t.level3 ?? "";
     case "congViec":
       return t.name;
     case "boMon":
-      return t.disciplineName ?? "";
+      return t.disciplineCode ?? "";
     case "batDau":
       return t.plannedStart;
     case "ketThuc":
@@ -438,9 +435,22 @@ export function ManageClient({
   const [bulkOpen, setBulkOpen] = React.useState(false);
   // Lọc nhanh từ dải KPI.
   const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">("");
-  // Chế độ xem: gom theo người (mặc định) / bảng phẳng / Kanban.
-  const [viewMode, setViewMode] = React.useState<"people" | "table" | "kanban">("people");
-  const [collapsed, setCollapsed] = React.useState<Set<string>>(() => new Set());
+  // Chế độ xem: bảng (mặc định) / gom theo người / Kanban.
+  const [viewMode, setViewMode] = React.useState<"people" | "table" | "kanban">("table");
+  const [collapsed, setCollapsed] = React.useState<Set<string> | null>(() => null);
+  // Tree collapsed dùng cho view Bảng (group theo Dự án → Loại hình → Hạng mục)
+  const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(() => null);
+  // Đổi tab workgroup → reset về null để mỗi tab luôn bắt đầu collapse toàn bộ.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useEffect(() => { setTreeCollapsed(null); }, [activeWg]);
+  // Context cho inline insert row trong tree (groupKey = tree node key để định vị)
+  const [insertCtx, setInsertCtx] = React.useState<{
+    groupKey: string;
+    workGroupId: string;
+    projectGroupCode: string;
+    constructionTypeCode: string;
+    hangMuc: string;
+  } | null>(null);
   const [dragCol, setDragCol] = React.useState<string | null>(null);
   const [expandedCols, setExpandedCols] = React.useState<Set<string>>(() => new Set());
 
@@ -580,12 +590,14 @@ export function ManageClient({
     let overdue = 0;
     let soon = 0;
     let unassigned = 0;
+    let unassignedOrPending = 0;
     let doing = 0;
     let progSum = 0;
     for (const t of scope) {
       if (isOverdue(t)) overdue++;
       else if (isDueSoon(t)) soon++;
       if (t.assigneeIds.length === 0) unassigned++;
+      if (t.assigneeIds.length === 0 || isPendingApproval(t)) unassignedOrPending++;
       if (effOf(t) === "DANG_LAM") doing++;
       progSum += t.progressPercent;
     }
@@ -593,6 +605,7 @@ export function ManageClient({
       overdue,
       soon,
       unassigned,
+      unassignedOrPending,
       doing,
       avg: scope.length ? Math.round(progSum / scope.length) : 0,
     };
@@ -603,7 +616,7 @@ export function ManageClient({
     return kpiBase.filter((t) => {
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
-      if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0) return false;
+      if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0 && !isPendingApproval(t)) return false;
       if (quick === "DANG_LAM" && effOf(t) !== "DANG_LAM") return false;
       return true;
     });
@@ -686,6 +699,143 @@ export function ManageClient({
     [sorted],
   );
 
+  // ---- Tree grouping cho view Bảng ----
+  type TreeNode =
+    | { type: "g1" | "g2" | "g3"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }
+    | { type: "task"; task: TaskRow }
+    | { type: "insert"; ctx: NonNullable<typeof insertCtx> };
+
+  const effectiveTreeCollapsed = React.useMemo(() => {
+    if (treeCollapsed) return treeCollapsed;
+    const keys = new Set<string>();
+    for (const t of sorted) {
+      const dk = colText(t, "duAn") || "—";
+      const lk = colText(t, "loaiHinh") || "—";
+      const hk = colText(t, "hangMuc") || "—";
+      keys.add(`d:${dk}`);
+      keys.add(`l:${dk}|${lk}`);
+      keys.add(`h:${dk}|${lk}|${hk}`);
+    }
+    return keys;
+  }, [treeCollapsed, sorted]);
+
+  const treeNodes = React.useMemo((): TreeNode[] => {
+    const nodes: TreeNode[] = [];
+    const ins = insertCtx; // capture để dùng trong closure
+    const byDuAn = new Map<string, TaskRow[]>();
+    for (const t of sorted) {
+      const k = colText(t, "duAn") || "—";
+      (byDuAn.get(k) ?? (byDuAn.set(k, []), byDuAn.get(k)!)).push(t);
+    }
+    for (const [dk, dTasks] of byDuAn) {
+      const d1 = `d:${dk}`;
+      nodes.push({ type: "g1", key: d1, label: dk, count: dTasks.length, overdue: dTasks.filter(isOverdue).length, tasks: dTasks });
+      if (ins?.groupKey === d1) nodes.push({ type: "insert", ctx: ins });
+      if (effectiveTreeCollapsed.has(d1)) continue;
+
+      const byLoai = new Map<string, TaskRow[]>();
+      for (const t of dTasks) {
+        const k = colText(t, "loaiHinh") || "—";
+        (byLoai.get(k) ?? (byLoai.set(k, []), byLoai.get(k)!)).push(t);
+      }
+      for (const [lk, lTasks] of byLoai) {
+        const d2 = `l:${dk}|${lk}`;
+        nodes.push({ type: "g2", key: d2, label: lk, count: lTasks.length, overdue: lTasks.filter(isOverdue).length, tasks: lTasks });
+        if (ins?.groupKey === d2) nodes.push({ type: "insert", ctx: ins });
+        if (effectiveTreeCollapsed.has(d2)) continue;
+
+        const byHang = new Map<string, TaskRow[]>();
+        for (const t of lTasks) {
+          const k = colText(t, "hangMuc") || "—";
+          (byHang.get(k) ?? (byHang.set(k, []), byHang.get(k)!)).push(t);
+        }
+        for (const [hk, hTasks] of byHang) {
+          const d3 = `h:${dk}|${lk}|${hk}`;
+          nodes.push({ type: "g3", key: d3, label: hk, count: hTasks.length, overdue: hTasks.filter(isOverdue).length, tasks: hTasks });
+          if (ins?.groupKey === d3) nodes.push({ type: "insert", ctx: ins });
+          if (effectiveTreeCollapsed.has(d3)) continue;
+          for (const t of hTasks) nodes.push({ type: "task", task: t });
+        }
+      }
+    }
+    return nodes;
+  }, [sorted, effectiveTreeCollapsed, insertCtx]);
+
+  // Tất cả keys theo từng cấp (dùng cho expand/collapse từng cấp).
+  const allTreeKeys = React.useMemo(() => {
+    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>();
+    for (const t of sorted) {
+      const dk = colText(t, "duAn") || "—";
+      const lk = colText(t, "loaiHinh") || "—";
+      const hk = colText(t, "hangMuc") || "—";
+      d.add(`d:${dk}`);
+      l.add(`l:${dk}|${lk}`);
+      h.add(`h:${dk}|${lk}|${hk}`);
+    }
+    return { d: [...d], l: [...l], h: [...h] };
+  }, [sorted]);
+
+  const selectedTreeKeys = React.useMemo(() => {
+    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>();
+    for (const t of sorted) {
+      if (!selected.has(t.id)) continue;
+      const dk = colText(t, "duAn") || "—";
+      const lk = colText(t, "loaiHinh") || "—";
+      const hk = colText(t, "hangMuc") || "—";
+      d.add(`d:${dk}`);
+      l.add(`l:${dk}|${lk}`);
+      h.add(`h:${dk}|${lk}|${hk}`);
+    }
+    return { d: [...d], l: [...l], h: [...h], all: [...d, ...l, ...h] };
+  }, [sorted, selected]);
+
+  function toggleTreeNode(key: string) {
+    setTreeCollapsed((s) => {
+      const n = new Set(s ?? effectiveTreeCollapsed);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  }
+
+  // Expand từng cấp: d → l → h (lần lượt xổ ra từng lớp)
+  function expandOneLevel() {
+    setTreeCollapsed((prev) => {
+      const n = new Set(prev ?? effectiveTreeCollapsed);
+      if (selected.size > 0) {
+        selectedTreeKeys.all.forEach((k) => n.delete(k));
+        return n;
+      }
+      if (allTreeKeys.d.some((k) => n.has(k))) {
+        allTreeKeys.d.forEach((k) => n.delete(k));
+      } else if (allTreeKeys.l.some((k) => n.has(k))) {
+        allTreeKeys.l.forEach((k) => n.delete(k));
+      } else {
+        allTreeKeys.h.forEach((k) => n.delete(k));
+      }
+      return n;
+    });
+  }
+
+  // Collapse từng cấp: h → l → d (thu lần lượt từ trong ra)
+  function collapseOneLevel() {
+    setTreeCollapsed((prev) => {
+      const n = new Set(prev ?? effectiveTreeCollapsed);
+      if (selected.size > 0) {
+        selectedTreeKeys.all.forEach((k) => n.add(k));
+        return n;
+      }
+      if (allTreeKeys.h.some((k) => !n.has(k))) {
+        allTreeKeys.h.forEach((k) => n.add(k));
+      } else if (allTreeKeys.l.some((k) => !n.has(k))) {
+        allTreeKeys.l.forEach((k) => n.add(k));
+      } else {
+        allTreeKeys.d.forEach((k) => n.add(k));
+      }
+      return n;
+    });
+  }
+
   function toggleSort(key: SortKey) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
   }
@@ -735,18 +885,41 @@ export function ManageClient({
 
   function toggleGroup(key: string) {
     setCollapsed((s) => {
-      const n = new Set(s);
+      const n = new Set(s ?? groups.map((g) => g.key));
       if (n.has(key)) n.delete(key);
       else n.add(key);
       return n;
     });
   }
   function collapseAllGroups() {
+    if (selected.size > 0) {
+      const targetKeys = groups
+        .filter((g) => g.tasks.some((t) => selected.has(t.id)))
+        .map((g) => g.key);
+      setCollapsed((prev) => {
+        const n = new Set(prev ?? effectiveCollapsed);
+        targetKeys.forEach((k) => n.add(k));
+        return n;
+      });
+      return;
+    }
     setCollapsed(new Set(groups.map((g) => g.key)));
   }
   function expandAllGroups() {
+    if (selected.size > 0) {
+      const targetKeys = new Set(
+        groups.filter((g) => g.tasks.some((t) => selected.has(t.id))).map((g) => g.key),
+      );
+      setCollapsed((prev) => {
+        const n = new Set(prev ?? effectiveCollapsed);
+        targetKeys.forEach((k) => n.delete(k));
+        return n;
+      });
+      return;
+    }
     setCollapsed(new Set());
   }
+  const effectiveCollapsed = collapsed ?? new Set(groups.map((g) => g.key));
 
   // Việc được phép sửa Thực tế HT: quản lý hoặc người được giao, & không chờ duyệt.
   const canEditDoneOf = (t: TaskRow) =>
@@ -839,7 +1012,10 @@ export function ManageClient({
   // Thứ tự dòng đang hiển thị (để Shift+click chọn dải) — theo view hiện tại.
   function visibleOrderIds(): string[] {
     if (viewMode === "people") {
-      return groups.flatMap((g) => (collapsed.has(g.key) ? [] : g.tasks.map((t) => t.id)));
+      return groups.flatMap((g) => (effectiveCollapsed.has(g.key) ? [] : g.tasks.map((t) => t.id)));
+    }
+    if (viewMode === "table") {
+      return treeNodes.filter((n) => n.type === "task").map((n) => (n as { type: "task"; task: TaskRow }).task.id);
     }
     return sorted.map((t) => t.id);
   }
@@ -896,6 +1072,17 @@ export function ManageClient({
     if (!priority) return;
     if (!confirm(`Đổi ưu tiên ${selected.size} công việc?`)) return;
     await applyBatch(bulkSetPriority({ ids: [...selected], priority }), "Đã đổi ưu tiên");
+  }
+  async function batchApprove(approved: boolean) {
+    const label = approved ? "duyệt" : "thu hồi duyệt";
+    if (!confirm(`${approved ? "Duyệt" : "Thu hồi duyệt"} ${selected.size} công việc?`)) return;
+    await applyBatch(bulkSetApproval({ ids: [...selected], approved }), `Đã ${label}`);
+  }
+  async function batchDeleteSelected() {
+    if (!confirm(`Xóa ${selected.size} công việc? Hành động này không thể hoàn tác.`)) return;
+    const res = await bulkDelete({ ids: [...selected] });
+    if (res.ok) { toast.success(`Đã xóa ${res.data} công việc`); clearSel(); router.refresh(); }
+    else toast.error(res.error);
   }
   async function batchMeasureNorm(v: string) {
     if (!v) return;
@@ -969,8 +1156,9 @@ export function ManageClient({
   const totalMinW =
     (canManage ? MANAGE_SEL_PX : 0) +
     cols.reduce((s, c) => s + widthOf(c.key), 0) +
-    (canManage ? MANAGE_ACT_PX : 0);
-  const totalColsCount = (canManage ? 1 : 0) + cols.length + (canManage ? 1 : 0);
+    ((canManage || sorted.some((t) => t.approverId === currentUserId)) ? MANAGE_ACT_PX : 0);
+  const canUseRowActions = canManage || sorted.some((t) => t.approverId === currentUserId);
+  const totalColsCount = (canManage ? 1 : 0) + cols.length + (canUseRowActions ? 1 : 0);
 
   // ---- Header 1 cột ----
   function renderHead(col: ColDef) {
@@ -1074,7 +1262,10 @@ export function ManageClient({
         ) : col.leaf ? (
           <span className={dim ? "text-slate-400" : "font-medium text-slate-800"}>{v}</span>
         ) : (
-          <span className={dim ? "text-slate-300" : col.lvl === 1 ? "font-medium text-slate-700" : "text-slate-600"}>
+          <span
+            className={dim ? "text-slate-300" : col.lvl === 1 ? "font-medium text-slate-700" : "text-slate-600"}
+            title={col.key === "duAn" ? (t.groupName ?? undefined) : undefined}
+          >
             {v}
           </span>
         )}
@@ -1136,28 +1327,14 @@ export function ManageClient({
               )
             ) : null}
           </div>
-          {dz === "DA_DUYET" ? (
-            <span
-              className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-medium text-emerald-600/75"
-              title="Đã duyệt — cho phép nhập thời gian"
-            >
-              <Check className="size-3" strokeWidth={3} /> Đã duyệt
-            </span>
-          ) : dz === "CHO_DUYET" ? (
+          {dz !== "DA_DUYET" ? (
             <span
               className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600"
-              title={t.approverName ? `Chờ ${t.approverName} duyệt` : "Chờ quản lý duyệt"}
+              title={t.approverName ? `Chờ ${t.approverName} duyệt` : "Chưa duyệt"}
             >
-              <span className="size-1.5 rounded-full bg-amber-500" /> Chờ duyệt
+              <span className="size-1.5 rounded-full bg-amber-500" /> Chưa duyệt
             </span>
-          ) : (
-            <span
-              className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-medium text-slate-400"
-              title="Hoàn thành nhưng chưa được duyệt"
-            >
-              <span className="size-1.5 rounded-full bg-slate-300" /> Chưa duyệt
-            </span>
-          )}
+          ) : null}
         </div>
       </td>
     );
@@ -1168,6 +1345,26 @@ export function ManageClient({
     t: TaskRow,
     opts?: { keyExtra?: string; meta?: { repeat: Record<string, boolean>; newProject: boolean } },
   ) {
+    const canApproveStart = canManage || t.approverId === currentUserId;
+    if (editing?.id === t.id && canApproveStart) {
+      return (
+        <InlineTaskEditRow
+          key={`${opts?.keyExtra ?? ""}${t.id}-edit`}
+          task={t}
+          canManage={canManage}
+          cols={cols}
+          projects={projects}
+          disciplines={disciplines}
+          users={users}
+          catalog={catalog}
+          onCancel={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            router.refresh();
+          }}
+        />
+      );
+    }
     const overdue = isOverdue(t);
     const pendingApproval = isPendingApproval(t);
     const late = isCompletedLate(t);
@@ -1199,7 +1396,10 @@ export function ManageClient({
           </td>
         ) : null}
         {cols.map((c) => {
-          if (c.lvl) return hierTd(c, t, meta);
+          // Trong tree view (Bảng) group header đã hiện Dự án/Loại hình/Hạng mục → task row để trắng.
+          if (c.lvl) return (viewMode === "table" && !c.leaf)
+            ? <td key={c.key} style={bodyFrozenStyle(c.key)} className="border-l border-slate-100 align-top px-2" />
+            : hierTd(c, t, meta);
           if (c.key === "sumId")
             return (
               <td key="sumId" className={cn("align-top", cellPad)}>
@@ -1209,7 +1409,7 @@ export function ManageClient({
           if (c.key === "boMon")
             return (
               <td key="boMon" className={cn("align-top text-xs text-slate-600", cellPad)}>
-                {t.disciplineName ?? "—"}
+                {t.disciplineCode || <span className="text-slate-300">—</span>}
               </td>
             );
           if (c.key === "thucHien")
@@ -1227,7 +1427,7 @@ export function ManageClient({
           if (c.key === "uuTien")
             return (
               <td key="uuTien" className={cn("align-top", cellPad)}>
-                <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
+                <span className={cn("text-[11px] font-medium whitespace-nowrap", t.priority === "CAO" ? "text-red-600" : t.priority === "TRUNG_BINH" ? "text-amber-500" : "text-slate-400")}>{PRIORITY_LABEL[t.priority]}</span>
               </td>
             );
           if (c.key === "tinhTrang") return statusTd(t);
@@ -1272,37 +1472,43 @@ export function ManageClient({
             );
           return <td key={c.key} className={cellPad} />;
         })}
-        {canManage ? (
+        {canUseRowActions ? (
           <td className={cn("px-2 align-top", dens)}>
             <div className="flex items-center justify-center gap-0.5">
-              <button
-                type="button"
-                title={
-                  pendingApproval
-                    ? "Duyệt — cho phép người được giao nhập thời gian"
-                    : "Đã duyệt — bấm để thu hồi (khóa nhập lại)"
-                }
-                onClick={() => toggleStartApproval(t, pendingApproval)}
-                className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-emerald-600"
-              >
-                <ShieldCheck className={cn("size-4", !pendingApproval && "text-emerald-600")} />
-              </button>
-              <button
-                type="button"
-                title="Sửa"
-                onClick={() => setEditing(t)}
-                className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                <Pencil className="size-4" />
-              </button>
-              <button
-                type="button"
-                title="Xóa"
-                onClick={() => onDelete(t)}
-                className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600"
-              >
-                <Trash2 className="size-4" />
-              </button>
+              {canApproveStart ? (
+                <button
+                  type="button"
+                  title={
+                    pendingApproval
+                      ? "Duyệt — cho phép người được giao nhập thời gian"
+                      : "Đã duyệt — bấm để thu hồi (khóa nhập lại)"
+                  }
+                  onClick={() => toggleStartApproval(t, pendingApproval)}
+                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-emerald-600"
+                >
+                  <ShieldCheck className={cn("size-4", !pendingApproval && "text-emerald-600")} />
+                </button>
+              ) : null}
+              {canApproveStart ? (
+                <button
+                  type="button"
+                  title="Sửa"
+                  onClick={() => setEditing(t)}
+                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <Pencil className="size-4" />
+                </button>
+              ) : null}
+              {canManage ? (
+                <button
+                  type="button"
+                  title="Xóa"
+                  onClick={() => onDelete(t)}
+                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              ) : null}
             </div>
           </td>
         ) : null}
@@ -1312,7 +1518,7 @@ export function ManageClient({
 
   // Dòng tiêu đề nhóm người (chiếm hết chiều ngang, bấm để gập/mở).
   function groupHeaderRow(g: { key: string; name: string; overdue: number; tasks: TaskRow[] }) {
-    const Chevron = collapsed.has(g.key) ? ChevronRight : ChevronDown;
+    const Chevron = effectiveCollapsed.has(g.key) ? ChevronRight : ChevronDown;
     return (
       <tr key={`grp-${g.key}`} className="bg-slate-100">
         {/* Ô span hết hàng; nội dung bọc trong lớp sticky-left để nhãn nhóm ghim trái khi cuộn ngang. */}
@@ -1329,6 +1535,112 @@ export function ManageClient({
                 ({g.tasks.length} việc{g.overdue ? ` · ${g.overdue} quá hạn` : ""})
               </span>
             </button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  // Dòng tiêu đề nhóm trong tree view Bảng (3 cấp với indent khác nhau).
+  function treeGroupRow(node: { type: "g1" | "g2" | "g3"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
+    const { type, key, label, count, overdue, tasks: groupTasks } = node;
+  const isCollapsed = effectiveTreeCollapsed.has(key);
+  const Chevron = isCollapsed ? ChevronRight : ChevronDown;
+  const bg = type === "g1" ? "bg-slate-100" : "bg-slate-50";
+  const parentProject: string = "";
+  const parentLoaiHinh: string = "";
+  const indent = type === "g1" ? 0 : type === "g2" ? widthOf("duAn") : widthOf("duAn") + widthOf("loaiHinh");
+    const textCls =
+      type === "g1"
+        ? "text-[13px] font-semibold text-slate-700"
+        : type === "g2"
+          ? "text-[13px] font-medium text-slate-600"
+          : "text-xs font-medium text-slate-500";
+    const borderCls = type === "g2" ? "border-t border-slate-200" : type === "g3" ? "border-t border-slate-100" : "";
+
+    // Checkbox nhóm: chỉ dùng để chọn/bỏ chọn tất cả con — không phản ánh trạng thái con.
+    const allSel = groupTasks.length > 0 && groupTasks.every((t) => selected.has(t.id));
+
+    // Parse key thành context để pre-fill inline insert row
+    function parseInsertCtx() {
+      const workGroupId = groupTasks[0]?.workGroupId ?? activeWg;
+      if (type === "g1") {
+        const d = key.slice(2);
+        return { groupKey: key, workGroupId, projectGroupCode: d === "—" ? "" : d, constructionTypeCode: "", hangMuc: "" };
+      }
+      if (type === "g2") {
+        const content = key.slice(2);
+        const idx = content.indexOf("|");
+        const d = content.slice(0, idx); const l = content.slice(idx + 1);
+        return { groupKey: key, workGroupId, projectGroupCode: d === "—" ? "" : d, constructionTypeCode: l === "—" ? "" : l, hangMuc: "" };
+      }
+      const content = key.slice(2);
+      const i1 = content.indexOf("|"); const i2 = content.indexOf("|", i1 + 1);
+      const d = content.slice(0, i1); const l = content.slice(i1 + 1, i2); const h = content.slice(i2 + 1);
+      return { groupKey: key, workGroupId, projectGroupCode: d === "—" ? "" : d, constructionTypeCode: l === "—" ? "" : l, hangMuc: h === "—" ? "" : h };
+    }
+
+    return (
+      <tr key={`tree-${key}`} className={cn(bg, borderCls)}>
+        <td colSpan={totalColsCount} className="p-0">
+          <div className={cn("sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center gap-2 px-2 py-1.5", bg)}>
+            {/* Checkbox chọn tất cả trong nhóm */}
+            {canManage ? (
+              <input
+                type="checkbox"
+                className="size-3.5 shrink-0 accent-slate-700"
+                checked={allSel}
+                onChange={() => {
+                  setSelected((s) => {
+                    const n = new Set(s);
+                    if (allSel) groupTasks.forEach((t) => n.delete(t.id));
+                    else groupTasks.forEach((t) => n.add(t.id));
+                    return n;
+                  });
+                }}
+              />
+            ) : null}
+            {false ? (
+              <span
+                style={{ width: widthOf("duAn") }}
+                className="shrink-0 truncate text-xs font-medium text-slate-400"
+                title={parentProject || undefined}
+              >
+                {parentProject === "—" ? "" : parentProject}
+              </span>
+            ) : null}
+            {false ? (
+              <span
+                style={{ width: widthOf("loaiHinh") }}
+                className="shrink-0 truncate text-xs font-medium text-slate-400"
+                title={parentLoaiHinh || undefined}
+              >
+                {parentLoaiHinh === "—" ? "" : parentLoaiHinh}
+              </span>
+            ) : null}
+            {indent ? <div style={{ width: indent }} className="shrink-0" /> : null}
+            <button
+              type="button"
+              onClick={() => toggleTreeNode(key)}
+              className={cn("flex items-center gap-1.5", textCls)}
+            >
+              <Chevron className="size-3.5 shrink-0 text-slate-400" />
+              <span>{label}</span>
+              <span className="font-normal text-slate-400 text-xs">
+                ({count} việc{overdue ? ` · ${overdue} quá hạn` : ""})
+              </span>
+            </button>
+            {/* Nút insert dòng mới */}
+            {canManage && type === "g3" ? (
+              <button
+                type="button"
+                title="Thêm công việc vào nhóm này"
+                onClick={() => setInsertCtx(parseInsertCtx())}
+                className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+              >
+                <Plus className="size-3.5" />
+              </button>
+            ) : null}
           </div>
         </td>
       </tr>
@@ -1364,7 +1676,7 @@ export function ManageClient({
       >
         <div className="flex items-center justify-between gap-1">
           <span className="font-mono text-[11px] text-muted-foreground">{t.sumId ?? "—"}</span>
-          <Badge variant={priorityVariant(t.priority)}>{PRIORITY_LABEL[t.priority]}</Badge>
+          <span className={cn("text-[11px] font-medium whitespace-nowrap", t.priority === "CAO" ? "text-red-600" : t.priority === "TRUNG_BINH" ? "text-amber-500" : "text-slate-400")}>{PRIORITY_LABEL[t.priority]}</span>
         </div>
         <div className="mt-1 font-medium leading-snug">{t.name}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-1 text-[11px] text-muted-foreground">
@@ -1457,7 +1769,7 @@ export function ManageClient({
     );
   }
 
-  const activeFilterCount = activeCols.length + (quick ? 1 : 0) + (activeWg ? 1 : 0);
+  const activeFilterCount = activeCols.length;
   const openCol = openFilter ? cols.find((c) => c.key === openFilter.key) : null;
 
   return (
@@ -1485,7 +1797,7 @@ export function ManageClient({
           [
             { key: "QUA_HAN", label: "Quá hạn", n: kpi.overdue, Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
             { key: "SAP_HAN", label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon, Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
-            { key: "CHUA_GIAO", label: "Chưa giao người", n: kpi.unassigned, Icon: UserX, tone: "border-slate-200 bg-slate-50 text-slate-700" },
+            { key: "CHUA_GIAO", label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX, tone: "border-slate-200 bg-slate-50 text-slate-700" },
             { key: "DANG_LAM", label: "Đang làm", n: kpi.doing, Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
           ] as const
         ).map(({ key, label, n, Icon, tone }) => (
@@ -1578,30 +1890,12 @@ export function ManageClient({
         </div>
       ) : null}
 
-      {/* Thanh chip điều kiện đang lọc */}
-      {activeCols.length > 0 || quick || activeWg ? (
+      {/* Thanh chip điều kiện đang lọc (tab nhóm không hiện chip — tab đã tự highlight) */}
+      {activeCols.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
             <Filter className="size-3.5" /> Lọc:
           </span>
-          {activeWg ? (
-            <Chip
-              label="Nhóm"
-              value={workGroups.find((w) => w.id === activeWg)?.name ?? "?"}
-              onRemove={() => setActiveWg("")}
-            />
-          ) : null}
-          {quick ? (
-            <Chip
-              label="Nhanh"
-              value={
-                { QUA_HAN: "Quá hạn", SAP_HAN: "Sắp đến hạn", CHUA_GIAO: "Chưa giao", DANG_LAM: "Đang làm" }[
-                  quick
-                ]
-              }
-              onRemove={() => setQuick("")}
-            />
-          ) : null}
           {activeCols.map((c) => (
             <Chip key={c.key} label={c.label} value={chipText(c, colFilters[c.key])} onRemove={() => clearCol(c.key)} />
           ))}
@@ -1637,23 +1931,22 @@ export function ManageClient({
             </button>
           ))}
         </div>
-        {viewMode === "people" ? (
+        {(viewMode === "people" || viewMode === "table") ? (
           <div className="inline-flex gap-1">
             <Button
               variant="outline"
               size="sm"
-              onClick={collapseAllGroups}
-              disabled={groups.length > 0 && collapsed.size === groups.length}
-              title="Thu gọn tất cả nhóm"
+              onClick={viewMode === "people" ? collapseAllGroups : collapseOneLevel}
+              title={viewMode === "table" ? "Thu từng cấp: Hạng mục → Loại hình → Dự án" : "Thu gọn tất cả nhóm"}
             >
               <ChevronsDownUp className="size-4" /> Collapse
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={expandAllGroups}
-              disabled={collapsed.size === 0}
-              title="Mở rộng tất cả nhóm"
+              onClick={viewMode === "people" ? expandAllGroups : expandOneLevel}
+              disabled={viewMode === "people" ? effectiveCollapsed.size === 0 : effectiveTreeCollapsed.size === 0}
+              title={viewMode === "table" ? "Xổ từng cấp: Dự án → Loại hình → Hạng mục" : "Mở rộng tất cả nhóm"}
             >
               <ChevronsUpDown className="size-4" /> Expand
             </Button>
@@ -1676,11 +1969,11 @@ export function ManageClient({
               {cols.map((c) => (
                 <col key={c.key} style={{ width: widthOf(c.key) }} />
               ))}
-              {canManage ? <col style={{ width: MANAGE_ACT_PX }} /> : null}
+              {canUseRowActions ? <col style={{ width: MANAGE_ACT_PX }} /> : null}
             </colgroup>
             <thead>
               <tr>
-                {canManage ? (
+                {canUseRowActions ? (
                   <th
                     style={headStyle("__sel__", MANAGE_SEL_PX)}
                     className="border-b border-slate-200 px-2 py-2.5"
@@ -1708,11 +2001,32 @@ export function ManageClient({
             <tbody className="[&_td]:border-b [&_td]:border-slate-100">
               {viewMode === "people"
                 ? groups.flatMap((g) =>
-                    collapsed.has(g.key)
+                    effectiveCollapsed.has(g.key)
                       ? [groupHeaderRow(g)]
                       : [groupHeaderRow(g), ...g.tasks.map((t) => renderRow(t, { keyExtra: `${g.key}-` }))],
                   )
-                : sorted.map((t, i) => renderRow(t, { meta: rowMeta[i] }))}
+                : viewMode === "table"
+                  ? treeNodes.map((n) =>
+                      n.type === "task"
+                        ? renderRow(n.task)
+                        : n.type === "insert"
+                          ? (
+                            <TreeInsertRow
+                              key={`insert-${n.ctx.groupKey}`}
+                              ctx={n.ctx}
+                              canManage={canManage}
+                              cols={cols}
+                              projects={projects}
+                              disciplines={disciplines}
+                              users={users}
+                              catalog={catalog}
+                              onCancel={() => setInsertCtx(null)}
+                              onSaved={() => { setInsertCtx(null); router.refresh(); }}
+                            />
+                          )
+                          : treeGroupRow(n),
+                    )
+                  : sorted.map((t, i) => renderRow(t, { meta: rowMeta[i] }))}
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={totalColsCount} className="py-12 text-center text-sm text-slate-400">
@@ -1806,6 +2120,15 @@ export function ManageClient({
             <option value="on">Bật cần đo ĐM</option>
             <option value="off">Tắt cần đo ĐM</option>
           </Select>
+          <Button size="sm" variant="outline" onClick={() => void batchApprove(true)}>
+            Duyệt
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void batchApprove(false)}>
+            Thu hồi duyệt
+          </Button>
+          <Button size="sm" variant="destructive" onClick={() => void batchDeleteSelected()}>
+            Xóa
+          </Button>
           <Button size="icon" variant="ghost" onClick={clearSel} title="Bỏ chọn" aria-label="Bỏ chọn">
             <X className="size-4" />
           </Button>
@@ -1873,9 +2196,9 @@ export function ManageClient({
       ) : null}
 
       {/* Form đơn chỉ còn dùng để SỬA 1 việc (tạo việc dùng lưới bên dưới). */}
-      {editing && canManage ? (
+      {false && editing && canManage ? (
         <TaskDialog
-          task={editing}
+          task={editing ?? undefined}
           defaultWorkGroupId={activeWg}
           workGroups={workGroups}
           disciplines={disciplines}
@@ -1909,6 +2232,190 @@ export function ManageClient({
         </Modal>
       ) : null}
     </div>
+  );
+}
+
+function InlineTaskEditRow({
+  task,
+  canManage,
+  cols,
+  projects,
+  disciplines,
+  users,
+  catalog,
+  onCancel,
+  onSaved,
+}: {
+  task: TaskRow;
+  canManage: boolean;
+  cols: ColDef[];
+  projects: ProjectOpt[];
+  disciplines: Opt[];
+  users: { id: string; fullName: string }[];
+  catalog: Catalog;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [pending, setPending] = React.useState(false);
+  const [pgCode, setPgCode] = React.useState(task.groupCode ?? "");
+  const [ctCode, setCtCode] = React.useState(task.loaiHinhCode ?? task.level2 ?? "");
+  const [hangMuc, setHangMuc] = React.useState(task.level3 ?? "");
+  const [level5, setLevel5] = React.useState(task.level5 ?? task.name ?? "");
+  const [disciplineId, setDisciplineId] = React.useState(task.disciplineId ?? "");
+  const [assigneeIds, setAssigneeIds] = React.useState<string[]>(task.assigneeIds);
+  const [priority, setPriority] = React.useState(task.priority);
+  const [status, setStatus] = React.useState(task.status);
+  const [plannedStart, setPlannedStart] = React.useState(task.plannedStart);
+  const [plannedEnd, setPlannedEnd] = React.useState(task.plannedEnd);
+
+  const pgCodes = React.useMemo(
+    () => [...new Set(projects.map((p) => p.groupCode).filter(Boolean))].sort(),
+    [projects],
+  );
+  const ctCodes = React.useMemo(() => {
+    const pool = pgCode ? projects.filter((p) => p.groupCode === pgCode) : projects;
+    return [...new Set(pool.map((p) => p.constructionTypeCode).filter(Boolean))];
+  }, [projects, pgCode]);
+  const hangMucOpts = React.useMemo(() => {
+    const pool = pgCode ? projects.filter((p) => p.groupCode === pgCode) : projects;
+    return [...new Set(pool.filter((p) => !ctCode || p.constructionTypeCode === ctCode).map((p) => p.name))];
+  }, [projects, pgCode, ctCode]);
+  const level5Opts = React.useMemo(() => catalog[task.workGroupId]?.l5 ?? [], [catalog, task.workGroupId]);
+  const projectId = React.useMemo(() => {
+    if (!pgCode || !ctCode || !hangMuc) return "";
+    return projects.find((p) => p.groupCode === pgCode && p.constructionTypeCode === ctCode && p.name === hangMuc)?.id ?? "";
+  }, [projects, pgCode, ctCode, hangMuc]);
+
+  async function save() {
+    setPending(true);
+    const res = await saveTask({
+      id: task.id,
+      workGroupId: task.workGroupId,
+      projectId: projectId || null,
+      disciplineId: disciplineId || null,
+      phaseId: task.phaseId || null,
+      sumId: task.sumId ?? null,
+      level2: ctCode || null,
+      level3: hangMuc || null,
+      level5: level5.trim() || null,
+      name: level5.trim() || null,
+      priority,
+      status,
+      plannedStart: plannedStart || null,
+      plannedEnd: plannedEnd || null,
+      note: task.note || null,
+      measureNorm: false,
+      assigneeIds,
+    });
+    setPending(false);
+    if (res.ok) {
+      toast.success("Da cap nhat");
+      onSaved();
+    } else {
+      toast.error(res.error);
+    }
+  }
+
+  const cellCls = "bg-amber-50/50 px-2 py-2 align-top";
+  const inputCls = "h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 outline-none focus:border-blue-400";
+  const dateCls = "h-8 w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400";
+  const none = "--";
+
+  return (
+    <tr className="bg-amber-50/50">
+      {canManage ? <td className="bg-amber-50/50 px-2 py-2 align-top" /> : null}
+      {cols.map((col) => {
+        if (col.key === "duAn") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <SearchableCombobox creatable={false} placeholder={none} value={pgCode} options={[none, ...pgCodes]} className="h-8 text-xs" onChange={(v) => { setPgCode(v === none ? "" : v); setCtCode(""); setHangMuc(""); }} />
+            </td>
+          );
+        }
+        if (col.key === "loaiHinh") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <SearchableCombobox creatable={false} placeholder={none} value={ctCode} options={[none, ...ctCodes]} className="h-8 text-xs" onChange={(v) => { setCtCode(v === none ? "" : v); setHangMuc(""); }} />
+            </td>
+          );
+        }
+        if (col.key === "hangMuc") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <SearchableCombobox creatable placeholder="Chon / nhap moi..." value={hangMuc} options={hangMucOpts} className="h-8 text-xs" onChange={setHangMuc} />
+            </td>
+          );
+        }
+        if (col.key === "congViec") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <input
+                autoFocus
+                className={inputCls}
+                value={level5}
+                list={`edit-level5-${task.id}`}
+                onChange={(e) => setLevel5(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); void save(); }
+                  if (e.key === "Escape") onCancel();
+                }}
+              />
+              <datalist id={`edit-level5-${task.id}`}>
+                {level5Opts.map((name) => <option key={name} value={name} />)}
+              </datalist>
+            </td>
+          );
+        }
+        if (col.key === "boMon") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <SearchableCombobox
+                creatable={false}
+                placeholder={none}
+                value={disciplines.find((d) => d.id === disciplineId)?.name ?? ""}
+                options={[none, ...disciplines.map((d) => d.name)]}
+                className="h-8 text-xs"
+                onChange={(label) => setDisciplineId(label === none ? "" : (disciplines.find((d) => d.name === label)?.id ?? ""))}
+              />
+            </td>
+          );
+        }
+        if (col.key === "thucHien") {
+          return <td key={col.key} className={cellCls}><UserMultiSelect users={users} value={assigneeIds} onChange={setAssigneeIds} /></td>;
+        }
+        if (col.key === "uuTien") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <Select className="h-8 w-full text-xs" value={priority} onChange={(e) => setPriority(e.target.value)}>
+                {PRIORITY_OPTIONS.map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
+              </Select>
+            </td>
+          );
+        }
+        if (col.key === "tinhTrang") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <Select className="h-8 w-full text-xs" value={status} onChange={(e) => setStatus(e.target.value)}>
+                {TASK_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
+              </Select>
+            </td>
+          );
+        }
+        if (col.key === "batDau") {
+          return <td key={col.key} className={cellCls}><input type="date" className={dateCls} value={plannedStart} onChange={(e) => setPlannedStart(e.target.value)} /></td>;
+        }
+        if (col.key === "ketThuc") {
+          return <td key={col.key} className={cellCls}><input type="date" className={dateCls} value={plannedEnd} onChange={(e) => setPlannedEnd(e.target.value)} /></td>;
+        }
+        return <td key={col.key} className={cellCls} />;
+      })}
+      <td className="bg-amber-50/50 px-2 py-2 align-top">
+        <div className="flex items-center justify-center gap-1.5">
+          <Button size="sm" onClick={() => void save()} disabled={pending}>{pending ? "Dang luu..." : "Luu"}</Button>
+          <Button size="sm" variant="outline" onClick={onCancel}>Huy</Button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -2065,11 +2572,6 @@ function StatusBody({ value, onChange }: { value: StatusFilterVal; onChange: (v:
       {item("status", "CHUA_LAM", "Chưa làm", "bg-slate-400")}
       {item("status", "TAM_DUNG", "Tạm dừng", "bg-amber-500")}
       {item("status", "HOAN_THANH", "Hoàn thành", "bg-emerald-500")}
-      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Duyệt</p>
-      {item("duyet", "DA_DUYET", "Đã duyệt", "bg-emerald-500")}
-      {item("duyet", "CHO_DUYET", "Chờ duyệt", "bg-amber-500")}
-      {item("duyet", "CHUA_DUYET", "Chưa duyệt", "bg-slate-400")}
-      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Khác</p>
       <button
         type="button"
         onClick={() => onChange({ ...v, tre: !v.tre })}
@@ -2084,7 +2586,7 @@ function StatusBody({ value, onChange }: { value: StatusFilterVal; onChange: (v:
           {v.tre ? <Check className="size-3" strokeWidth={3} /> : null}
         </span>
         <span className="size-2 shrink-0 rounded-full bg-rose-500" />
-        <span className="truncate">Trễ hạn (hoàn thành muộn)</span>
+        <span className="truncate">Hoàn thành (trễ hạn)</span>
       </button>
     </div>
   );
@@ -2179,7 +2681,7 @@ function TaskDialog({
   workGroups: WgOpt[];
   disciplines: Opt[];
   phases: Opt[];
-  projects: Opt[];
+  projects: ProjectOpt[];
   users: UserOpt[];
   catalog: Catalog;
   onClose: () => void;
@@ -2199,5 +2701,322 @@ function TaskDialog({
         onCancel={onClose}
       />
     </Modal>
+  );
+}
+
+// ---- Modal insert dòng mới từ tree group (Bảng view) ----
+// Dòng insert inline trong tree table — render như <tr> sticky (không phải modal)
+function TreeInsertRow({
+  ctx,
+  totalCols = 0,
+  canManage,
+  cols,
+  projects,
+  disciplines,
+  users,
+  catalog,
+  onCancel,
+  onSaved,
+}: {
+  ctx: { groupKey: string; workGroupId: string; projectGroupCode: string; constructionTypeCode: string; hangMuc: string };
+  totalCols?: number;
+  canManage: boolean;
+  cols: ColDef[];
+  projects: ProjectOpt[];
+  disciplines: Opt[];
+  users: { id: string; fullName: string }[];
+  catalog: Catalog;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const NONE = "— Không —";
+  const [pending, setPending] = React.useState(false);
+  const [pgCode, setPgCode] = React.useState(ctx.projectGroupCode);
+  const [ctCode, setCtCode] = React.useState(ctx.constructionTypeCode);
+  const [hangMuc, setHangMuc] = React.useState(ctx.hangMuc);
+  const [level5, setLevel5] = React.useState("");
+  const [disciplineId, setDisciplineId] = React.useState("");
+  const [assigneeIds, setAssigneeIds] = React.useState<string[]>([]);
+  const [priority, setPriority] = React.useState("TRUNG_BINH");
+  const [plannedStart, setPlannedStart] = React.useState("");
+  const [plannedEnd, setPlannedEnd] = React.useState("");
+
+  const pgCodes = React.useMemo(
+    () => [...new Set(projects.map((p) => p.groupCode).filter(Boolean))].sort(),
+    [projects],
+  );
+  const ctCodes = React.useMemo(() => {
+    const pool = pgCode ? projects.filter((p) => p.groupCode === pgCode) : projects;
+    return [...new Set(pool.map((p) => p.constructionTypeCode).filter(Boolean))];
+  }, [projects, pgCode]);
+  const hangMucOpts = React.useMemo(() => {
+    const pool = pgCode ? projects.filter((p) => p.groupCode === pgCode) : projects;
+    return [...new Set(pool.filter((p) => !ctCode || p.constructionTypeCode === ctCode).map((p) => p.name))];
+  }, [projects, pgCode, ctCode]);
+  const level5Opts = React.useMemo(() => catalog[ctx.workGroupId]?.l5 ?? [], [catalog, ctx.workGroupId]);
+
+  const resolvedProjectId = React.useMemo(() => {
+    if (!pgCode || !ctCode || !hangMuc) return "";
+    return projects.find((p) => p.groupCode === pgCode && p.constructionTypeCode === ctCode && p.name === hangMuc)?.id ?? "";
+  }, [projects, pgCode, ctCode, hangMuc]);
+
+  async function save() {
+    if (!ctx.workGroupId) { toast.error("Thiếu nhóm công việc"); return; }
+    setPending(true);
+    const res = await saveTask({
+      workGroupId: ctx.workGroupId,
+      projectId: resolvedProjectId || null,
+      disciplineId: disciplineId || null, phaseId: null, sumId: null,
+      level2: ctCode || null,
+      level3: hangMuc || null,
+      level5: level5.trim() || null,
+      name: level5.trim() || null,
+      priority, status: "CHUA_LAM",
+      plannedStart: plannedStart || null,
+      plannedEnd: plannedEnd || null,
+      note: null, measureNorm: false, assigneeIds,
+    });
+    setPending(false);
+    if (res.ok) { toast.success("Đã thêm công việc"); onSaved(); }
+    else toast.error(res.error);
+  }
+
+  const cellCls = "bg-blue-50/40 px-2 py-2 align-top";
+  const lockedCls =
+    "flex h-8 w-full items-center truncate rounded-md border border-slate-200 bg-slate-100 px-2 text-xs font-medium text-slate-500";
+  const lockedField = (value: string, placeholder = "") => (
+    <div className={lockedCls} title={value || undefined}>
+      {value || placeholder}
+    </div>
+  );
+  const dateCls = "h-8 w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400";
+
+  return (
+    <tr className="bg-blue-50/40">
+      {canManage ? <td className="bg-blue-50/40 px-2 py-2 align-top" /> : null}
+      {cols.map((col) => {
+        if (col.key === "duAn") {
+          return (
+            <td key={col.key} className={cellCls}>
+              {ctx.projectGroupCode ? (
+                lockedField(pgCode)
+              ) : (
+                <SearchableCombobox
+                  creatable={false}
+                  placeholder={NONE}
+                  value={pgCode}
+                  options={[NONE, ...pgCodes]}
+                  className="h-8 text-xs"
+                  onChange={(v) => { setPgCode(v === NONE ? "" : v); setCtCode(""); setHangMuc(""); }}
+                />
+              )}
+            </td>
+          );
+        }
+        if (col.key === "loaiHinh") {
+          return (
+            <td key={col.key} className={cellCls}>
+              {ctx.constructionTypeCode ? (
+                lockedField(ctCode)
+              ) : (
+                <SearchableCombobox
+                  creatable={false}
+                  placeholder={NONE}
+                  value={ctCode}
+                  options={[NONE, ...ctCodes]}
+                  className="h-8 text-xs"
+                  onChange={(v) => { setCtCode(v === NONE ? "" : v); setHangMuc(""); }}
+                />
+              )}
+            </td>
+          );
+        }
+        if (col.key === "hangMuc") {
+          return (
+            <td key={col.key} className={cellCls}>
+              {ctx.hangMuc ? (
+                lockedField(hangMuc)
+              ) : (
+                <SearchableCombobox
+                  creatable
+                  placeholder="Chon / nhap moi..."
+                  value={hangMuc}
+                  options={hangMucOpts}
+                  className="h-8 text-xs"
+                  onChange={setHangMuc}
+                />
+              )}
+            </td>
+          );
+        }
+        if (col.key === "congViec") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <input
+                autoFocus
+                className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 outline-none focus:border-blue-400"
+                placeholder="Ten dau viec..."
+                value={level5}
+                list={`level5-${ctx.groupKey}`}
+                onChange={(e) => setLevel5(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); void save(); }
+                  if (e.key === "Escape") onCancel();
+                }}
+              />
+              <datalist id={`level5-${ctx.groupKey}`}>
+                {level5Opts.map((name) => <option key={name} value={name} />)}
+              </datalist>
+            </td>
+          );
+        }
+        if (col.key === "boMon") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <SearchableCombobox
+                creatable={false}
+                placeholder={NONE}
+                value={disciplines.find((d) => d.id === disciplineId)?.name ?? ""}
+                options={[NONE, ...disciplines.map((d) => d.name)]}
+                className="h-8 text-xs"
+                onChange={(label) => setDisciplineId(label === NONE ? "" : (disciplines.find((d) => d.name === label)?.id ?? ""))}
+              />
+            </td>
+          );
+        }
+        if (col.key === "thucHien") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <UserMultiSelect users={users} value={assigneeIds} onChange={setAssigneeIds} />
+            </td>
+          );
+        }
+        if (col.key === "uuTien") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <Select className="h-8 w-full text-xs" value={priority} onChange={(e) => setPriority(e.target.value)}>
+                <option value="CAO">Cao</option>
+                <option value="TRUNG_BINH">Trung binh</option>
+                <option value="THAP">Thap</option>
+              </Select>
+            </td>
+          );
+        }
+        if (col.key === "batDau") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <input type="date" className={dateCls} value={plannedStart} onChange={(e) => setPlannedStart(e.target.value)} />
+            </td>
+          );
+        }
+        if (col.key === "ketThuc") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <input type="date" className={dateCls} value={plannedEnd} onChange={(e) => setPlannedEnd(e.target.value)} />
+            </td>
+          );
+        }
+        return <td key={col.key} className={cellCls} />;
+      })}
+      {canManage ? (
+        <td className="bg-blue-50/40 px-2 py-2 align-top">
+          <div className="flex items-center justify-center gap-1.5">
+            <Button size="sm" onClick={() => void save()} disabled={pending}>
+              {pending ? "Dang luu..." : "Luu"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={onCancel}>Huy</Button>
+          </div>
+        </td>
+      ) : null}
+    </tr>
+  );
+
+  return (
+    <tr className="bg-blue-50/40">
+      <td colSpan={totalCols} className="p-0">
+        {/* sticky left: form ghim vào cạnh trái khi cuộn ngang, không vỡ layout cột */}
+        <div className="sticky left-0 z-[12] inline-flex max-w-[calc(100vw-1rem)] flex-wrap items-end gap-2 border-b border-blue-200 bg-blue-50/60 px-3 py-2">
+          {/* Loại hình */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-medium text-slate-500">Loại hình</span>
+            <div className="w-28">
+              <SearchableCombobox creatable={false} placeholder={NONE} value={ctCode}
+                options={[NONE, ...ctCodes]}
+                onChange={(v) => { setCtCode(v === NONE ? "" : v); setHangMuc(""); }} />
+            </div>
+          </div>
+          {/* Hạng mục */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-medium text-slate-500">Hạng mục</span>
+            <div className="w-36">
+              <SearchableCombobox creatable placeholder="Chọn / nhập mới..." value={hangMuc}
+                options={hangMucOpts} onChange={setHangMuc} />
+            </div>
+          </div>
+          {/* Đầu việc */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-medium text-slate-500">Đầu việc</span>
+            <div className="w-48">
+              <SearchableCombobox
+                creatable
+                autoFocus
+                placeholder="Tên đầu việc..."
+                value={level5}
+                options={level5Opts}
+                onChange={setLevel5}
+                onKeyDown={(e) => { if (e.key === "Enter" && level5.trim()) { e.preventDefault(); void save(); } if (e.key === "Escape") onCancel(); }}
+              />
+            </div>
+          </div>
+          {/* Bộ môn */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-medium text-slate-500">Bộ môn</span>
+            <div className="w-36">
+              <SearchableCombobox
+                creatable={false}
+                placeholder={NONE}
+                value={disciplines.find((d) => d.id === disciplineId)?.name ?? ""}
+                options={[NONE, ...disciplines.map((d) => d.name)]}
+                onChange={(label) => setDisciplineId(label === NONE ? "" : (disciplines.find((d) => d.name === label)?.id ?? ""))}
+              />
+            </div>
+          </div>
+          {/* Người thực hiện */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-medium text-slate-500">Người thực hiện</span>
+            <div className="w-52">
+              <UserMultiSelect users={users} value={assigneeIds} onChange={setAssigneeIds} />
+            </div>
+          </div>
+          {/* Ưu tiên */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-medium text-slate-500">Ưu tiên</span>
+            <Select className="h-8 w-28 text-xs" value={priority} onChange={(e) => setPriority(e.target.value)}>
+              <option value="CAO">Cao</option>
+              <option value="TRUNG_BINH">Trung bình</option>
+              <option value="THAP">Thấp</option>
+            </Select>
+          </div>
+          {/* Ngày */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-medium text-slate-500">Ngày BĐ</span>
+            <input type="date" className="h-8 rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
+              value={plannedStart} onChange={(e) => setPlannedStart(e.target.value)} />
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-medium text-slate-500">Ngày KT</span>
+            <input type="date" className="h-8 rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
+              value={plannedEnd} onChange={(e) => setPlannedEnd(e.target.value)} />
+          </div>
+          {/* Actions */}
+          <div className="flex items-end gap-1.5 pb-0.5">
+            <Button size="sm" onClick={() => void save()} disabled={pending}>
+              {pending ? "Đang lưu..." : "Lưu"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={onCancel}>Hủy</Button>
+          </div>
+        </div>
+      </td>
+    </tr>
   );
 }

@@ -99,3 +99,8 @@ export const bulkReassignSchema = z.object({
   // replace = thay toàn bộ người cũ (mặc định); add = thêm vào danh sách hiện có.
   mode: z.enum(["replace", "add"]).default("replace"),
 });
+export const bulkApprovalSchema = z.object({
+  ids: taskIds,
+  approved: z.boolean(),
+});
+export const bulkDeleteSchema = z.object({ ids: taskIds });

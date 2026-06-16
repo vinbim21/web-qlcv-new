@@ -18,18 +18,20 @@ export function SearchableCombobox({
   className,
   creatable = true,
   disabled = false,
+  autoFocus = false,
+  onKeyDown,
 }: {
   value: string;
   onChange: (v: string) => void;
   options: string[];
   placeholder?: string;
   className?: string;
-  /** Cho phép nhập giá trị mới ngoài `options`. Mặc định true. */
   creatable?: boolean;
-  /** Khóa (không mở được, làm mờ). Mặc định false. */
   disabled?: boolean;
+  autoFocus?: boolean;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
 }) {
-  const [open, setOpen] = React.useState(false);
+  const [open, setOpen] = React.useState(autoFocus);
   const [query, setQuery] = React.useState("");
   const rootRef = React.useRef<HTMLDivElement>(null);
   const selectedRef = React.useRef<HTMLButtonElement>(null);
@@ -78,6 +80,7 @@ export function SearchableCombobox({
               setOpen(false);
               setQuery("");
             }
+            onKeyDown?.(e);
           }}
         />
       ) : (
