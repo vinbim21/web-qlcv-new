@@ -16,6 +16,10 @@ type Entry = {
   id: string;
   taskId: string | null;
   taskName: string | null;
+  disciplineCode: string | null;
+  projectCode: string | null;
+  loaiHinhCode: string | null;
+  hangMuc: string | null;
   taskGroupCode: string | null;
   taskLoaiHinhCode: string | null;
   taskLevel3: string | null;
@@ -29,6 +33,7 @@ type TaskOpt = {
   groupCode: string | null;
   loaiHinhCode: string | null;
   level3: string | null;
+  disciplineCode: string | null;
 };
 
 export function TimesheetClient({
@@ -120,8 +125,17 @@ export function TimesheetClient({
                           </button>
                         </div>
                       </div>
-                      <div className="truncate text-muted-foreground" title={e.taskName ?? ""}>
-                        {e.taskName ?? "(không gắn việc)"}
+                      {(e.projectCode || e.loaiHinhCode || e.hangMuc) && (
+                        <div className="truncate text-[11px] text-slate-400">
+                          {[e.projectCode, e.loaiHinhCode, e.hangMuc].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                      <div className="truncate text-muted-foreground" title={[e.taskName, e.disciplineCode].filter(Boolean).join(" · ")}>
+                        {e.taskName
+                          ? e.disciplineCode
+                            ? <>{e.taskName} <span className="text-xs font-medium text-slate-400">· {e.disciplineCode}</span></>
+                            : e.taskName
+                          : "(không gắn việc)"}
                       </div>
                       {e.note ? <div className="truncate">{e.note}</div> : null}
                     </div>
@@ -157,7 +171,13 @@ export function TimesheetClient({
             {entries.map((e) => (
               <TableRow key={e.id}>
                 <TableCell>{dayjs(e.date).format("DD/MM")}</TableCell>
-                <TableCell className="text-xs">{e.taskName ?? "—"}</TableCell>
+                <TableCell className="text-xs">
+                  {e.taskName
+                    ? e.disciplineCode
+                      ? <>{e.taskName} <span className="font-medium text-slate-400">· {e.disciplineCode}</span></>
+                      : e.taskName
+                    : "—"}
+                </TableCell>
                 <TableCell>{e.hours}h</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{e.note ?? "—"}</TableCell>
                 <TableCell className="text-right">

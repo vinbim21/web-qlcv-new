@@ -1,11 +1,11 @@
 "use client";
 
-import { AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { PHONG_LABEL, PHONG_ORDER, phongOf } from "@/lib/dept-map";
-import { PERIOD_LABEL, PERIOD_TYPES, type PeriodType, periodLabel, periodOf, yearOf } from "@/lib/report-period";
+import { PERIOD_LABEL, type PeriodType, periodLabel, periodOf, yearOf } from "@/lib/report-period";
 import { MiniLegend, type StackBucket, StackedBars } from "./report-charts";
 import { distinctYears, effStatus, STATUS_COLOR, STATUS_LABEL, type EffStatus, type TaskRow } from "./report-data";
 import { Panel } from "./report-ui";
@@ -50,14 +50,12 @@ const TITLE: Record<Mode, string> = { group: "Tổng hợp theo Nhóm công vi�
 export function PivotReport({ rows, mode }: { rows: TaskRow[]; mode: Mode }) {
   const router = useRouter();
   const years = React.useMemo(() => distinctYears(rows), [rows]);
-  const defaultYear = years.length ? years[years.length - 1] : new Date().getFullYear();
-  const [type, setType] = React.useState<PeriodType>("month");
-  const [year, setYear] = React.useState<number>(defaultYear);
-  const byYear = type !== "year";
+  const year = years.length ? years[years.length - 1] : new Date().getFullYear();
+  const type: PeriodType = "month";
 
   const inScope = React.useMemo(
-    () => rows.filter((r) => (byYear ? yearOf(r.ketThuc) === year : yearOf(r.ketThuc) != null)),
-    [rows, byYear, year],
+    () => rows.filter((r) => yearOf(r.ketThuc) === year),
+    [rows, year],
   );
   const noDeadline = React.useMemo(() => rows.filter((r) => !r.ketThuc).length, [rows]);
 
@@ -112,13 +110,8 @@ export function PivotReport({ rows, mode }: { rows: TaskRow[]; mode: Mode }) {
     if (mode === "group") p.set("group", key);
     else if (mode === "phong") p.set("phong", key);
     else p.set("user", key);
-    if (byYear) {
-      p.set("from", `${year}-01-01`);
-      p.set("to", `${year}-12-31`);
-    } else {
-      p.set("from", "0001-01-01");
-      p.set("to", "9999-12-31");
-    }
+    p.set("from", `${year}-01-01`);
+    p.set("to", `${year}-12-31`);
     return `/manage?${p.toString()}`;
   }
 
@@ -137,48 +130,6 @@ export function PivotReport({ rows, mode }: { rows: TaskRow[]; mode: Mode }) {
 
   return (
     <div className="grid gap-4">
-      {/* Chọn kỳ */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-lg border border-slate-200 bg-card p-1 shadow-sm">
-          {PERIOD_TYPES.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setType(t)}
-              className={cn(
-                "rounded-md px-3.5 py-1.5 text-sm font-medium transition",
-                type === t ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-100",
-              )}
-            >
-              {PERIOD_LABEL[t]}
-            </button>
-          ))}
-        </div>
-        {byYear ? (
-          <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-card px-1.5 py-1 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setYear((y) => y - 1)}
-              className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"
-              aria-label="Năm trước"
-            >
-              <ChevronLeft className="size-4" />
-            </button>
-            <span className="px-2 text-sm font-medium text-slate-700">Năm {year}</span>
-            <button
-              type="button"
-              onClick={() => setYear((y) => y + 1)}
-              className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"
-              aria-label="Năm sau"
-            >
-              <ChevronRight className="size-4" />
-            </button>
-          </div>
-        ) : (
-          <span className="text-sm text-slate-500">Tất cả các năm (theo Hạn)</span>
-        )}
-      </div>
-
       {noDeadline > 0 && (
         <p className="flex items-center gap-1.5 text-xs text-slate-500">
           <AlertCircle className="size-3.5 text-amber-500" />
@@ -189,7 +140,7 @@ export function PivotReport({ rows, mode }: { rows: TaskRow[]; mode: Mode }) {
       )}
 
       {/* Biểu đồ cột chồng */}
-      <Panel title={`Số lượng & tình trạng theo ${PERIOD_LABEL[type]}${byYear ? ` · ${year}` : ""}`}>
+      <Panel title={`Số lượng & tình trạng theo ${PERIOD_LABEL[type]} · ${year}`}>
         {buckets.length ? (
           <>
             <StackedBars buckets={buckets} colors={STATUS_COLOR} labels={STATUS_LABEL} height={250} />
@@ -203,7 +154,7 @@ export function PivotReport({ rows, mode }: { rows: TaskRow[]; mode: Mode }) {
       </Panel>
 
       {/* Bảng pivot */}
-      <Panel title={`${TITLE[mode]}${byYear ? ` · năm ${year}` : ""} (${inScope.length} việc)`} bodyClass="!px-0 !py-0">
+      <Panel title={`${TITLE[mode]} · năm ${year} (${inScope.length} việc)`} bodyClass="!px-0 !py-0">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm" style={{ minWidth: 920 }}>
             <thead>

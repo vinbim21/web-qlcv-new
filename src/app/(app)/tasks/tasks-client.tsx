@@ -751,6 +751,7 @@ export function TasksClient({
   const [bulkDeadline, setBulkDeadline] = React.useState<{ ids: string[]; date: string } | null>(null);
   // Tree grouping: null = chưa tương tác (mặc định thu tất cả)
   const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(null);
+  const [viewMode, setViewMode] = React.useState<"tree" | "flat">("tree");
 
   const setCF = (k: SortKey, v: ColFilterVal) => setColFilters((s) => ({ ...s, [k]: v }));
   const clearCol = (k: SortKey) =>
@@ -783,9 +784,9 @@ export function TasksClient({
   // Cột — gộp phân cấp còn 2 cột định danh (Dự án + Công việc); không cột Mã mặc định.
   const cols = React.useMemo<ColDef[]>(
     () => [
-      { key: "duAn", label: "Dự án", w: 168, ident: true, lvl: 1, filter: "multi", opts: distinct.duAn },
-      { key: "loaiHinh", label: "Loại hình", w: 150, lvl: 2, filter: "multi", opts: distinct.loaiHinh },
-      { key: "hangMuc", label: "Hạng mục", w: 160, lvl: 3, filter: "multi", opts: distinct.hangMuc },
+      { key: "duAn", label: "Dự án", w: 95, ident: true, lvl: 1, filter: "multi", opts: distinct.duAn },
+      { key: "loaiHinh", label: "Loại hình", w: 120, lvl: 2, filter: "multi", opts: distinct.loaiHinh },
+      { key: "hangMuc", label: "Hạng mục", w: 125, lvl: 3, filter: "multi", opts: distinct.hangMuc },
       { key: "congViec", label: "Công việc", w: 252, ident: true, leaf: true, filter: "multi", opts: distinct.congViec },
       { key: "giaiDoan", label: "Giai đoạn", w: 130, filter: "multi", opts: distinct.giaiDoan },
       { key: "boMon", label: "Bộ môn", w: 120, filter: "multi", opts: distinct.boMon },
@@ -834,7 +835,7 @@ export function TasksClient({
     for (const t of baseRows) {
       if (isOverdue(t)) overdue++;
       else if (isDueSoon(t)) soon++;
-      if (effOf(t) === "DANG_LAM") doing++;
+      if (["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) doing++;
     }
     return { overdue, soon, doing };
   }, [baseRows]);
@@ -847,7 +848,7 @@ export function TasksClient({
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
-      if (quick === "DANG_LAM" && effOf(t) !== "DANG_LAM") return false;
+      if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
       return true;
     });
   }, [tasks, deferredSearch, haystacks, cols, colFilters, quick]);
@@ -905,6 +906,7 @@ export function TasksClient({
     | { type: "g1" | "g2" | "g3"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }
     | { type: "task"; task: TaskRow };
 
+  // Mặc định: g1 (dự án) + g2 (loại hình) mở, chỉ thu g3 (hạng mục)
   const effectiveTreeCollapsed = React.useMemo(() => {
     if (treeCollapsed) return treeCollapsed;
     const keys = new Set<string>();
@@ -912,8 +914,6 @@ export function TasksClient({
       const dk = colText(t, "duAn") || "—";
       const lk = colText(t, "loaiHinh") || "—";
       const hk = colText(t, "hangMuc") || "—";
-      keys.add(`d:${dk}`);
-      keys.add(`l:${dk}|${lk}`);
       keys.add(`h:${dk}|${lk}|${hk}`);
     }
     return keys;
@@ -1269,9 +1269,15 @@ export function TasksClient({
           />
         </td>
         {cols.map((c) => {
-          // lvl columns (duAn/loaiHinh/hangMuc): group header đã hiện → để trắng trong task row
-          if (c.lvl)
+          // lvl columns (duAn/loaiHinh/hangMuc): group header đã hiện → để trắng trong tree view
+          if (c.lvl && viewMode === "tree")
             return <td key={c.key} style={bodyFrozenStyle(c.key)} className="px-2 py-2.5 align-top" />;
+          if (c.key === "duAn")
+            return (
+              <td key="duAn" style={bodyFrozenStyle("duAn")} className="px-2 py-2.5 align-top text-xs text-slate-600">
+                {duAnText(t) !== "—" ? duAnText(t) : <span className="text-slate-300">—</span>}
+              </td>
+            );
           if (c.key === "congViec")
             return (
               <td
@@ -1420,7 +1426,7 @@ export function TasksClient({
               className={cn("flex items-center gap-1.5", textCls)}
             >
               <Chevron className="size-3.5 shrink-0 text-slate-400" />
-              <span>{label === "—" ? "(Không có)" : label}</span>
+              <span className="whitespace-nowrap">{label === "—" ? "(Không có)" : label}</span>
               <span className="text-xs font-normal text-slate-400">
                 ({count} việc{overdue ? ` · ${overdue} quá hạn` : ""})
               </span>
@@ -1457,9 +1463,9 @@ export function TasksClient({
       <div className="grid grid-cols-3 gap-2.5">
         {(
           [
-            { key: "QUA_HAN", n: kpi.overdue, label: "Quá hạn", Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
-            { key: "SAP_HAN", n: kpi.soon, label: "Sắp đến hạn (≤3 ngày)", Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
             { key: "DANG_LAM", n: kpi.doing, label: "Đang làm", Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
+            { key: "SAP_HAN", n: kpi.soon, label: "Sắp đến hạn (≤3 ngày)", Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
+            { key: "QUA_HAN", n: kpi.overdue, label: "Quá hạn", Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
           ] as const
         ).map(({ key, n, label, Icon, tone }) => (
           <button
@@ -1537,6 +1543,23 @@ export function TasksClient({
       <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
         {/* toolbar: collapse/expand + filter chips */}
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2">
+          {/* Toggle Bảng / Dự án */}
+          <div className="inline-flex overflow-hidden rounded-md border border-slate-200">
+            {(["flat", "tree"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setViewMode(m)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium transition-colors",
+                  viewMode === m ? "bg-slate-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50",
+                )}
+              >
+                {m === "flat" ? "Bảng" : "Dự án"}
+              </button>
+            ))}
+          </div>
+          {viewMode === "tree" && (
           <div className="inline-flex gap-1">
             <Button
               variant="outline"
@@ -1560,6 +1583,7 @@ export function TasksClient({
               <ChevronsUpDown className="size-4" /> Expand
             </Button>
           </div>
+          )}
           {/* Filter chips */}
           {activeCols.length > 0 ? (
             <>
@@ -1611,9 +1635,10 @@ export function TasksClient({
               </tr>
             </thead>
             <tbody>
-              {treeNodes.map((n) =>
-                n.type === "task" ? renderRow(n.task) : treeGroupRow(n),
-              )}
+              {viewMode === "flat"
+                ? sorted.map((t) => renderRow(t))
+                : treeNodes.map((n) => n.type === "task" ? renderRow(n.task) : treeGroupRow(n))
+              }
               {sorted.length === 0 ? (
                 <tr>
                   <td colSpan={colSpan} className="py-12 text-center text-sm text-slate-400">

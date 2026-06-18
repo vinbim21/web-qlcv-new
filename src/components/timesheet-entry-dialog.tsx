@@ -28,6 +28,7 @@ export type TaskOpt = {
   groupCode: string | null;
   loaiHinhCode: string | null;
   level3: string | null;
+  disciplineCode: string | null;
 };
 
 type LockedTask = {
@@ -193,7 +194,9 @@ export function TimesheetEntryDialog({
               <Select value={taskId} onChange={(e) => setTaskId(e.target.value)}>
                 <option value="">— Chọn công việc —</option>
                 {filteredTasks.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                  <option key={t.id} value={t.id}>
+                    {t.disciplineCode ? `${t.name} · ${t.disciplineCode}` : t.name}
+                  </option>
                 ))}
               </Select>
             </div>
