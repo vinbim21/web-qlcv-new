@@ -96,12 +96,19 @@ export async function addCatalogValue(workGroupId: string, level: number, value:
   });
 }
 
-export async function updateCatalogValue(id: string, value: string, parentId?: string | null) {
+export async function updateCatalogValue(id: string, value: string, parentId?: string | null, projectGroupId?: string | null) {
   return runAction(async () => {
     await requireRole("ADMIN");
     const v = value.trim();
     if (!v) throw new Error("Nhập giá trị");
-    await prisma.catalogItem.update({ where: { id }, data: { value: v, parentId: parentId !== undefined ? (parentId ?? null) : undefined } });
+    await prisma.catalogItem.update({
+      where: { id },
+      data: {
+        value: v,
+        parentId: parentId !== undefined ? (parentId ?? null) : undefined,
+        projectGroupId: projectGroupId !== undefined ? (projectGroupId ?? null) : undefined,
+      },
+    });
     revalidatePath("/admin/catalog");
     revalidatePath("/tasks");
     revalidatePath("/manage");
@@ -127,6 +134,7 @@ export async function batchSaveCatalogItems(
   level: number,
   parentId: string | null,
   values: string[],
+  projectGroupId?: string | null,
 ) {
   return runAction(async () => {
     await requireRole("ADMIN");
@@ -136,8 +144,8 @@ export async function batchSaveCatalogItems(
       trimmed.map((v) =>
         prisma.catalogItem.upsert({
           where: { workGroupId_level_value: { workGroupId, level, value: v } },
-          update: { parentId },
-          create: { workGroupId, level, value: v, parentId },
+          update: { parentId, projectGroupId: projectGroupId ?? null },
+          create: { workGroupId, level, value: v, parentId, projectGroupId: projectGroupId ?? null },
         }),
       ),
     );

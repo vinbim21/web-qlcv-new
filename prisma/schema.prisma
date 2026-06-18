@@ -76,13 +76,17 @@ model CatalogItem {
   order       Int      @default(0)
   createdAt   DateTime @default(now())
 
-  workGroup WorkGroup    @relation(fields: [workGroupId], references: [id], onDelete: Cascade)
-  parent    CatalogItem?  @relation("CatalogItemParent", fields: [parentId], references: [id], onDelete: SetNull)
-  children  CatalogItem[] @relation("CatalogItemParent")
+  projectGroupId String? // liên kết dự án (chỉ dùng cho nhóm PT BIM Tools)
+
+  workGroup    WorkGroup     @relation(fields: [workGroupId], references: [id], onDelete: Cascade)
+  parent       CatalogItem?  @relation("CatalogItemParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children     CatalogItem[] @relation("CatalogItemParent")
+  projectGroup ProjectGroup? @relation(fields: [projectGroupId], references: [id], onDelete: SetNull)
 
   @@unique([workGroupId, level, value])
   @@index([workGroupId, level])
   @@index([parentId])
+  @@index([projectGroupId])
 }
 
 /// Bộ môn / Tổ — Level 4 (BIM, KT, KC, MEPF, HT, IT, DI, DN...)
@@ -133,8 +137,9 @@ model ProjectGroup {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workGroup WorkGroup? @relation(fields: [workGroupId], references: [id])
-  items     Project[]  // các hạng mục thuộc dự án
+  workGroup    WorkGroup?    @relation(fields: [workGroupId], references: [id])
+  items        Project[]     // các hạng mục thuộc dự án
+  catalogItems CatalogItem[] // hạng mục BIM Tools gắn với dự án này
 }
 
 /// Hạng mục của dự án (UI gọi "Hạng mục"; mã như B.DSHNQN.DMF + tên hạng mục).
@@ -233,6 +238,10 @@ model Task {
   // approverId != null  => việc cần duyệt khởi tạo; startApprovedAt = null => đang chờ duyệt.
   approverId      String?
   startApprovedAt DateTime?
+
+  // Yêu cầu đổi ngày kết thúc (do người được giao gửi, cần quản lý duyệt).
+  pendingPlannedEnd    DateTime?
+  endChangeRequesterId String?   @db.VarChar(30)
 
   order     Int       @default(0)
   createdAt DateTime  @default(now())

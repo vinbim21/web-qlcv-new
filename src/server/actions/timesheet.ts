@@ -34,8 +34,7 @@ export async function saveTimesheetEntry(input: unknown) {
           assignees: { where: { userId: user.id }, select: { id: true } },
         },
       });
-      // Cổng duyệt khởi tạo: chưa duyệt thì chưa cho ghi giờ vào việc.
-      if (t && isStartGateLocked(t)) throw new Error("Việc đang chờ duyệt — chưa thể ghi giờ");
+      // Cổng duyệt: đã bỏ chặn — user được phép ghi giờ kể cả khi task đang chờ duyệt khởi tạo.
       projectId = t?.projectId ?? null;
       if (t) task = { id: t.id, status: t.status, isAssignee: t.assignees.length > 0 };
     }
@@ -112,14 +111,14 @@ export async function bulkSaveTimesheetEntry(input: unknown) {
     const toStart: string[] = [];
 
     for (const t of tasks) {
-      if (isStartGateLocked(t)) continue; // bỏ qua việc chưa duyệt
+      // isStartGateLocked: không còn chặn ghi giờ — bỏ qua check này
       const isAssignee = t.assignees.length > 0;
       if (!isAssignee && !canManage(user.role)) continue; // chỉ ghi giờ việc mình được giao
       entries.push({ userId: user.id, taskId: t.id, projectId: t.projectId ?? null, date, hours: data.hours, note: data.note || null });
       if (t.status === "CHUA_LAM" && (isAssignee || canManage(user.role))) toStart.push(t.id);
     }
 
-    if (entries.length === 0) throw new Error("Không có công việc hợp lệ để ghi giờ (có thể đang chờ duyệt hoặc không phải việc của bạn)");
+    if (entries.length === 0) throw new Error("Không có công việc hợp lệ để ghi giờ (không phải việc của bạn)");
 
     await prisma.$transaction([
       prisma.timeSheetEntry.createMany({ data: entries }),
@@ -133,6 +132,32 @@ export async function bulkSaveTimesheetEntry(input: unknown) {
     revalidatePath("/tasks");
     revalidatePath("/manage");
     return entries.length;
+  });
+}
+
+/** Lấy các entry timesheet của user trong tuần hiện tại cho 1 task. */
+export async function getTaskWeekEntries(taskId: string) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const today = new Date();
+    const dow = today.getDay(); // 0=CN, 1=T2...
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+    monday.setHours(0, 0, 0, 0);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+    const entries = await prisma.timeSheetEntry.findMany({
+      where: { userId: user.id, taskId, deletedAt: null, date: { gte: monday, lte: sunday } },
+      orderBy: { date: "asc" },
+      select: { id: true, date: true, hours: true, note: true },
+    });
+    return entries.map((e) => ({
+      id: e.id,
+      date: e.date.toISOString().slice(0, 10),
+      hours: Number(e.hours),
+      note: e.note,
+    }));
   });
 }
 
