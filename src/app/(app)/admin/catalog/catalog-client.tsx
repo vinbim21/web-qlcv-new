@@ -129,7 +129,7 @@ export function CatalogClient({
   projectGroups: ProjectGroupRow[];
   projects: ProjectRow[];
   works: WorkRow[];
-  ptItems: { id: string; level: number; value: string; parentId: string | null; order: number }[];
+  ptItems: { id: string; level: number; value: string; parentId: string | null; projectGroupId: string | null; order: number }[];
 }) {
   const router = useRouter();
   const [tab, setTab] = React.useState<TabId>("groups");
@@ -139,14 +139,20 @@ export function CatalogClient({
   const generalProjectGroups = projectGroups.filter((g) => !g.workGroupId);
   const generalProjects = projects.filter((p) => generalProjectGroups.some((g) => g.id === p.groupId));
   const ptLevel2 = ptItems.filter((i) => i.level === 2).map((i) => ({ id: i.id, value: i.value, order: i.order }));
-  const ptLevel3 = ptItems.filter((i) => i.level === 3).map((i) => ({ id: i.id, value: i.value, parentId: i.parentId, order: i.order }));
+  const ptLevel3 = ptItems.filter((i) => i.level === 3).map((i) => ({ id: i.id, value: i.value, parentId: i.parentId, projectGroupId: i.projectGroupId, order: i.order }));
   const ptLevel5 = works.filter((w) => w.workGroupId === ptWorkGroupId).map((w) => ({ id: w.id, value: w.value }));
   const ptL2ById = React.useMemo(() => new Map(ptLevel2.map((l) => [l.id, l])), [ptLevel2]);
+  const ptProjectGroups = React.useMemo(
+    () => projectGroups.filter((g) => g.workGroupId === ptWorkGroupId),
+    [projectGroups, ptWorkGroupId],
+  );
+  const ptPgById = React.useMemo(() => new Map(ptProjectGroups.map((g) => [g.id, g])), [ptProjectGroups]);
 
   // Modal thêm/sửa + xác nhận xóa (dùng chung).
   const [addItemsScope, setAddItemsScope] = React.useState<string | null>(null);
   const [addBimtoolsItems, setAddBimtoolsItems] = React.useState(false);
   const [manageBimtoolsL2, setManageBimtoolsL2] = React.useState(false);
+  const [managePtProjects, setManagePtProjects] = React.useState(false);
 
   const [record, setRecord] = React.useState<{
     title: string;
@@ -360,6 +366,13 @@ export function CatalogClient({
   const bimtoolsView = () => {
     const bimtoolsItemFields: Field[] = [
       {
+        key: "projectGroupId",
+        label: "Dự án",
+        type: "select",
+        span: 3,
+        options: [{ value: "", label: "— Không gắn dự án —" }, ...ptProjectGroups.map((g) => ({ value: g.id, label: `${g.code} — ${g.name}` }))],
+      },
+      {
         key: "parentId",
         label: "Loại hình",
         type: "select",
@@ -379,14 +392,24 @@ export function CatalogClient({
         infoBar={{ tone: "slate", text: 'Danh mục Hạng mục của nhóm Phát triển BIM Tools — nguồn gợi ý khi tạo công việc. Quản lý Loại hình ở nút "Quản lý loại hình".' }}
         onBatchReorder={(ids) => reorder("catalogItem", ids)}
         headerExtra={
-          <button
-            type="button"
-            onClick={() => setManageBimtoolsL2(true)}
-            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-          >
-            <SlidersHorizontal className="size-4 text-slate-400" /> Quản lý loại hình
-            <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptLevel2.length}</span>
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setManagePtProjects(true)}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <Building2 className="size-4 text-slate-400" /> Quản lý dự án
+              <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptProjectGroups.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setManageBimtoolsL2(true)}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <SlidersHorizontal className="size-4 text-slate-400" /> Quản lý loại hình
+              <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptLevel2.length}</span>
+            </button>
+          </div>
         }
         onAdd={() => {
           if (ptLevel2.length === 0) {
@@ -396,12 +419,12 @@ export function CatalogClient({
           setAddBimtoolsItems(true);
         }}
         onEdit={(r) => {
-          const item = r as unknown as { id: string; value: string; parentId: string | null; order: number };
+          const item = r as unknown as { id: string; value: string; parentId: string | null; projectGroupId: string | null; order: number };
           setRecord({
             title: "Sửa hạng mục BIM Tools",
             fields: bimtoolsItemFields,
-            initial: { parentId: item.parentId ?? "", value: item.value },
-            submit: (v) => updateCatalogValue(item.id, v.value, v.parentId || null),
+            initial: { projectGroupId: item.projectGroupId ?? "", parentId: item.parentId ?? "", value: item.value },
+            submit: (v) => updateCatalogValue(item.id, v.value, v.parentId || null, v.projectGroupId || null),
           });
         }}
         onDelete={(r) => {
@@ -412,9 +435,18 @@ export function CatalogClient({
           {
             key: "duAn",
             label: "Dự án",
-            thClass: "w-32",
-            text: () => "",
-            cell: () => <Dash />,
+            thClass: "w-40",
+            filter: "multi",
+            text: (r) => {
+              const pg = ptPgById.get((r as unknown as { projectGroupId: string | null }).projectGroupId ?? "");
+              return pg ? `${pg.code}` : "";
+            },
+            cell: (r) => {
+              const pg = ptPgById.get((r as unknown as { projectGroupId: string | null }).projectGroupId ?? "");
+              return pg ? (
+                <span className="font-mono text-xs text-slate-600" title={pg.name}>{pg.code}</span>
+              ) : <Dash />;
+            },
           },
           {
             key: "loaiHinh",
@@ -686,9 +718,10 @@ export function CatalogClient({
         <AddMultipleBimtoolsModal
           workGroupId={ptWorkGroupId ?? ""}
           level2Items={ptLevel2}
+          projectGroups={ptProjectGroups}
           onClose={() => setAddBimtoolsItems(false)}
-          onSubmit={async (parentId, values) => {
-            const res = await batchSaveCatalogItems(ptWorkGroupId ?? "", 3, parentId, values);
+          onSubmit={async (parentId, values, projectGroupId) => {
+            const res = await batchSaveCatalogItems(ptWorkGroupId ?? "", 3, parentId, values, projectGroupId || null);
             if (res.ok) {
               toast.success(`Đã thêm ${values.length} hạng mục`);
               router.refresh();
@@ -723,6 +756,34 @@ export function CatalogClient({
             const res = await run(confirm.run(), "Đã xóa");
             if (res.ok) setConfirm(null);
           }}
+        />
+      ) : null}
+
+      {/* Quản lý Dự án BIM Tools (PT ProjectGroups) */}
+      {managePtProjects ? (
+        <ManagePtProjectsModal
+          projects={ptProjectGroups}
+          workGroupId={ptWorkGroupId ?? ""}
+          onClose={() => setManagePtProjects(false)}
+          onEdit={(g) =>
+            setRecord({
+              title: "Sửa dự án BIM Tools",
+              fields: [
+                { key: "code", label: "Mã dự án", required: true, span: 2, autoFocus: true },
+                { key: "name", label: "Tên dự án", required: true, span: 3 },
+              ],
+              initial: { code: g.code, name: g.name },
+              submit: (v) => saveProjectGroup({ id: g.id, code: v.code, name: v.name }),
+            })
+          }
+          onDelete={(g) =>
+            setConfirm({
+              name: `${g.code} — ${g.name}`,
+              warnMsg: g.itemCount > 0 ? `Dự án này có ${g.itemCount} hạng mục.` : undefined,
+              blockMsg: g.itemCount > 0 ? "Xóa hạng mục trước khi xóa dự án." : undefined,
+              run: () => deleteProjectGroup(g.id),
+            })
+          }
         />
       ) : null}
 
@@ -1953,15 +2014,18 @@ type BimtoolsItemRow = { id: string; name: string };
 function AddMultipleBimtoolsModal({
   workGroupId,
   level2Items,
+  projectGroups,
   onClose,
   onSubmit,
 }: {
   workGroupId: string;
   level2Items: { id: string; value: string }[];
+  projectGroups: { id: string; code: string; name: string }[];
   onClose: () => void;
-  onSubmit: (parentId: string, values: string[]) => Promise<void>;
+  onSubmit: (parentId: string, values: string[], projectGroupId: string) => Promise<void>;
 }) {
   const [parentId, setParentId] = React.useState(level2Items[0]?.id ?? "");
+  const [projectGroupId, setProjectGroupId] = React.useState("");
   const [rows, setRows] = React.useState<BimtoolsItemRow[]>([{ id: crypto.randomUUID(), name: "" }]);
   const [err, setErr] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
@@ -1989,13 +2053,23 @@ function AddMultipleBimtoolsModal({
     if (!valid.length) { setErr("Nhập ít nhất 1 hạng mục."); return; }
     setErr(null);
     setPending(true);
-    await onSubmit(parentId, valid);
+    await onSubmit(parentId, valid, projectGroupId);
     setPending(false);
   }
 
   return (
     <Modal open onClose={onClose} title="Thêm hạng mục BIM Tools" className="max-w-lg">
       <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-600">Dự án</label>
+          <Select value={projectGroupId} onChange={(e) => setProjectGroupId(e.target.value)} className="h-9">
+            <option value="">— Không gắn dự án —</option>
+            {projectGroups.map((g) => (
+              <option key={g.id} value={g.id}>{g.code} — {g.name}</option>
+            ))}
+          </Select>
+          <p className="text-[11px] text-slate-400">tạo/đổi dự án ở nút "Quản lý dự án"</p>
+        </div>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-600">
             Loại hình <span className="text-red-500">*</span>
@@ -2060,6 +2134,114 @@ function AddMultipleBimtoolsModal({
           </Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+// ===================================================================
+//  ManagePtProjectsModal — quản lý Dự án BIM Tools (PT ProjectGroups)
+// ===================================================================
+function ManagePtProjectsModal({
+  projects,
+  workGroupId,
+  onClose,
+  onEdit,
+  onDelete,
+}: {
+  projects: { id: string; code: string; name: string; order: number; itemCount: number }[];
+  workGroupId: string;
+  onClose: () => void;
+  onEdit: (g: { id: string; code: string; name: string }) => void;
+  onDelete: (g: { id: string; code: string; name: string; itemCount: number }) => void;
+}) {
+  const router = useRouter();
+  const [code, setCode] = React.useState("");
+  const [name, setName] = React.useState("");
+  const [adding, setAdding] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  const codeRef = React.useRef<HTMLInputElement>(null);
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    const c = code.trim().toUpperCase();
+    const n = name.trim();
+    if (!c) { setErr("Nhập mã dự án"); return; }
+    if (!n) { setErr("Nhập tên dự án"); return; }
+    setErr("");
+    setAdding(true);
+    const res = await saveProjectGroup({ code: c, name: n, workGroupId });
+    setAdding(false);
+    if (res.ok) {
+      setCode(""); setName("");
+      toast.success("Đã thêm dự án");
+      router.refresh();
+      codeRef.current?.focus();
+    } else {
+      setErr(res.error ?? "Lỗi không xác định");
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Quản lý dự án BIM Tools" className="max-w-lg">
+      <div className="space-y-3">
+        {/* Danh sách */}
+        <div className="max-h-[45vh] divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
+          {projects.map((g) => (
+            <div key={g.id} className="group flex items-center gap-3 px-3 py-2">
+              <span className="w-20 shrink-0 font-mono text-xs font-medium text-slate-500">{g.code}</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{g.name}</span>
+              <div className="flex gap-0.5 opacity-60 transition group-hover:opacity-100">
+                <button
+                  type="button"
+                  title="Sửa"
+                  onClick={() => onEdit(g)}
+                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <Pencil className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  title="Xóa"
+                  onClick={() => onDelete(g)}
+                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+          {projects.length === 0 ? (
+            <p className="py-6 text-center text-sm text-slate-400">Chưa có dự án nào</p>
+          ) : null}
+        </div>
+
+        {/* Form thêm */}
+        <form onSubmit={handleAdd} className="space-y-2">
+          <div className="flex gap-2">
+            <input
+              ref={codeRef}
+              value={code}
+              onChange={(e) => { setCode(e.target.value.toUpperCase()); setErr(""); }}
+              placeholder="Mã dự án"
+              className="h-9 w-28 shrink-0 rounded-md border border-slate-200 bg-white px-2.5 font-mono text-sm uppercase outline-none focus:border-slate-400"
+            />
+            <input
+              value={name}
+              onChange={(e) => { setName(e.target.value); setErr(""); }}
+              placeholder="Tên dự án…"
+              className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+            />
+            <button
+              type="submit"
+              disabled={adding}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-slate-800 px-3 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+            >
+              <Plus className="size-4" /> Thêm
+            </button>
+          </div>
+          {err ? <p className="text-xs text-red-500">{err}</p> : null}
+        </form>
+      </div>
     </Modal>
   );
 }

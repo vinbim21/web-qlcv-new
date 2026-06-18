@@ -174,6 +174,11 @@ function localIso(d: Date): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+function fmtDate(iso: string): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return y && m && d ? `${d}/${m}/${y}` : iso;
+}
 
 // Tháng hiện tại (YYYY-MM) — mốc cho preset "Trong tháng này".
 const THIS_MONTH = localIso(new Date()).slice(0, 7);
@@ -1136,7 +1141,7 @@ export function ManageClient({
   }
 
   // ---- Ghim cột (freeze) + bố cục ----
-  const dens = DENSITY === "compact" ? "py-1" : DENSITY === "comfy" ? "py-3" : "py-2";
+  const dens = DENSITY === "compact" ? "py-1" : DENSITY === "comfy" ? "py-3" : "py-1.5";
   const cellPad = `px-2.5 ${dens}`;
   const widthOf = (k: string) => (k === "__sel__" ? MANAGE_SEL_PX : (colWidths[k] ?? MANAGE_COL_W[k] ?? 120));
   const frozenKeys = FREEZE
@@ -1440,10 +1445,29 @@ export function ManageClient({
           </td>
         ) : null}
         {cols.map((c) => {
-          // Trong tree view (Bảng) group header đã hiện Dự án/Loại hình/Hạng mục → task row để trắng.
-          if (c.lvl) return (viewMode === "table" && !c.leaf)
-            ? <td key={c.key} style={bodyFrozenStyle(c.key)} className="border-l border-slate-100 align-top px-2" />
-            : hierTd(c, t, meta);
+          // Trong tree view (Bảng): gộp các ô cấp cha trống (duAn/loaiHinh/hangMuc) + ô congViec
+          // thành 1 td colSpan sticky — cùng chiều rộng với group row.
+          if (c.lvl) {
+            if (viewMode === "table") {
+              if (!c.leaf) return null; // bỏ ô trống, congViec sẽ colSpan bao phủ
+              // congViec leaf: colSpan = (số ô đã bỏ) + 1, sticky từ sau checkbox
+              const hierCols = cols.filter((col) => col.lvl && !col.leaf);
+              const hierW = hierCols.reduce((s, col) => s + widthOf(col.key), 0);
+              return (
+                <td
+                  key={c.key}
+                  colSpan={hierCols.length + 1}
+                  style={{ position: "sticky", left: leftOf("duAn") ?? 0, zIndex: 10, background: "var(--row-bg)", boxShadow: FROZEN_SHADOW }}
+                  className="border-l border-slate-100 align-top"
+                >
+                  <div style={{ paddingLeft: hierW }} className={cellPad}>
+                    <span className="font-medium text-slate-800">{t.name || <span className="text-slate-300">—</span>}</span>
+                  </div>
+                </td>
+              );
+            }
+            return hierTd(c, t, meta);
+          }
           if (c.key === "sumId")
             return (
               <td key="sumId" className={cn("align-top", cellPad)}>
@@ -1499,16 +1523,17 @@ export function ManageClient({
             );
           if (c.key === "thucTe")
             return (
-              <td key="thucTe" className={cn("align-top", cellPad)}>
-                <Input
-                  type="date"
+              <td key="thucTe" className="px-2.5 py-1 align-top">
+                <label
                   className={cn(
-                    "h-9 w-full px-2 text-xs [&::-webkit-calendar-picker-indicator]:mr-15",
-                    late && "font-medium text-red-600",
+                    "relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                    canEditDone ? "cursor-pointer" : "cursor-default",
+                    t.actualEnd
+                      ? late
+                        ? "bg-rose-50 text-rose-700 ring-rose-200"
+                        : "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                      : "bg-slate-50 text-slate-500 ring-slate-200",
                   )}
-                  value={t.actualEnd}
-                  min={t.plannedStart || undefined}
-                  disabled={!canEditDone}
                   title={
                     pendingApproval
                       ? "Việc đang chờ duyệt — chưa thể nhập"
@@ -1516,8 +1541,22 @@ export function ManageClient({
                         ? "Đặt/đổi ngày hoàn thành thực tế (không trước ngày bắt đầu)"
                         : "Chỉ người được giao hoặc quản lý"
                   }
-                  onChange={(e) => onCompletion(t, e.target.value)}
-                />
+                >
+                  {t.actualEnd ? (
+                    <Check className="size-3 shrink-0" strokeWidth={3} />
+                  ) : (
+                    <Calendar className="size-3 shrink-0 opacity-70" />
+                  )}
+                  {t.actualEnd ? fmtDate(t.actualEnd) : "Chọn ngày"}
+                  <input
+                    type="date"
+                    value={t.actualEnd}
+                    min={t.plannedStart || undefined}
+                    disabled={!canEditDone}
+                    onChange={(e) => onCompletion(t, e.target.value)}
+                    className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
+                  />
+                </label>
               </td>
             );
           return <td key={c.key} className={cellPad} />;
