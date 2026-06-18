@@ -41,11 +41,17 @@ import { completionDateError, effectiveStatus, isCompletedLate } from "@/lib/tas
 import {
   bulkSetDeadline,
   bulkSetPriority,
+  approveEndDateChange,
+  bulkSetPlannedStart,
   deleteTask,
+  rejectEndDateChange,
+  requestEndDateChange,
   saveMyTasks,
   setTaskCompletion,
+  setTaskPlannedStart,
   setTaskStartApproval,
 } from "@/server/actions/tasks";
+import { getTaskWeekEntries } from "@/server/actions/timesheet";
 
 type Opt = { id: string; name: string };
 type UserOpt = { id: string; fullName: string };
@@ -83,6 +89,8 @@ export type TaskRow = {
   approverId: string | null;
   approverName: string | null;
   startApproved: boolean;
+  pendingPlannedEnd: string;
+  endChangeRequesterId: string | null;
   assigneeIds: string[];
   assigneeNames: string[];
 };
@@ -639,7 +647,7 @@ function CompletionCell({
   const late = isCompletedLate(t);
   if (pending) {
     return (
-      <div className="flex h-9 items-center gap-1.5 rounded-md border border-dashed border-slate-200 px-2 text-xs text-slate-300">
+      <div className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-300 ring-1 ring-inset ring-slate-200">
         <Lock className="size-3.5 shrink-0" /> Chờ duyệt
       </div>
     );
@@ -656,9 +664,9 @@ function CompletionCell({
     return (
       <label
         className={cn(
-          "group relative flex h-9 items-center gap-1.5 rounded-md border px-2 text-xs font-medium",
+          "group relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
           canEdit ? "cursor-pointer" : "cursor-default",
-          late ? "border-red-200 bg-red-50 text-red-600" : "border-emerald-200 bg-emerald-50 text-emerald-700",
+          late ? "bg-rose-50 text-rose-700 ring-rose-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200",
         )}
       >
         <Check className="size-3.5 shrink-0" strokeWidth={3} />
@@ -680,10 +688,10 @@ function CompletionCell({
   return (
     <label
       className={cn(
-        "group relative flex h-9 items-center gap-1.5 rounded-md border border-dashed px-2 text-xs transition",
+        "group relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset transition",
         canEdit
-          ? "cursor-pointer border-slate-300 text-slate-400 hover:border-slate-800 hover:bg-slate-50 hover:text-slate-700"
-          : "cursor-default border-slate-200 text-slate-300",
+          ? "cursor-pointer bg-slate-50 text-slate-500 ring-slate-200 hover:bg-slate-100 hover:text-slate-700"
+          : "cursor-default bg-slate-50 text-slate-300 ring-slate-200",
       )}
     >
       <Calendar className="size-3.5 shrink-0 opacity-60" />
@@ -749,9 +757,26 @@ export function TasksClient({
   // Chọn nhiều + thao tác hàng loạt.
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [bulkDeadline, setBulkDeadline] = React.useState<{ ids: string[]; date: string } | null>(null);
+  const [bulkStartDate, setBulkStartDate] = React.useState<{ ids: string[]; date: string } | null>(null);
+  const [bulkEndDate, setBulkEndDate] = React.useState<{ ids: string[]; date: string } | null>(null);
   // Tree grouping: null = chưa tương tác (mặc định thu tất cả)
   const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(null);
   const [viewMode, setViewMode] = React.useState<"tree" | "flat">("tree");
+  // Modal chi tiết công việc: note + giờ tuần.
+  type WeekEntry = { id: string; date: string; hours: number; note: string | null };
+  const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
+  const [detailEntries, setDetailEntries] = React.useState<WeekEntry[]>([]);
+  const [detailLoading, setDetailLoading] = React.useState(false);
+
+  async function openDetail(t: TaskRow) {
+    setDetailTask(t);
+    setDetailEntries([]);
+    setDetailLoading(true);
+    const res = await getTaskWeekEntries(t.id);
+    setDetailEntries(res.ok ? (res.data ?? []) : []);
+    setDetailLoading(false);
+  }
+  function closeDetail() { setDetailTask(null); }
 
   const setCF = (k: SortKey, v: ColFilterVal) => setColFilters((s) => ({ ...s, [k]: v }));
   const clearCol = (k: SortKey) =>
@@ -1075,6 +1100,14 @@ export function TasksClient({
     } else toast.error(res.error);
   }
 
+  async function onStartDate(t: TaskRow, value: string) {
+    const res = await setTaskPlannedStart({ id: t.id, plannedStart: value || null });
+    if (res.ok) {
+      toast.success("Đã cập nhật ngày bắt đầu");
+      router.refresh();
+    } else toast.error(res.error);
+  }
+
   // ---- chọn nhiều ----
   function toggleOne(id: string) {
     setSelected((s) => {
@@ -1135,6 +1168,29 @@ export function TasksClient({
     if (res.ok) {
       toast.success(`Đã đổi hạn ${res.data ?? ""} việc`.replace("  ", " "));
       setBulkDeadline(null);
+      clearSel();
+      router.refresh();
+    } else toast.error(res.error);
+  }
+  async function runBulkStartDate() {
+    if (!bulkStartDate?.date) return;
+    const res = await bulkSetPlannedStart({ ids: bulkStartDate.ids, plannedStart: bulkStartDate.date });
+    if (res.ok) {
+      toast.success(`Đã cập nhật ngày bắt đầu cho ${res.data ?? ""} công việc`.replace("  ", " "));
+      setBulkStartDate(null);
+      clearSel();
+      router.refresh();
+    } else toast.error(res.error);
+  }
+  async function runBulkEndDate() {
+    if (!bulkEndDate?.date) return;
+    const res = await requestEndDateChange({ ids: bulkEndDate.ids, plannedEnd: bulkEndDate.date });
+    if (res.ok) {
+      const msg = canManage
+        ? `Đã đổi ngày kết thúc cho ${res.data ?? ""} công việc`
+        : `Đã gửi yêu cầu đổi ngày kết thúc cho ${res.data ?? ""} công việc`;
+      toast.success(msg.replace("  ", " "));
+      setBulkEndDate(null);
       clearSel();
       router.refresh();
     } else toast.error(res.error);
@@ -1245,15 +1301,20 @@ export function TasksClient({
     const overdue = isOverdue(t);
     const pending = isPendingApproval(t);
     const canEditDone = (canManage || t.assigneeIds.includes(currentUserId)) && !pending;
+    const canEditStart = canManage || t.assigneeIds.includes(currentUserId);
     const canApproveStart = isAdmin || canManage || t.approverId === currentUserId;
     const isSel = selected.has(t.id);
-    return (
+
+    const mainRow = (
       <tr
         key={t.id}
+        onClick={(e) => {
+          const tag = (e.target as HTMLElement).closest("input,button,a,label,select");
+          if (!tag) openDetail(t);
+        }}
         onDoubleClick={canManage ? () => setEditing(t) : undefined}
         className={cn(
-          "border-b border-slate-100 bg-[var(--row-bg)]",
-          canManage && "cursor-default",
+          "cursor-pointer border-b border-slate-100 bg-[var(--row-bg)]",
           isSel ? "[--row-bg:#eff6ff]" : "[--row-bg:#ffffff] hover:[--row-bg:#f8fafc]",
         )}
       >
@@ -1269,7 +1330,6 @@ export function TasksClient({
           />
         </td>
         {cols.map((c) => {
-          // lvl columns (duAn/loaiHinh/hangMuc): group header đã hiện → để trắng trong tree view
           if (c.lvl && viewMode === "tree")
             return <td key={c.key} style={bodyFrozenStyle(c.key)} className="px-2 py-2.5 align-top" />;
           if (c.key === "duAn")
@@ -1283,7 +1343,7 @@ export function TasksClient({
               <td
                 key="congViec"
                 style={bodyFrozenStyle("congViec")}
-                className="border-l border-slate-100 px-2.5 py-2.5 align-top"
+                className="border-l border-slate-100 px-2 py-2.5 align-top"
               >
                 <span className="font-medium text-slate-800">{t.name}</span>
               </td>
@@ -1343,19 +1403,67 @@ export function TasksClient({
             );
           if (c.key === "batDau")
             return (
-              <td key="batDau" className="px-2.5 py-2.5 align-top text-xs text-slate-500">
-                {fmtDate(t.plannedStart)}
+              <td key="batDau" className="px-2.5 py-1 align-top">
+                <span className="text-xs text-slate-500">{fmtDate(t.plannedStart)}</span>
               </td>
             );
           if (c.key === "ketThuc")
             return (
-              <td key="ketThuc" className="px-2.5 py-2.5 align-top text-xs">
+              <td key="ketThuc" className="px-2.5 py-1 align-top text-xs">
                 <span className={overdue ? "font-medium text-red-600" : "text-slate-600"}>{fmtDate(t.plannedEnd)}</span>
+                {t.pendingPlannedEnd ? (
+                  <div className="mt-0.5 flex items-center gap-1">
+                    <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                      → {fmtDate(t.pendingPlannedEnd)}
+                    </span>
+                    {canManage ? (
+                      <>
+                        <button
+                          type="button"
+                          title="Duyệt đổi ngày"
+                          onClick={async () => {
+                            const r = await approveEndDateChange(t.id);
+                            if (r.ok) { toast.success("Đã duyệt đổi ngày kết thúc"); router.refresh(); }
+                            else toast.error(r.error);
+                          }}
+                          className="grid size-4 place-items-center rounded text-emerald-600 hover:bg-emerald-50"
+                        >
+                          <Check className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Từ chối"
+                          onClick={async () => {
+                            const r = await rejectEndDateChange(t.id);
+                            if (r.ok) { toast.success("Đã từ chối yêu cầu"); router.refresh(); }
+                            else toast.error(r.error);
+                          }}
+                          className="grid size-4 place-items-center rounded text-red-500 hover:bg-red-50"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </>
+                    ) : t.endChangeRequesterId === currentUserId ? (
+                      <button
+                        type="button"
+                        title="Hủy yêu cầu"
+                        onClick={async () => {
+                          const r = await rejectEndDateChange(t.id);
+                          if (r.ok) { toast.success("Đã hủy yêu cầu"); router.refresh(); }
+                          else toast.error(r.error);
+                        }}
+                        className="grid size-4 place-items-center rounded text-slate-400 hover:bg-slate-100"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </td>
             );
           if (c.key === "thucTe")
             return (
-              <td key="thucTe" className="px-2.5 py-2.5 align-top">
+              <td key="thucTe" className="px-2.5 py-1 align-top">
                 <CompletionCell t={t} canEdit={canEditDone} onComplete={(v) => onCompletion(t, v)} />
               </td>
             );
@@ -1365,19 +1473,17 @@ export function TasksClient({
         <td className="px-2 py-2.5 text-center align-top">
           <button
             type="button"
-            disabled={pending}
             onClick={() => setLogging(t)}
-            title={pending ? "Việc đang chờ duyệt — chưa thể ghi giờ" : "Ghi giờ cho công việc này"}
-            className={cn(
-              "grid size-8 place-items-center rounded-md",
-              pending ? "cursor-not-allowed text-slate-300" : "text-slate-400 hover:bg-blue-50 hover:text-blue-600",
-            )}
+            title="Ghi giờ cho công việc này"
+            className="grid size-8 place-items-center rounded-md text-slate-400 hover:bg-blue-50 hover:text-blue-600"
           >
             <Clock className="size-4" />
           </button>
         </td>
       </tr>
     );
+
+    return [mainRow];
   }
 
   // Dòng tiêu đề nhóm trong tree view (3 cấp, indent khác nhau)
@@ -1636,8 +1742,8 @@ export function TasksClient({
             </thead>
             <tbody>
               {viewMode === "flat"
-                ? sorted.map((t) => renderRow(t))
-                : treeNodes.map((n) => n.type === "task" ? renderRow(n.task) : treeGroupRow(n))
+                ? sorted.flatMap((t) => renderRow(t))
+                : treeNodes.flatMap((n) => n.type === "task" ? renderRow(n.task) : [treeGroupRow(n)])
               }
               {sorted.length === 0 ? (
                 <tr>
@@ -1810,6 +1916,20 @@ export function TasksClient({
           </button>
           <button
             type="button"
+            onClick={() => setBulkStartDate({ ids: [...selected], date: "" })}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Calendar className="size-3.5" /> Đặt ngày bắt đầu
+          </button>
+          <button
+            type="button"
+            onClick={() => setBulkEndDate({ ids: [...selected], date: "" })}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Calendar className="size-3.5" /> {canManage ? "Đổi ngày kết thúc" : "Đề xuất đổi hạn"}
+          </button>
+          <button
+            type="button"
             onClick={clearSel}
             title="Bỏ chọn"
             aria-label="Bỏ chọn"
@@ -1850,6 +1970,161 @@ export function TasksClient({
                 className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 Áp dụng
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {/* Modal: đề xuất / đổi ngày kết thúc */}
+      {bulkEndDate ? (
+        <Modal
+          open
+          onClose={() => setBulkEndDate(null)}
+          title={canManage
+            ? `Đổi ngày kết thúc — ${bulkEndDate.ids.length} công việc`
+            : `Đề xuất đổi ngày kết thúc — ${bulkEndDate.ids.length} công việc`}
+          className="max-w-sm"
+        >
+          <div className="space-y-3">
+            {!canManage && (
+              <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">
+                Yêu cầu sẽ được gửi cho quản lý duyệt trước khi áp dụng.
+              </p>
+            )}
+            <input
+              type="date"
+              value={bulkEndDate.date}
+              onChange={(e) => setBulkEndDate({ ...bulkEndDate, date: e.target.value })}
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBulkEndDate(null)}
+                className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={!bulkEndDate.date}
+                onClick={runBulkEndDate}
+                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {canManage ? "Áp dụng" : "Gửi yêu cầu"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {/* Modal: đặt ngày bắt đầu hàng loạt */}
+      {bulkStartDate ? (
+        <Modal
+          open
+          onClose={() => setBulkStartDate(null)}
+          title={`Đặt ngày bắt đầu — ${bulkStartDate.ids.length} công việc`}
+          className="max-w-sm"
+        >
+          <div className="space-y-3">
+            <input
+              type="date"
+              value={bulkStartDate.date}
+              onChange={(e) => setBulkStartDate({ ...bulkStartDate, date: e.target.value })}
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBulkStartDate(null)}
+                className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={!bulkStartDate.date}
+                onClick={runBulkStartDate}
+                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Áp dụng
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {/* Modal chi tiết công việc */}
+      {detailTask ? (
+        <Modal
+          open
+          onClose={closeDetail}
+          title={
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-slate-500">{detailTask.sumId}</span>
+              <span className="text-base font-semibold text-slate-800">{detailTask.name}</span>
+            </div>
+          }
+          className="max-w-xl"
+        >
+          <div className="space-y-4">
+            {/* Nội dung */}
+            <div>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Nội dung công việc</div>
+              {detailTask.note ? (
+                <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{detailTask.note}</p>
+              ) : (
+                <p className="text-sm italic text-slate-400">Chưa có nội dung mô tả.</p>
+              )}
+            </div>
+            {/* Giờ trong tuần */}
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Giờ đã ghi trong tuần này</div>
+              {detailLoading ? (
+                <p className="text-sm text-slate-400">Đang tải…</p>
+              ) : detailEntries.length === 0 ? (
+                <p className="text-sm italic text-slate-400">Chưa có giờ nào trong tuần này.</p>
+              ) : (
+                <div className="overflow-hidden rounded-md border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Ngày</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Số giờ</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Nội dung</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {detailEntries.map((e) => (
+                        <tr key={e.id}>
+                          <td className="px-3 py-2 text-slate-600">{fmtDate(e.date)}</td>
+                          <td className="px-3 py-2 font-medium text-slate-700">{e.hours}h</td>
+                          <td className="px-3 py-2 text-slate-500">{e.note || <span className="italic text-slate-300">—</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-200 bg-slate-50">
+                        <td className="px-3 py-2 text-xs font-semibold text-slate-600">Tổng</td>
+                        <td className="px-3 py-2 text-sm font-bold text-blue-600">
+                          {detailEntries.reduce((s, e) => s + e.hours, 0)}h
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+            {/* Action */}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => { setLogging(detailTask); closeDetail(); }}
+                className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              >
+                <Clock className="size-4" /> Ghi giờ
               </button>
             </div>
           </div>

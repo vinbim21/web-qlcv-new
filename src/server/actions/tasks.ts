@@ -713,6 +713,107 @@ export async function deleteTask(id: string) {
   });
 }
 
+/** Người được giao tự cập nhật ngày bắt đầu (không cần duyệt). */
+export async function setTaskPlannedStart(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const { id, plannedStart } = (input as { id: string; plannedStart: string | null });
+    const t = await prisma.task.findUnique({
+      where: { id },
+      select: { assignees: { where: { userId: user.id }, select: { id: true } } },
+    });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    if (!canManage(user.role) && t.assignees.length === 0) throw new Error("Không có quyền");
+    await prisma.task.update({
+      where: { id },
+      data: { plannedStart: plannedStart ? new Date(plannedStart) : null },
+    });
+    revalidateTaskViews();
+  });
+}
+
+/** Cập nhật ngày bắt đầu hàng loạt — quản lý hoặc người được giao đều dùng được. */
+export async function bulkSetPlannedStart(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const { ids, plannedStart } = input as { ids: string[]; plannedStart: string | null };
+    const d = plannedStart ? new Date(plannedStart) : null;
+    const isManager = canManage(user.role);
+    // Nếu không phải manager, chỉ cập nhật các task mà user là assignee
+    const where = isManager
+      ? { id: { in: ids }, deletedAt: null }
+      : { id: { in: ids }, deletedAt: null, assignees: { some: { userId: user.id } } };
+    const res = await prisma.task.updateMany({ where, data: { plannedStart: d } });
+    revalidateTaskViews();
+    return res.count;
+  });
+}
+
+/** Gửi yêu cầu đổi ngày kết thúc (nhiều task). Manager → đổi trực tiếp; Assignee → pending chờ duyệt. */
+export async function requestEndDateChange(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const { ids, plannedEnd } = input as { ids: string[]; plannedEnd: string };
+    const d = toDate(plannedEnd);
+    if (!d) throw new Error("Ngày không hợp lệ");
+    const isManager = canManage(user.role);
+    if (isManager) {
+      // Quản lý: đổi trực tiếp, xóa pending nếu có
+      const res = await prisma.task.updateMany({
+        where: { id: { in: ids }, deletedAt: null },
+        data: { plannedEnd: d, pendingPlannedEnd: null, endChangeRequesterId: null },
+      });
+      revalidateTaskViews();
+      return res.count;
+    } else {
+      // Assignee: lưu pending, chờ quản lý duyệt
+      const res = await prisma.task.updateMany({
+        where: { id: { in: ids }, deletedAt: null, assignees: { some: { userId: user.id } } },
+        data: { pendingPlannedEnd: d, endChangeRequesterId: user.id },
+      });
+      revalidateTaskViews();
+      return res.count;
+    }
+  });
+}
+
+/** Quản lý duyệt yêu cầu đổi ngày kết thúc. */
+export async function approveEndDateChange(id: string) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Không đủ quyền");
+    const t = await prisma.task.findUnique({
+      where: { id },
+      select: { pendingPlannedEnd: true },
+    });
+    if (!t?.pendingPlannedEnd) throw new Error("Không có yêu cầu đổi ngày kết thúc");
+    await prisma.task.update({
+      where: { id },
+      data: { plannedEnd: t.pendingPlannedEnd, pendingPlannedEnd: null, endChangeRequesterId: null },
+    });
+    revalidateTaskViews();
+  });
+}
+
+/** Từ chối (hoặc hủy) yêu cầu đổi ngày kết thúc. */
+export async function rejectEndDateChange(id: string) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const t = await prisma.task.findUnique({
+      where: { id },
+      select: { endChangeRequesterId: true, assignees: { where: { userId: user.id }, select: { id: true } } },
+    });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    const isOwner = t.endChangeRequesterId === user.id || canManage(user.role);
+    if (!isOwner) throw new Error("Không đủ quyền");
+    await prisma.task.update({
+      where: { id },
+      data: { pendingPlannedEnd: null, endChangeRequesterId: null },
+    });
+    revalidateTaskViews();
+  });
+}
+
 /** Duyệt / thu hồi duyệt khởi tạo hàng loạt. */
 export async function bulkSetApproval(input: unknown) {
   return runAction(async () => {

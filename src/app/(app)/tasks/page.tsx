@@ -69,6 +69,8 @@ export default async function TasksPage() {
         approverId: t.approverId,
         approverName: t.approver?.fullName ?? null,
         startApproved: !!t.startApprovedAt,
+        pendingPlannedEnd: iso(t.pendingPlannedEnd),
+        endChangeRequesterId: t.endChangeRequesterId ?? null,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
       }))}

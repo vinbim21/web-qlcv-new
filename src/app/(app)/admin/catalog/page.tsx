@@ -28,7 +28,7 @@ export default async function CatalogPage() {
     prisma.catalogItem.findMany({
       where: { workGroup: { abbr: "PT" }, level: { in: [2, 3] } },
       orderBy: [{ order: "asc" }, { value: "asc" }],
-      select: { id: true, level: true, value: true, parentId: true, order: true },
+      select: { id: true, level: true, value: true, parentId: true, projectGroupId: true, order: true },
     }),
   ]);
 
@@ -68,7 +68,7 @@ export default async function CatalogPage() {
         taskCount: p._count.tasks,
       }))}
       works={level5.map((i) => ({ id: i.id, workGroupId: i.workGroupId, value: i.value, order: i.order }))}
-      ptItems={ptItems.map((i) => ({ id: i.id, level: i.level, value: i.value, parentId: i.parentId, order: i.order }))}
+      ptItems={ptItems.map((i) => ({ id: i.id, level: i.level, value: i.value, parentId: i.parentId, projectGroupId: i.projectGroupId, order: i.order }))}
     />
   );
 }
