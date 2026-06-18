@@ -509,11 +509,11 @@ export function AssignClient({
             className={CELL}
             creatable={false}
             placeholder="— Không —"
-            value={disciplines.find((d) => d.id === r.disciplineId)?.name ?? ""}
-            options={["— Không —", ...disciplines.map((d) => d.name)]}
+            value={disciplines.find((d) => d.id === r.disciplineId)?.code ?? ""}
+            options={["— Không —", ...disciplines.map((d) => d.code ?? d.name)]}
             onChange={(label) =>
               updateRow(r.key, {
-                disciplineId: label === "— Không —" ? "" : (disciplines.find((d) => d.name === label)?.id ?? ""),
+                disciplineId: label === "— Không —" ? "" : (disciplines.find((d) => (d.code ?? d.name) === label)?.id ?? ""),
               })
             }
           />
@@ -585,7 +585,15 @@ export function AssignClient({
           const l2 = r.level2.trim();
           opts = [...new Set(pool.filter((p) => !l2 || p.constructionTypeCode === l2).map((p) => p.name))];
         } else {
-          opts = col === "level2" ? sug.l2 : col === "level3" ? sug.l3 : sug.l5;
+          if (col === "level2") {
+            opts = sug.l2;
+          } else if (col === "level3") {
+            // Cascade L2→L3: lọc theo Loại hình đã chọn (dùng l3ByL2 map)
+            const l2 = r.level2.trim();
+            opts = l2 && sug.l3ByL2?.[l2]?.length ? sug.l3ByL2[l2] : sug.l3;
+          } else {
+            opts = sug.l5;
+          }
         }
         return (
           <SearchableCombobox
@@ -594,6 +602,10 @@ export function AssignClient({
             value={r[col]}
             onChange={(v) => {
               const patch: Partial<GridRow> = { [col]: v };
+              // Non-project cascade: đổi Loại hình → reset Hạng mục
+              if (!hasProjectCascade && col === "level2") {
+                patch.level3 = "";
+              }
               if (hasProjectCascade && col !== "level5") {
                 if (col === "level2") {
                   // Đổi Loại hình → xóa Hạng mục + projectId vì cascade thay đổi

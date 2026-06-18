@@ -73,7 +73,7 @@ type Opt = { id: string; name: string };
 // Nhóm công việc kèm mã + tiền tố Id (abbr) + bộ đếm (lastSeq) cho editor.
 type WgOpt = Opt & { code?: string; abbr?: string | null; lastSeq?: number };
 type UserOpt = { id: string; fullName: string };
-type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[] }>;
+type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[]; l3ByL2: Record<string, string[]> }>;
 
 export type TaskRow = {
   id: string;
@@ -649,8 +649,35 @@ export function ManageClient({
     TAM_DUNG: 3,
     HOAN_THANH: 4,
   };
-  const hierKey = (t: TaskRow) =>
-    norm(colText(t, "duAn") + colText(t, "loaiHinh") + colText(t, "hangMuc") + colText(t, "congViec"));
+  // Order maps theo thứ tự khai báo — sort catalog-defined order thay vì alphabetical.
+  const l5OrderMap = React.useMemo(() => {
+    const m = new Map<string, Map<string, number>>();
+    for (const [wgId, cat] of Object.entries(catalog)) {
+      m.set(wgId, new Map(cat.l5.map((v, i) => [v, i])));
+    }
+    return m;
+  }, [catalog]);
+  const l2OrderMap = React.useMemo(() => {
+    const m = new Map<string, Map<string, number>>();
+    for (const [wgId, cat] of Object.entries(catalog)) {
+      m.set(wgId, new Map(cat.l2.map((v, i) => [v, i])));
+    }
+    return m;
+  }, [catalog]);
+  const phaseOrderMap = React.useMemo(
+    () => new Map(phases.map((p, i) => [p.id, i])),
+    [phases],
+  );
+  const disciplineOrderMap = React.useMemo(
+    () => new Map(disciplines.map((d, i) => [d.id, i])),
+    [disciplines],
+  );
+  const hierKey = (t: TaskRow) => {
+    const l2Idx = t.projectId ? null : (l2OrderMap.get(t.workGroupId)?.get(t.level2 ?? "") ?? null);
+    const l2Part = l2Idx !== null ? String(l2Idx).padStart(5, "0") : norm(colText(t, "loaiHinh"));
+    const l5Idx = l5OrderMap.get(t.workGroupId)?.get(t.name) ?? 9999;
+    return norm(colText(t, "duAn")) + l2Part + norm(colText(t, "hangMuc")) + String(l5Idx).padStart(5, "0");
+  };
   function sortVal(t: TaskRow, key: SortKey): string | number {
     switch (key) {
       case "uuTien":
@@ -665,6 +692,13 @@ export function ManageClient({
         return t.plannedEnd || "9999-12-31";
       case "thucTe":
         return t.actualEnd || "9999-12-31";
+      case "loaiHinh":
+        if (!t.projectId) return l2OrderMap.get(t.workGroupId)?.get(t.level2 ?? "") ?? 9999;
+        return norm(colText(t, "loaiHinh"));
+      case "giaiDoan":
+        return phaseOrderMap.get(t.phaseId ?? "") ?? 9999;
+      case "boMon":
+        return disciplineOrderMap.get(t.disciplineId ?? "") ?? 9999;
       default:
         return norm(colText(t, key));
     }
