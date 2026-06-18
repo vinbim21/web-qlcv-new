@@ -173,7 +173,7 @@ function EditGroupDialog({
   );
 }
 
-function LevelColumn({
+export function LevelColumn({
   title,
   workGroupId,
   level,
