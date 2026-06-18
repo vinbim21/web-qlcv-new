@@ -49,7 +49,7 @@ import {
 
 type Opt = { id: string; name: string };
 type UserOpt = { id: string; fullName: string };
-type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[] }>;
+type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[]; l3ByL2: Record<string, string[]> }>;
 
 export type TaskRow = {
   id: string;

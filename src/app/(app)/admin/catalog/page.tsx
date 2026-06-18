@@ -2,7 +2,7 @@ import { prisma } from "@/server/db/client";
 import { CatalogClient } from "./catalog-client";
 
 export default async function CatalogPage() {
-  const [workGroups, phases, constructionTypes, disciplines, projectGroups, projects, level5] = await Promise.all([
+  const [workGroups, phases, constructionTypes, disciplines, projectGroups, projects, level5, ptItems] = await Promise.all([
     prisma.workGroup.findMany({
       orderBy: { order: "asc" },
       include: { _count: { select: { tasks: true } } },
@@ -23,6 +23,12 @@ export default async function CatalogPage() {
     prisma.catalogItem.findMany({
       where: { level: 5 },
       orderBy: [{ order: "asc" }, { value: "asc" }],
+    }),
+    // Tab "Dự án BIM Tools" = Level 2+3 của nhóm PT (Loại hình + Hạng mục phần mềm).
+    prisma.catalogItem.findMany({
+      where: { workGroup: { abbr: "PT" }, level: { in: [2, 3] } },
+      orderBy: [{ order: "asc" }, { value: "asc" }],
+      select: { id: true, level: true, value: true, parentId: true, order: true },
     }),
   ]);
 
@@ -49,6 +55,7 @@ export default async function CatalogPage() {
         code: g.code,
         name: g.name,
         order: g.order,
+        workGroupId: g.workGroupId,
         itemCount: g._count.items,
       }))}
       projects={projects.map((p) => ({
@@ -61,6 +68,7 @@ export default async function CatalogPage() {
         taskCount: p._count.tasks,
       }))}
       works={level5.map((i) => ({ id: i.id, workGroupId: i.workGroupId, value: i.value, order: i.order }))}
+      ptItems={ptItems.map((i) => ({ id: i.id, level: i.level, value: i.value, parentId: i.parentId, order: i.order }))}
     />
   );
 }

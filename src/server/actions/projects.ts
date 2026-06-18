@@ -74,7 +74,7 @@ export async function saveBimProject(input: {
 // ----- Dự án (cấp cha = ProjectGroup) -----
 
 // Lưu Dự án (cha) từ màn Khai báo. Tên do người dùng đặt; mã = khóa nhóm hạng mục.
-export async function saveProjectGroup(input: { id?: string; code: string; name: string; order?: number }) {
+export async function saveProjectGroup(input: { id?: string; code: string; name: string; order?: number; workGroupId?: string | null }) {
   return runAction(async () => {
     await requireRole("ADMIN");
     const code = input.code.trim();
@@ -88,7 +88,7 @@ export async function saveProjectGroup(input: { id?: string; code: string; name:
     if (input.id) {
       await prisma.projectGroup.update({ where: { id: input.id }, data: { code, name, order: input.order ?? 0 } });
     } else {
-      await prisma.projectGroup.create({ data: { code, name, order: input.order ?? 0 } });
+      await prisma.projectGroup.create({ data: { code, name, order: input.order ?? 0, workGroupId: input.workGroupId ?? null } });
     }
     revalidatePath("/admin/catalog", "layout");
     revalidatePath("/manage");

@@ -77,7 +77,7 @@ export async function deletePhase(id: string) {
 
 const VALID_LEVELS = [2, 3, 5];
 
-export async function addCatalogValue(workGroupId: string, level: number, value: string) {
+export async function addCatalogValue(workGroupId: string, level: number, value: string, parentId?: string | null) {
   return runAction(async () => {
     await requireRole("ADMIN");
     const v = value.trim();
@@ -85,22 +85,23 @@ export async function addCatalogValue(workGroupId: string, level: number, value:
     if (!VALID_LEVELS.includes(level)) throw new Error("Cấp không hợp lệ");
     await prisma.catalogItem.upsert({
       where: { workGroupId_level_value: { workGroupId, level, value: v } },
-      update: {},
-      create: { workGroupId, level, value: v },
+      update: { parentId: parentId ?? null },
+      create: { workGroupId, level, value: v, parentId: parentId ?? null },
     });
     revalidatePath(`/admin/catalog/${workGroupId}`);
+    revalidatePath("/admin/catalog");
     revalidatePath("/tasks");
-    revalidatePath("/manage"); // nơi đặt lưới Giao việc (gợi ý danh mục)
+    revalidatePath("/manage");
     revalidatePath("/assign");
   });
 }
 
-export async function updateCatalogValue(id: string, value: string) {
+export async function updateCatalogValue(id: string, value: string, parentId?: string | null) {
   return runAction(async () => {
     await requireRole("ADMIN");
     const v = value.trim();
     if (!v) throw new Error("Nhập giá trị");
-    await prisma.catalogItem.update({ where: { id }, data: { value: v } });
+    await prisma.catalogItem.update({ where: { id }, data: { value: v, parentId: parentId !== undefined ? (parentId ?? null) : undefined } });
     revalidatePath("/admin/catalog");
     revalidatePath("/tasks");
     revalidatePath("/manage");
@@ -112,6 +113,35 @@ export async function deleteCatalogValue(id: string) {
   return runAction(async () => {
     await requireRole("ADMIN");
     await prisma.catalogItem.delete({ where: { id } });
+    revalidatePath("/admin/catalog");
+    revalidatePath("/tasks");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
+  });
+}
+
+// ---------- Batch thêm nhiều CatalogItem cùng parentId ----------
+
+export async function batchSaveCatalogItems(
+  workGroupId: string,
+  level: number,
+  parentId: string | null,
+  values: string[],
+) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    const trimmed = values.map((v) => v.trim()).filter(Boolean);
+    if (!trimmed.length) throw new Error("Nhập ít nhất 1 hạng mục");
+    await prisma.$transaction(
+      trimmed.map((v) =>
+        prisma.catalogItem.upsert({
+          where: { workGroupId_level_value: { workGroupId, level, value: v } },
+          update: { parentId },
+          create: { workGroupId, level, value: v, parentId },
+        }),
+      ),
+    );
+    revalidatePath(`/admin/catalog/${workGroupId}`);
     revalidatePath("/admin/catalog");
     revalidatePath("/tasks");
     revalidatePath("/manage");
