@@ -47,11 +47,6 @@ import {
   TextBody,
 } from "./report-ui";
 
-const VIOLET = "#7c3aed";
-const BLUE = "#2563eb";
-const GREEN = "#16a34a";
-const SLATE = "#475569";
-const AMBER = "#d97706";
 const CYAN = "#0891b2";
 
 function uniq(rows: TaskRow[], pick: (r: TaskRow) => string): string[] {
@@ -66,9 +61,9 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
 
   const cols: ColDef[] = React.useMemo(
     () => [
-      { key: "duAn", label: "Dự án", w: 150, filter: "multi", opts: uniq(rows, (r) => r.duAn), lvl: 1 },
-      { key: "loaiHinh", label: "Loại hình", w: 146, filter: "multi", opts: uniq(rows, (r) => r.loaiHinh), lvl: 2 },
-      { key: "hangMuc", label: "Hạng mục", w: 150, filter: "multi", opts: uniq(rows, (r) => r.hangMuc), lvl: 3 },
+      { key: "duAn", label: "Dự án", w: 95, filter: "multi", opts: uniq(rows, (r) => r.duAn), lvl: 1 },
+      { key: "loaiHinh", label: "Loại hình", w: 120, filter: "multi", opts: uniq(rows, (r) => r.loaiHinh), lvl: 2 },
+      { key: "hangMuc", label: "Hạng mục", w: 125, filter: "multi", opts: uniq(rows, (r) => r.hangMuc), lvl: 3 },
       { key: "congViec", label: "Công việc", w: 190, filter: "multi", opts: uniq(rows, (r) => r.congViec) },
       { key: "boMon", label: "Bộ môn", w: 110, filter: "multi", opts: uniq(rows, (r) => r.boMon) },
       { key: "thucHien", label: "Thực hiện", w: 150, filter: "multi", opts: people },
@@ -76,7 +71,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
       { key: "tinhTrang", label: "Tình trạng", w: 140, filter: "status" },
       { key: "batDau", label: "Bắt đầu", w: 110, filter: "date" },
       { key: "ketThuc", label: "Kết thúc", w: 110, filter: "date" },
-      { key: "thucTe", label: "Hoàn thành thực tế", w: 158, filter: "date" },
+      { key: "thucTe", label: "Thực tế hoàn thành", w: 158, filter: "date" },
     ],
     [rows, people],
   );
@@ -86,8 +81,8 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
   const [open, setOpen] = React.useState<{ key: string; rect: DOMRect } | null>(null);
   const [sort, setSort] = React.useState<{ key: string; dir: "asc" | "desc" }>({ key: "duAn", dir: "asc" });
 
-  // Cross-filter kiểu Power BI: click chart segment → lọc toàn bộ data.
-  type ChartSel = { field: "status" | "group" | "loaiHinh" | "boMon" | "person" | "duAn"; value: string } | null;
+  // Cross-filter: click chart segment → lọc toàn bộ data.
+  type ChartSel = { field: "status" | "duAn"; value: string } | null;
   const [chartSel, setChartSel] = React.useState<ChartSel>(null);
   function toggleChart(field: NonNullable<ChartSel>["field"], value: string) {
     setChartSel((s) => (s?.field === field && s.value === value ? null : { field, value }));
@@ -117,10 +112,6 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
       if (chartSel) {
         const { field, value } = chartSel;
         if (field === "status" && effStatus(r) !== value) return false;
-        if (field === "group" && r.groupName !== value) return false;
-        if (field === "loaiHinh" && r.loaiHinh !== value) return false;
-        if (field === "boMon" && r.boMon !== value) return false;
-        if (field === "person" && !r.thucHien.includes(value)) return false;
         if (field === "duAn" && r.duAn !== value) return false;
       }
       return true;
@@ -140,10 +131,6 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
     })).filter((s) => s.value > 0);
     return {
       status,
-      byGroup: tally(sub, (r) => r.groupName),
-      byLoaiHinh: tally(sub, (r) => r.loaiHinh),
-      byBoMon: tally(sub, (r) => r.boMon),
-      byPerson: tally(sub, (r) => (r.thucHien.length ? r.thucHien : ["Chưa giao"])),
       byDuAn: tally(sub, (r) => r.duAn),
       count: sub.length,
     };
@@ -251,62 +238,21 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
       )}
 
       {/* Lát cắt */}
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Panel title="Theo trạng thái" sub={`${agg.count} việc trong phạm vi lọc`}>
+      <div className="grid grid-cols-3 gap-4">
+        <Panel title="Trạng thái công việc">
           <Donut
             segments={agg.status}
+            size={240}
+            thickness={30}
             centerTop={agg.count}
             centerBottom="việc"
             selected={chartSel?.field === "status" ? chartSel.value : null}
             onSelect={(v) => v && toggleChart("status", v)}
+            vertical
+            legendTitle="Tình trạng công việc"
           />
         </Panel>
-        <Panel title="Theo nhóm công việc">
-          <HBars
-            data={agg.byGroup}
-            color={VIOLET}
-            selected={chartSel?.field === "group" ? chartSel.value : null}
-            onSelect={(v) => v && toggleChart("group", v)}
-          />
-        </Panel>
-        <Panel title="Theo loại hình công trình">
-          <HBars
-            data={agg.byLoaiHinh}
-            color={BLUE}
-            selected={chartSel?.field === "loaiHinh" ? chartSel.value : null}
-            onSelect={(v) => v && toggleChart("loaiHinh", v)}
-          />
-        </Panel>
-        <Panel title="Theo bộ môn">
-          <HBars
-            data={agg.byBoMon}
-            color={GREEN}
-            selected={chartSel?.field === "boMon" ? chartSel.value : null}
-            onSelect={(v) => v && toggleChart("boMon", v)}
-          />
-        </Panel>
-        <Panel title="Số việc theo nhân sự" sub="Top 12">
-          <HBars
-            data={agg.byPerson}
-            color={SLATE}
-            maxRows={12}
-            selected={chartSel?.field === "person" ? chartSel.value : null}
-            onSelect={(v) => v && toggleChart("person", v)}
-          />
-        </Panel>
-        <Panel title="Giờ công theo nhân sự" sub="Top 12">
-          <HBars
-            data={agg.byPerson.filter((p) => p.key !== "Chưa giao").slice().sort((a, b) => b.hours - a.hours)}
-            valueKey="hours"
-            color={AMBER}
-            maxRows={12}
-            unit="h"
-            valueFmt={(n) => Math.round(n).toString()}
-            selected={chartSel?.field === "person" ? chartSel.value : null}
-            onSelect={(v) => v && toggleChart("person", v)}
-          />
-        </Panel>
-        <Panel title="Theo dự án" className="xl:col-span-2">
+        <Panel title="Danh sách dự án" className="col-span-2">
           <HBars
             data={agg.byDuAn}
             color={CYAN}

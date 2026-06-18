@@ -360,9 +360,9 @@ const MANAGE_WIDTH_KEY = "manage-col-widths-v4";
 const MANAGE_SEL_PX = 36; // cột checkbox (ghim trái)
 const MANAGE_COL_W: Record<string, number> = {
   sumId: 150,
-  duAn: 162,
-  loaiHinh: 150,
-  hangMuc: 168,
+  duAn: 95,
+  loaiHinh: 120,
+  hangMuc: 125,
   congViec: 212,
   giaiDoan: 130,
   boMon: 120,
@@ -560,7 +560,7 @@ export function ManageClient({
       { key: "tinhTrang", label: "Tình trạng", filter: "status" },
       { key: "batDau", label: "Bắt đầu", filter: "date" },
       { key: "ketThuc", label: "Kết thúc", filter: "date" },
-      { key: "thucTe", label: "Hoàn thành thực tế", filter: "date" },
+      { key: "thucTe", label: "Thực tế hoàn thành", filter: "date" },
     ];
     return SHOW_MA ? all : all.filter((c) => c.key !== "sumId");
   }, [distinct]);
@@ -707,6 +707,7 @@ export function ManageClient({
     | { type: "task"; task: TaskRow }
     | { type: "insert"; ctx: NonNullable<typeof insertCtx> };
 
+  // Mặc định: g1 (dự án) + g2 (loại hình) mở, chỉ thu g3 (hạng mục)
   const effectiveTreeCollapsed = React.useMemo(() => {
     if (treeCollapsed) return treeCollapsed;
     const keys = new Set<string>();
@@ -714,8 +715,6 @@ export function ManageClient({
       const dk = colText(t, "duAn") || "—";
       const lk = colText(t, "loaiHinh") || "—";
       const hk = colText(t, "hangMuc") || "—";
-      keys.add(`d:${dk}`);
-      keys.add(`l:${dk}|${lk}`);
       keys.add(`h:${dk}|${lk}|${hk}`);
     }
     return keys;
@@ -1602,8 +1601,8 @@ export function ManageClient({
               className={cn("flex items-center gap-1.5", textCls)}
             >
               <Chevron className="size-3.5 shrink-0 text-slate-400" />
-              <span>{label}</span>
-              <span className="font-normal text-slate-400 text-xs">
+              <span className="whitespace-nowrap">{label}</span>
+              <span className="whitespace-nowrap font-normal text-slate-400 text-xs">
                 ({count} việc{overdue ? ` · ${overdue} quá hạn` : ""})
               </span>
             </button>
@@ -1891,8 +1890,8 @@ export function ManageClient({
         <div className="inline-flex gap-1 rounded-md border p-0.5">
           {(
             [
-              { key: "people", label: "Gom theo người" },
-              { key: "table", label: "Bảng" },
+              { key: "people", label: "Người" },
+              { key: "table", label: "Dự án" },
             ] as const
           ).map((v) => (
             <button
