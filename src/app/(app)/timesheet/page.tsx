@@ -21,14 +21,14 @@ export default async function TimesheetPage({
   const [entries, myTasks] = await Promise.all([
     prisma.timeSheetEntry.findMany({
       where: { userId, deletedAt: null, date: { gte: start, lte: end } },
-      include: { task: { include: { project: { include: { group: true, constructionType: true } } } } },
+      include: { task: { include: { discipline: true, project: { include: { group: true, constructionType: true } } } } },
       orderBy: { date: "asc" },
     }),
     prisma.task.findMany({
       where: { deletedAt: null, assignees: { some: { userId } } },
       orderBy: { name: "asc" },
       take: 500,
-      include: { workGroup: true, project: { include: { group: true, constructionType: true } } },
+      include: { workGroup: true, discipline: true, project: { include: { group: true, constructionType: true } } },
     }),
   ]);
 
@@ -40,6 +40,10 @@ export default async function TimesheetPage({
         id: e.id,
         taskId: e.taskId,
         taskName: e.task?.name ?? null,
+        disciplineCode: e.task?.discipline?.code ?? null,
+        projectCode: e.task?.project?.group?.code ?? null,
+        loaiHinhCode: e.task?.project?.constructionType?.code ?? null,
+        hangMuc: e.task?.level3 ?? null,
         taskGroupCode: e.task?.project?.group?.code ?? null,
         taskLoaiHinhCode: e.task?.project?.constructionType?.code ?? null,
         taskLevel3: e.task?.level3 ?? null,
@@ -53,6 +57,7 @@ export default async function TimesheetPage({
         groupCode: t.project?.group?.code ?? null,
         loaiHinhCode: t.project?.constructionType?.code ?? null,
         level3: t.level3 ?? null,
+        disciplineCode: t.discipline?.code ?? null,
       }))}
     />
   );

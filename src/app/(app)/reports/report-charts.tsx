@@ -14,6 +14,8 @@ export function Donut({
   centerBottom,
   selected,
   onSelect,
+  vertical = false,
+  legendTitle,
 }: {
   segments: DonutSeg[];
   size?: number;
@@ -22,6 +24,8 @@ export function Donut({
   centerBottom: string;
   selected?: string | null;
   onSelect?: (key: string | null) => void;
+  vertical?: boolean;
+  legendTitle?: string;
 }) {
   const r = (size - thickness) / 2;
   const c = size / 2;
@@ -32,53 +36,60 @@ export function Donut({
     return acc;
   }, []);
   const hasSelection = !!selected;
-  return (
-    <div className="flex items-center gap-6">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0 -rotate-90">
-        <circle cx={c} cy={c} r={r} fill="none" stroke="#f1f5f9" strokeWidth={thickness} />
-        {segments.map((s, i) => {
-          const len = (s.value / tot) * circ;
-          const isSelected = selected === s.key;
-          return (
-            <circle
-              key={s.key}
-              cx={c}
-              cy={c}
-              r={r}
-              fill="none"
-              stroke={s.color}
-              strokeWidth={isSelected ? thickness + 4 : thickness}
-              strokeDasharray={`${len} ${circ - len}`}
-              strokeDashoffset={-offsets[i]}
-              strokeLinecap="butt"
-              style={{
-                opacity: hasSelection && !isSelected ? 0.25 : 1,
-                cursor: onSelect ? "pointer" : "default",
-                transition: "opacity 0.15s, stroke-width 0.15s",
-              }}
-              onClick={() => onSelect?.(isSelected ? null : s.key)}
-            >
-              <title>{s.label}: {s.value}</title>
-            </circle>
-          );
-        })}
-        <text x={c} y={c - 4} textAnchor="middle" transform={`rotate(90 ${c} ${c})`}
-          style={{ font: "700 26px system-ui", fill: "#0f172a" }}>
-          {centerTop}
-        </text>
-        <text x={c} y={c + 16} textAnchor="middle" transform={`rotate(90 ${c} ${c})`}
-          style={{ font: "500 11px system-ui", fill: "#64748b" }}>
-          {centerBottom}
-        </text>
-      </svg>
-      <ul className="grid gap-2">
+
+  const svgEl = (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className={vertical ? "-rotate-90" : "shrink-0 -rotate-90"}>
+      <circle cx={c} cy={c} r={r} fill="none" stroke="#f1f5f9" strokeWidth={thickness} />
+      {segments.map((s, i) => {
+        const len = (s.value / tot) * circ;
+        const isSelected = selected === s.key;
+        return (
+          <circle
+            key={s.key}
+            cx={c}
+            cy={c}
+            r={r}
+            fill="none"
+            stroke={s.color}
+            strokeWidth={isSelected ? thickness + 4 : thickness}
+            strokeDasharray={`${len} ${circ - len}`}
+            strokeDashoffset={-offsets[i]}
+            strokeLinecap="butt"
+            style={{
+              opacity: hasSelection && !isSelected ? 0.25 : 1,
+              cursor: onSelect ? "pointer" : "default",
+              transition: "opacity 0.15s, stroke-width 0.15s",
+            }}
+            onClick={() => onSelect?.(isSelected ? null : s.key)}
+          >
+            <title>{s.label}: {s.value}</title>
+          </circle>
+        );
+      })}
+      <text x={c} y={c - 4} textAnchor="middle" transform={`rotate(90 ${c} ${c})`}
+        style={{ font: `700 ${Math.round(size * 0.14)}px system-ui`, fill: "#0f172a" }}>
+        {centerTop}
+      </text>
+      <text x={c} y={c + Math.round(size * 0.085)} textAnchor="middle" transform={`rotate(90 ${c} ${c})`}
+        style={{ font: `500 ${Math.round(size * 0.058)}px system-ui`, fill: "#64748b" }}>
+        {centerBottom}
+      </text>
+    </svg>
+  );
+
+  const legendEl = (
+    <div className={vertical ? "w-full" : undefined}>
+      {legendTitle && (
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{legendTitle}</p>
+      )}
+      <ul className="grid gap-2.5">
         {segments.map((s) => {
           const pct = Math.round((s.value / tot) * 100);
           const isSelected = selected === s.key;
           return (
             <li
               key={s.key}
-              className="flex items-center gap-2.5 text-sm"
+              className="flex items-center gap-2 text-sm"
               style={{
                 opacity: hasSelection && !isSelected ? 0.35 : 1,
                 cursor: onSelect ? "pointer" : "default",
@@ -90,13 +101,29 @@ export function Donut({
                 className="size-3 shrink-0 rounded-[3px]"
                 style={{ background: s.color, outline: isSelected ? `2px solid ${s.color}` : undefined, outlineOffset: 2 }}
               />
-              <span className="w-28 truncate text-slate-600">{s.label}</span>
-              <span className="ml-auto font-semibold tabular-nums text-slate-800">{s.value}</span>
+              <span className="min-w-0 flex-1 truncate text-slate-600">{s.label}</span>
+              <span className="font-semibold tabular-nums text-slate-800">{s.value}</span>
               <span className="w-9 text-right text-xs tabular-nums text-slate-400">{pct}%</span>
             </li>
           );
         })}
       </ul>
+    </div>
+  );
+
+  if (vertical) {
+    return (
+      <div className="flex items-start gap-6">
+        {svgEl}
+        <div className="flex flex-1 flex-col justify-center self-stretch">{legendEl}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-6">
+      {svgEl}
+      {legendEl}
     </div>
   );
 }
