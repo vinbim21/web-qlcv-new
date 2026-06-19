@@ -823,13 +823,17 @@ export async function bulkSetApproval(input: unknown) {
     const now = new Date();
 
     if (approved) {
-      // Duyệt: updateMany là đủ.
-      const res = await prisma.task.updateMany({
+      await prisma.task.updateMany({
         where: { id: { in: ids }, deletedAt: null },
         data: { startApprovedAt: now },
       });
+      // Duyệt hoàn thành (approvedAt) cho task đã có actualEnd.
+      await prisma.task.updateMany({
+        where: { id: { in: ids }, deletedAt: null, actualEnd: { not: null } },
+        data: { approvedAt: now, approvedById: user.id },
+      });
       revalidateTaskViews();
-      return res.count;
+      return ids.length;
     }
 
     // Thu hồi: task chưa có approverId → gán người thao tác làm approver

@@ -1385,20 +1385,6 @@ export function ManageClient({
                 </button>
               )
             ) : null}
-            {t.approverId && canApproveStart ? (
-              <button
-                type="button"
-                title={
-                  pendingApproval
-                    ? "Duyệt khởi tạo — cho phép người được giao nhập thời gian"
-                    : "Đã duyệt — bấm để thu hồi (khóa nhập lại)"
-                }
-                onClick={() => toggleStartApproval(t, pendingApproval)}
-                className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-emerald-600"
-              >
-                <ShieldCheck className={cn("size-3.5", !pendingApproval && "text-emerald-600")} />
-              </button>
-            ) : null}
           </div>
           {dz !== "DA_DUYET" ? (
             <span
