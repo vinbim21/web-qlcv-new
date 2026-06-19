@@ -55,6 +55,7 @@ import {
   bulkSetPriority,
   bulkSetStatus,
   saveTask,
+  setTaskApproval,
   setTaskCompletion,
   setTaskPaused,
   setTaskStartApproval,
@@ -1046,6 +1047,12 @@ export function ManageClient({
     } else toast.error(res.error);
   }
 
+  async function approveCompletion(t: TaskRow) {
+    const res = await setTaskApproval({ id: t.id, approved: true });
+    if (res.ok) { toast.success("Đã duyệt hoàn thành"); router.refresh(); }
+    else toast.error(res.error);
+  }
+
 
   // ---- Chọn nhiều + thao tác hàng loạt ----
   const allVisibleSelected = sorted.length > 0 && sorted.every((t) => selected.has(t.id));
@@ -1387,12 +1394,23 @@ export function ManageClient({
             ) : null}
           </div>
           {dz !== "DA_DUYET" ? (
-            <span
-              className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600"
-              title={t.approverName ? `Chờ ${t.approverName} duyệt` : "Chưa duyệt"}
-            >
-              <span className="size-1.5 rounded-full bg-amber-500" /> Chưa duyệt
-            </span>
+            dz === "CHUA_DUYET" && canManage ? (
+              <button
+                type="button"
+                onClick={() => void approveCompletion(t)}
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600 hover:text-emerald-600"
+                title="Bấm để duyệt hoàn thành"
+              >
+                <span className="size-1.5 rounded-full bg-amber-500" /> Chưa duyệt
+              </button>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600"
+                title={t.approverName ? `Chờ ${t.approverName} duyệt` : "Chưa duyệt"}
+              >
+                <span className="size-1.5 rounded-full bg-amber-500" /> Chưa duyệt
+              </span>
+            )
           ) : null}
         </div>
       </td>
