@@ -274,7 +274,17 @@ export function AssignClient({
   const [rowsByWg, setRowsByWg] = React.useState<Record<string, GridRow[]>>(() => {
     const init = Object.fromEntries(workGroups.map((w) => [w.id, makeRows(INITIAL_ROWS)]));
     if (prefillRow && defaultWorkGroupId && init[defaultWorkGroupId]) {
-      init[defaultWorkGroupId][0] = { ...init[defaultWorkGroupId][0], ...prefillRow };
+      const resolved: Partial<Omit<GridRow, "key">> = { ...prefillRow };
+      if (prefillRow.projectId) {
+        const proj = projects.find((p) => p.id === prefillRow.projectId);
+        if (proj) {
+          resolved.projectGroupId = proj.groupId;
+          // Dùng constructionTypeCode và project name để cascade hiển thị đúng
+          if (proj.constructionTypeCode) resolved.level2 = proj.constructionTypeCode;
+          if (proj.name) resolved.level3 = proj.name;
+        }
+      }
+      init[defaultWorkGroupId][0] = { ...init[defaultWorkGroupId][0], ...resolved };
     }
     return init;
   });
