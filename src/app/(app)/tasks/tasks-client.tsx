@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import dayjs from "dayjs";
 import {
@@ -133,6 +133,31 @@ function isDueSoon(t: TaskRow): boolean {
   const n = daysUntil(t.plannedEnd);
   return n !== null && n >= 0 && n <= 3;
 }
+
+// --- lát cắt thời gian ---
+type TimePeriod = "" | "week" | "month" | "quarter" | "year";
+function toISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function periodRange(p: TimePeriod): [string, string] | null {
+  if (!p) return null;
+  const d = startOfToday(), y = d.getFullYear(), m = d.getMonth();
+  if (p === "week") {
+    const day = d.getDay();
+    const mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    return [toISO(mon), toISO(sun)];
+  }
+  if (p === "month") return [toISO(new Date(y, m, 1)), toISO(new Date(y, m + 1, 0))];
+  if (p === "quarter") { const q = Math.floor(m / 3); return [toISO(new Date(y, q * 3, 1)), toISO(new Date(y, (q + 1) * 3, 0))]; }
+  return [toISO(new Date(y, 0, 1)), toISO(new Date(y, 11, 31))];
+}
+function inPeriod(plannedEnd: string, range: [string, string] | null): boolean {
+  if (!range) return true;
+  if (!plannedEnd) return true;
+  return plannedEnd >= range[0] && plannedEnd <= range[1];
+}
+
 // Trạng thái hiển thị/đếm: status thật + lớp phủ "Quá hạn". Dùng CHUNG với /manage.
 function effOf(t: TaskRow): string {
   return effectiveStatus({ status: t.status, plannedEnd: t.plannedEnd });
@@ -747,6 +772,7 @@ export function TasksClient({
   const deferredSearch = React.useDeferredValue(search);
   const [activeWg, setActiveWg] = React.useState("");
   const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM">("");
+  const [timePeriod, setTimePeriod] = React.useState<TimePeriod>("week");
   const [colFilters, setColFilters] = React.useState<Record<string, ColFilterVal>>({});
   const [openFilter, setOpenFilter] = React.useState<{ key: SortKey; rect: DOMRect } | null>(null);
   const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "ketThuc", dir: "asc" });
@@ -778,6 +804,12 @@ export function TasksClient({
   }
   function closeDetail() { setDetailTask(null); }
 
+  // Task được chọn duy nhất — dùng để pre-fill form Thêm công việc.
+  const selectedTask = React.useMemo(
+    () => (selected.size === 1 ? (tasks.find((t) => selected.has(t.id)) ?? null) : null),
+    [selected, tasks],
+  );
+
   const setCF = (k: SortKey, v: ColFilterVal) => setColFilters((s) => ({ ...s, [k]: v }));
   const clearCol = (k: SortKey) =>
     setColFilters((s) => {
@@ -790,6 +822,7 @@ export function TasksClient({
     setSearch("");
     setQuick("");
     setActiveWg("");
+    setTimePeriod("");
   }
 
   // Giá trị phân biệt cho cột lọc "multi".
@@ -845,13 +878,15 @@ export function TasksClient({
   // Nền KPI: search + lọc cột + tab (KHÔNG gồm quick) → số KPI ổn định khi bấm.
   const baseRows = React.useMemo(() => {
     const q = norm(deferredSearch.trim());
+    const pr = periodRange(timePeriod);
     return tasks.filter((t) => {
       if (activeWg && t.workGroupId !== activeWg) return false;
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
+      if (!inPeriod(t.plannedEnd, pr)) return false;
       return true;
     });
-  }, [tasks, activeWg, deferredSearch, haystacks, cols, colFilters]);
+  }, [tasks, activeWg, deferredSearch, haystacks, cols, colFilters, timePeriod]);
 
   const kpi = React.useMemo(() => {
     let overdue = 0;
@@ -868,15 +903,17 @@ export function TasksClient({
   // Đếm tab nhóm — trên nền tìm + lọc cột + quick (KHÔNG gồm tab).
   const quickFiltered = React.useMemo(() => {
     const q = norm(deferredSearch.trim());
+    const pr = periodRange(timePeriod);
     return tasks.filter((t) => {
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
+      if (!inPeriod(t.plannedEnd, pr)) return false;
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
       return true;
     });
-  }, [tasks, deferredSearch, haystacks, cols, colFilters, quick]);
+  }, [tasks, deferredSearch, haystacks, cols, colFilters, quick, timePeriod]);
 
   const wgCounts = React.useMemo(() => {
     const m = new Map<string, number>();
@@ -1565,6 +1602,30 @@ export function TasksClient({
         </button>
       </div>
 
+      {/* Lát cắt thời gian */}
+      <div className="flex items-center gap-2">
+        <div className="inline-flex overflow-hidden rounded-md border border-slate-200">
+          {(["week", "month", "quarter", "year", ""] as const).map((p, i) => {
+            const LABEL: Record<string, string> = { week: "Tuần", month: "Tháng", quarter: "Quý", year: "Năm", "": "Tất cả" };
+            const active = timePeriod === p;
+            return (
+              <button
+                key={p || "all"}
+                type="button"
+                onClick={() => setTimePeriod(p as TimePeriod)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium transition-colors",
+                  i > 0 && "border-l border-slate-200",
+                  active ? "bg-slate-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50",
+                )}
+              >
+                {LABEL[p]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* KPI — 3 thẻ bấm lọc nhanh */}
       <div className="grid grid-cols-3 gap-2.5">
         {(
@@ -1814,7 +1875,9 @@ export function TasksClient({
         <Modal open onClose={() => setAddOpen(false)} title="Thêm công việc (chờ duyệt)" className="max-w-[96vw]">
           <p className="mb-2 flex items-center gap-2 text-xs text-slate-500">
             <Info className="size-3.5 text-slate-400" />
-            Người thực hiện tự gán là chính bạn · nhập ngày bắt đầu/kết thúc nếu đã biết.
+            {selectedTask
+              ? "Dòng đầu đã điền sẵn theo công việc đang chọn — bạn có thể chỉnh trước khi lưu."
+              : "Người thực hiện tự gán là chính bạn · nhập ngày bắt đầu/kết thúc nếu đã biết."}
           </p>
           <AssignClient
             embedded
@@ -1828,6 +1891,18 @@ export function TasksClient({
             projects={projects}
             users={users}
             catalog={catalog}
+            defaultWorkGroupId={selectedTask?.workGroupId}
+            prefillRow={selectedTask ? {
+              projectId: selectedTask.projectId ?? "",
+              level2: selectedTask.level2 ?? "",
+              level3: selectedTask.level3 ?? "",
+              level5: selectedTask.level5 ?? selectedTask.name,
+              disciplineId: selectedTask.disciplineId ?? "",
+              phaseId: selectedTask.phaseId ?? "",
+              priority: selectedTask.priority || "TRUNG_BINH",
+              plannedStart: selectedTask.plannedStart ?? "",
+              plannedEnd: selectedTask.plannedEnd ?? "",
+            } : undefined}
             onSaved={() => {
               setAddOpen(false);
               router.refresh();
@@ -1874,9 +1949,6 @@ export function TasksClient({
       {selected.size > 0 ? (
         <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
           <span className="px-2 text-sm font-medium text-slate-700">Đã chọn {selected.size}</span>
-          <span className="hidden text-xs text-slate-400 sm:inline">
-            · Đặt ngày “Thực tế hoàn thành” ở một dòng đang chọn để áp cho tất cả
-          </span>
           {canManage ? (
             <>
               <select
@@ -1928,6 +2000,15 @@ export function TasksClient({
           >
             <Calendar className="size-3.5" /> {canManage ? "Đổi ngày kết thúc" : "Đề xuất đổi hạn"}
           </button>
+          {selected.size === 1 ? (
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <Plus className="size-3.5" /> Thêm tương tự
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={clearSel}

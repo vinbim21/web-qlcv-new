@@ -70,6 +70,7 @@ const FREEZE = true; // ghim checkbox + 4 cột phân cấp khi cuộn ngang
 const SHOW_MA = false; // ẩn cột Mã mặc định
 
 type Opt = { id: string; name: string };
+type DisciplineOpt = Opt & { code?: string | null };
 // Nhóm công việc kèm mã + tiền tố Id (abbr) + bộ đếm (lastSeq) cho editor.
 type WgOpt = Opt & { code?: string; abbr?: string | null; lastSeq?: number };
 type UserOpt = { id: string; fullName: string };
@@ -184,6 +185,26 @@ function fmtDate(iso: string): string {
 const THIS_MONTH = localIso(new Date()).slice(0, 7);
 function thisMonth(iso: string): boolean {
   return !!iso && iso.slice(0, 7) === THIS_MONTH;
+}
+
+type TimePeriod = "" | "week" | "month" | "quarter" | "year";
+function periodRange(p: TimePeriod): [string, string] | null {
+  if (!p) return null;
+  const d = new Date(), y = d.getFullYear(), m = d.getMonth();
+  if (p === "week") {
+    const day = d.getDay();
+    const mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+    return [localIso(mon), localIso(sun)];
+  }
+  if (p === "month") return [localIso(new Date(y, m, 1)), localIso(new Date(y, m + 1, 0))];
+  if (p === "quarter") { const q = Math.floor(m / 3); return [localIso(new Date(y, q * 3, 1)), localIso(new Date(y, (q + 1) * 3, 0))]; }
+  return [localIso(new Date(y, 0, 1)), localIso(new Date(y, 11, 31))];
+}
+function inPeriod(plannedEnd: string, range: [string, string] | null): boolean {
+  if (!range) return true;
+  if (!plannedEnd) return true;
+  return plannedEnd >= range[0] && plannedEnd <= range[1];
 }
 
 const norm = removeVietnameseTones;
@@ -413,7 +434,7 @@ export function ManageClient({
   isAdmin: boolean;
   tasks: TaskRow[];
   workGroups: WgOpt[];
-  disciplines: Opt[];
+  disciplines: DisciplineOpt[];
   phases: Opt[];
   projects: ProjectOpt[];
   users: UserOpt[];
@@ -440,6 +461,7 @@ export function ManageClient({
   const [bulkOpen, setBulkOpen] = React.useState(false);
   // Lọc nhanh từ dải KPI.
   const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">("");
+  const [timePeriod, setTimePeriod] = React.useState<TimePeriod>("week");
   // Chế độ xem: bảng (mặc định) / gom theo người / Kanban.
   const [viewMode, setViewMode] = React.useState<"people" | "table" | "kanban">("table");
   const [collapsed, setCollapsed] = React.useState<Set<string> | null>(() => null);
@@ -575,6 +597,7 @@ export function ManageClient({
   // Nền KPI: deep-link + tìm + filter cột (KHÔNG gồm quick & tab) → số KPI ổn định khi bấm.
   const kpiBase = React.useMemo(() => {
     const q = norm(deferredSearch.trim());
+    const pr = periodRange(timePeriod);
     return tasks.filter((t) => {
       // deep-link Báo cáo
       if (f.userId && !t.assigneeIds.includes(f.userId)) return false;
@@ -586,9 +609,10 @@ export function ManageClient({
       }
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
+      if (!inPeriod(t.plannedEnd, pr)) return false;
       return true;
     });
-  }, [tasks, f.userId, f.phong, f.dateFrom, f.dateTo, deferredSearch, haystacks, cols, colFilters]);
+  }, [tasks, f.userId, f.phong, f.dateFrom, f.dateTo, deferredSearch, haystacks, cols, colFilters, timePeriod]);
 
   const kpi = React.useMemo(() => {
     // KPI bám theo tab nhóm (+ tìm kiếm + lọc cột) nhưng KHÔNG bám quick:
@@ -1508,14 +1532,14 @@ export function ManageClient({
           if (c.key === "batDau")
             return (
               <td key="batDau" className={cn("align-top text-xs text-slate-500", cellPad)}>
-                {t.plannedStart || "—"}
+                {t.plannedStart ? fmtDate(t.plannedStart) : "—"}
               </td>
             );
           if (c.key === "ketThuc")
             return (
               <td key="ketThuc" className={cn("align-top text-xs", cellPad)}>
                 {t.plannedEnd ? (
-                  <span className={cn(overdue && "font-medium text-red-600")}>{t.plannedEnd}</span>
+                  <span className={cn(overdue && "font-medium text-red-600")}>{fmtDate(t.plannedEnd)}</span>
                 ) : (
                   <span className="text-slate-300">—</span>
                 )}
@@ -1840,14 +1864,38 @@ export function ManageClient({
         ) : null}
       </div>
 
+      {/* Lát cắt thời gian */}
+      <div className="flex items-center gap-2">
+        <div className="inline-flex overflow-hidden rounded-md border">
+          {(["week", "month", "quarter", "year", ""] as const).map((p, i) => {
+            const LABEL: Record<string, string> = { week: "Tuần", month: "Tháng", quarter: "Quý", year: "Năm", "": "Tất cả" };
+            const active = timePeriod === p;
+            return (
+              <button
+                key={p || "all"}
+                type="button"
+                onClick={() => setTimePeriod(p as TimePeriod)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium transition-colors",
+                  i > 0 && "border-l",
+                  active ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {LABEL[p]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Dải KPI cảnh báo — bấm để lọc nhanh */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {(
           [
-            { key: "QUA_HAN", label: "Quá hạn", n: kpi.overdue, Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
-            { key: "SAP_HAN", label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon, Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
-            { key: "CHUA_GIAO", label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX, tone: "border-slate-200 bg-slate-50 text-slate-700" },
             { key: "DANG_LAM", label: "Đang làm", n: kpi.doing, Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
+            { key: "SAP_HAN", label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon, Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
+            { key: "QUA_HAN", label: "Quá hạn", n: kpi.overdue, Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
+            { key: "CHUA_GIAO", label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX, tone: "border-slate-200 bg-slate-50 text-slate-700" },
           ] as const
         ).map(({ key, label, n, Icon, tone }) => (
           <button
@@ -2058,6 +2106,7 @@ export function ManageClient({
                               cols={cols}
                               projects={projects}
                               disciplines={disciplines}
+                              phases={phases}
                               users={users}
                               catalog={catalog}
                               onCancel={() => setInsertCtx(null)}
@@ -2290,7 +2339,7 @@ function InlineTaskEditRow({
   canManage: boolean;
   cols: ColDef[];
   projects: ProjectOpt[];
-  disciplines: Opt[];
+  disciplines: DisciplineOpt[];
   users: { id: string; fullName: string }[];
   catalog: Catalog;
   onCancel: () => void;
@@ -2423,10 +2472,10 @@ function InlineTaskEditRow({
               <SearchableCombobox
                 creatable={false}
                 placeholder={none}
-                value={disciplines.find((d) => d.id === disciplineId)?.name ?? ""}
-                options={[none, ...disciplines.map((d) => d.name)]}
+                value={disciplines.find((d) => d.id === disciplineId)?.code ?? disciplines.find((d) => d.id === disciplineId)?.name ?? ""}
+                options={[none, ...disciplines.map((d) => d.code ?? d.name)]}
                 className="h-8 text-xs"
-                onChange={(label) => setDisciplineId(label === none ? "" : (disciplines.find((d) => d.name === label)?.id ?? ""))}
+                onChange={(label) => setDisciplineId(label === none ? "" : (disciplines.find((d) => (d.code ?? d.name) === label)?.id ?? ""))}
               />
             </td>
           );
@@ -2724,7 +2773,7 @@ function TaskDialog({
   task?: TaskRow;
   defaultWorkGroupId?: string;
   workGroups: WgOpt[];
-  disciplines: Opt[];
+  disciplines: DisciplineOpt[];
   phases: Opt[];
   projects: ProjectOpt[];
   users: UserOpt[];
@@ -2758,6 +2807,7 @@ function TreeInsertRow({
   cols,
   projects,
   disciplines,
+  phases,
   users,
   catalog,
   onCancel,
@@ -2768,7 +2818,8 @@ function TreeInsertRow({
   canManage: boolean;
   cols: ColDef[];
   projects: ProjectOpt[];
-  disciplines: Opt[];
+  disciplines: DisciplineOpt[];
+  phases: Opt[];
   users: { id: string; fullName: string }[];
   catalog: Catalog;
   onCancel: () => void;
@@ -2781,6 +2832,7 @@ function TreeInsertRow({
   const [hangMuc, setHangMuc] = React.useState(ctx.hangMuc);
   const [level5, setLevel5] = React.useState("");
   const [disciplineId, setDisciplineId] = React.useState("");
+  const [phaseId, setPhaseId] = React.useState("");
   const [assigneeIds, setAssigneeIds] = React.useState<string[]>([]);
   const [priority, setPriority] = React.useState("TRUNG_BINH");
   const [plannedStart, setPlannedStart] = React.useState("");
@@ -2811,7 +2863,7 @@ function TreeInsertRow({
     const res = await saveTask({
       workGroupId: ctx.workGroupId,
       projectId: resolvedProjectId || null,
-      disciplineId: disciplineId || null, phaseId: null, sumId: null,
+      disciplineId: disciplineId || null, phaseId: phaseId || null, sumId: null,
       level2: ctCode || null,
       level3: hangMuc || null,
       level5: level5.trim() || null,
@@ -2921,16 +2973,30 @@ function TreeInsertRow({
             </td>
           );
         }
+        if (col.key === "giaiDoan") {
+          return (
+            <td key={col.key} className={cellCls}>
+              <SearchableCombobox
+                creatable={false}
+                placeholder={NONE}
+                value={phases.find((p) => p.id === phaseId)?.name ?? ""}
+                options={[NONE, ...phases.map((p) => p.name)]}
+                className="h-8 text-xs"
+                onChange={(label) => setPhaseId(label === NONE ? "" : (phases.find((p) => p.name === label)?.id ?? ""))}
+              />
+            </td>
+          );
+        }
         if (col.key === "boMon") {
           return (
             <td key={col.key} className={cellCls}>
               <SearchableCombobox
                 creatable={false}
                 placeholder={NONE}
-                value={disciplines.find((d) => d.id === disciplineId)?.name ?? ""}
-                options={[NONE, ...disciplines.map((d) => d.name)]}
+                value={disciplines.find((d) => d.id === disciplineId)?.code ?? disciplines.find((d) => d.id === disciplineId)?.name ?? ""}
+                options={[NONE, ...disciplines.map((d) => d.code ?? d.name)]}
                 className="h-8 text-xs"
-                onChange={(label) => setDisciplineId(label === NONE ? "" : (disciplines.find((d) => d.name === label)?.id ?? ""))}
+                onChange={(label) => setDisciplineId(label === NONE ? "" : (disciplines.find((d) => (d.code ?? d.name) === label)?.id ?? ""))}
               />
             </td>
           );
