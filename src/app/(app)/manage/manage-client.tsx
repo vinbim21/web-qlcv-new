@@ -201,10 +201,13 @@ function periodRange(p: TimePeriod): [string, string] | null {
   if (p === "quarter") { const q = Math.floor(m / 3); return [localIso(new Date(y, q * 3, 1)), localIso(new Date(y, (q + 1) * 3, 0))]; }
   return [localIso(new Date(y, 0, 1)), localIso(new Date(y, 11, 31))];
 }
-function inPeriod(plannedEnd: string, range: [string, string] | null): boolean {
+function inPeriod(plannedStart: string, plannedEnd: string, range: [string, string] | null): boolean {
   if (!range) return true;
-  if (!plannedEnd) return true;
-  return plannedEnd >= range[0] && plannedEnd <= range[1];
+  if (!plannedStart && !plannedEnd) return true;
+  // task overlap period nếu: plannedStart <= cuối kỳ VÀ plannedEnd >= đầu kỳ
+  const startOk = !plannedStart || plannedStart <= range[1];
+  const endOk = !plannedEnd || plannedEnd >= range[0];
+  return startOk && endOk;
 }
 
 const norm = removeVietnameseTones;
@@ -609,7 +612,7 @@ export function ManageClient({
       }
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
-      if (!inPeriod(t.plannedEnd, pr)) return false;
+      if (!inPeriod(t.plannedStart, t.plannedEnd, pr)) return false;
       return true;
     });
   }, [tasks, f.userId, f.phong, f.dateFrom, f.dateTo, deferredSearch, haystacks, cols, colFilters, timePeriod]);

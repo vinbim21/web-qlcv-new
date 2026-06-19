@@ -152,10 +152,13 @@ function periodRange(p: TimePeriod): [string, string] | null {
   if (p === "quarter") { const q = Math.floor(m / 3); return [toISO(new Date(y, q * 3, 1)), toISO(new Date(y, (q + 1) * 3, 0))]; }
   return [toISO(new Date(y, 0, 1)), toISO(new Date(y, 11, 31))];
 }
-function inPeriod(plannedEnd: string, range: [string, string] | null): boolean {
+function inPeriod(plannedStart: string, plannedEnd: string, range: [string, string] | null): boolean {
   if (!range) return true;
-  if (!plannedEnd) return true;
-  return plannedEnd >= range[0] && plannedEnd <= range[1];
+  if (!plannedStart && !plannedEnd) return true;
+  // task overlap period nếu: plannedStart <= cuối kỳ VÀ plannedEnd >= đầu kỳ
+  const startOk = !plannedStart || plannedStart <= range[1];
+  const endOk = !plannedEnd || plannedEnd >= range[0];
+  return startOk && endOk;
 }
 
 // Trạng thái hiển thị/đếm: status thật + lớp phủ "Quá hạn". Dùng CHUNG với /manage.
@@ -883,7 +886,7 @@ export function TasksClient({
       if (activeWg && t.workGroupId !== activeWg) return false;
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
-      if (!inPeriod(t.plannedEnd, pr)) return false;
+      if (!inPeriod(t.plannedStart, t.plannedEnd, pr)) return false;
       return true;
     });
   }, [tasks, activeWg, deferredSearch, haystacks, cols, colFilters, timePeriod]);
@@ -907,7 +910,7 @@ export function TasksClient({
     return tasks.filter((t) => {
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
-      if (!inPeriod(t.plannedEnd, pr)) return false;
+      if (!inPeriod(t.plannedStart, t.plannedEnd, pr)) return false;
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
