@@ -645,16 +645,6 @@ function StatusCell({
           >
             <Lock className="size-2.5" /> Chờ duyệt
           </span>
-          {canApproveStart ? (
-            <button
-              type="button"
-              title="Duyệt — cho phép nhập thời gian"
-              onClick={onApprove}
-              className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-emerald-600"
-            >
-              <ShieldCheck className="size-3.5" />
-            </button>
-          ) : null}
         </div>
       ) : null}
     </div>
