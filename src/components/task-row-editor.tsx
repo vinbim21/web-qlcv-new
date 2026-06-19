@@ -21,6 +21,7 @@ import { saveTask } from "@/server/actions/tasks";
 
 // Nhóm công việc kèm tiền tố Id (abbr) + bộ đếm (lastSeq) để hiện Id như /assign.
 type WgOpt = Opt & { abbr?: string | null; lastSeq?: number };
+type DisciplineOpt = Opt & { code?: string | null };
 
 const NONE = "— Không —";
 
@@ -52,7 +53,7 @@ export function TaskRowEditor({
   task?: TaskRow & { seq?: number | null };
   defaultWorkGroupId?: string;
   workGroups: WgOpt[];
-  disciplines: Opt[];
+  disciplines: DisciplineOpt[];
   phases: Opt[];
   projects: ProjectOpt[];
   users: UserOpt[];
@@ -226,12 +227,12 @@ export function TaskRowEditor({
           <SearchableCombobox
             creatable={false}
             placeholder={NONE}
-            value={disciplines.find((d) => d.id === f.disciplineId)?.name ?? ""}
-            options={[NONE, ...disciplines.map((d) => d.name)]}
+            value={disciplines.find((d) => d.id === f.disciplineId)?.code ?? disciplines.find((d) => d.id === f.disciplineId)?.name ?? ""}
+            options={[NONE, ...disciplines.map((d) => d.code ?? d.name)]}
             onChange={(label) =>
               set({
                 disciplineId:
-                  label === NONE ? "" : (disciplines.find((d) => d.name === label)?.id ?? ""),
+                  label === NONE ? "" : (disciplines.find((d) => (d.code ?? d.name) === label)?.id ?? ""),
               })
             }
           />

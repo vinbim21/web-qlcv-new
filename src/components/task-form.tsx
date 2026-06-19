@@ -11,7 +11,7 @@ import { UserMultiSelect } from "@/components/user-multi-select";
 import { PRIORITY_LABEL, PRIORITY_OPTIONS, TASK_STATUS_LABEL } from "@/lib/labels";
 import { saveTask } from "@/server/actions/tasks";
 
-export type Opt = { id: string; name: string; code?: string };
+export type Opt = { id: string; name: string; code?: string | null };
 export type UserOpt = { id: string; fullName: string };
 export type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[]; l3ByL2: Record<string, string[]> }>;
 
