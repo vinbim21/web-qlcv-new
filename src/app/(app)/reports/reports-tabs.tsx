@@ -32,11 +32,11 @@ const TABS: Tab[] = [
 const SELF_TABS: TabKey[] = ["overview", "time"];
 
 const PERIOD_TYPES: { key: PeriodType; label: string }[] = [
-  { key: "all", label: "Tất cả" },
   { key: "week", label: "Tuần" },
   { key: "month", label: "Tháng" },
   { key: "quarter", label: "Quý" },
   { key: "year", label: "Năm" },
+  { key: "all", label: "Tất cả" },
 ];
 
 function PeriodSelector({
@@ -149,7 +149,7 @@ export function ReportsTabs({
   const now = new Date();
   const curISOWeek = getISOWeekYear(now);
 
-  const [periodType, setPeriodType] = React.useState<PeriodType>("all");
+  const [periodType, setPeriodType] = React.useState<PeriodType>("week");
   const [year, setYear] = React.useState(curISOWeek.year);
   const [week, setWeek] = React.useState(curISOWeek.week);
   const [month, setMonth] = React.useState(now.getMonth() + 1);

@@ -241,6 +241,8 @@ export function AssignClient({
   approvers = [],
   selfAssignUserId,
   saveAction = saveTasksBatch,
+  defaultWorkGroupId,
+  prefillRow,
 }: {
   // workGroups kèm abbr (tiền tố Id) + lastSeq (gốc preview Id).
   workGroups: (Opt & { abbr?: string | null; lastSeq?: number })[];
@@ -259,11 +261,23 @@ export function AssignClient({
   selfAssignUserId?: string;
   // saveAction: action lưu (mặc định saveTasksBatch; "tự note" dùng saveMyTasks).
   saveAction?: typeof saveTasksBatch;
+  // defaultWorkGroupId: tab nhóm mặc định khi mở (dùng để pre-fill từ task đang chọn).
+  defaultWorkGroupId?: string;
+  // prefillRow: dữ liệu điền sẵn vào dòng đầu của tab defaultWorkGroupId.
+  prefillRow?: Partial<Omit<GridRow, "key">>;
 }) {
-  const [activeWg, setActiveWg] = React.useState(workGroups[0]?.id ?? "");
-  const [rowsByWg, setRowsByWg] = React.useState<Record<string, GridRow[]>>(() =>
-    Object.fromEntries(workGroups.map((w) => [w.id, makeRows(INITIAL_ROWS)])),
+  const [activeWg, setActiveWg] = React.useState(
+    (defaultWorkGroupId && workGroups.some((w) => w.id === defaultWorkGroupId)
+      ? defaultWorkGroupId
+      : workGroups[0]?.id) ?? "",
   );
+  const [rowsByWg, setRowsByWg] = React.useState<Record<string, GridRow[]>>(() => {
+    const init = Object.fromEntries(workGroups.map((w) => [w.id, makeRows(INITIAL_ROWS)]));
+    if (prefillRow && defaultWorkGroupId && init[defaultWorkGroupId]) {
+      init[defaultWorkGroupId][0] = { ...init[defaultWorkGroupId][0], ...prefillRow };
+    }
+    return init;
+  });
   const [pending, setPending] = React.useState(false);
   // Bộ nhớ tạm 1 dòng để Sao chép → Dán (dùng chung mọi tab).
   const [clip, setClip] = React.useState<Omit<GridRow, "key"> | null>(null);
@@ -300,7 +314,7 @@ export function AssignClient({
 
   const activeGroup = workGroups.find((w) => w.id === activeWg);
   // "Tự note" (selfAssignUserId): ẩn cột Người thực hiện (luôn tự gán mình).
-  const cols = columnsFor(activeGroup?.code, withApprover).filter(
+  const cols = columnsFor(activeGroup?.code ?? undefined, withApprover).filter(
     (c) => !(selfAssignUserId && c === "assignees"),
   );
   const tableMinWidth = IDX_PX + ACT_PX + cols.reduce((s, c) => s + colWidths[c], 0);
