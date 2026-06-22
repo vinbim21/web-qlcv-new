@@ -75,7 +75,7 @@ export const taskStartApprovalSchema = z.object({
 });
 
 // ---- Thao tác hàng loạt (tab Quản lý công việc) ----
-const taskIds = z.array(z.string().min(1)).min(1, "Chưa chọn công việc").max(500);
+const taskIds = z.array(z.string().min(1)).min(1, "Chưa chọn công việc").max(2000);
 
 export const bulkStatusSchema = z.object({
   ids: taskIds,

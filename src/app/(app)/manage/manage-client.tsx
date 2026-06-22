@@ -652,7 +652,7 @@ export function ManageClient({
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0 && !isPendingApproval(t)) return false;
-      if (quick === "DANG_LAM" && effOf(t) !== "DANG_LAM") return false;
+      if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
       return true;
     });
   }, [kpiBase, quick]);
