@@ -72,6 +72,7 @@ export default async function TasksPage() {
         plannedEnd: iso(t.plannedEnd),
         actualEnd: iso(t.actualEnd),
         note: t.note,
+        result: t.result,
         approved: !!t.approvedAt,
         approvedByName: t.approvedBy?.fullName ?? null,
         approverId: t.approverId,

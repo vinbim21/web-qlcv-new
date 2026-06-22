@@ -79,6 +79,7 @@ export function TaskRowEditor({
     plannedStart: task?.plannedStart ?? "",
     plannedEnd: task?.plannedEnd ?? "",
     note: task?.note ?? "",
+    result: task?.result ?? "",
   });
   const [assigneeIds, setAssigneeIds] = React.useState<string[]>(task?.assigneeIds ?? []);
   const [measureNorm, setMeasureNorm] = React.useState<boolean>(task?.measureNorm ?? false);
@@ -137,6 +138,7 @@ export function TaskRowEditor({
       plannedStart: f.plannedStart || null,
       plannedEnd: f.plannedEnd || null,
       note: f.note || null,
+      result: f.result || null,
       measureNorm,
       assigneeIds,
     });
@@ -293,6 +295,14 @@ export function TaskRowEditor({
 
       <Field label="Ghi chú">
         <Textarea value={f.note} onChange={(e) => set({ note: e.target.value })} />
+      </Field>
+
+      <Field label="Kết quả (URL hoặc đường dẫn file)">
+        <Input
+          value={f.result}
+          onChange={(e) => set({ result: e.target.value })}
+          placeholder="https://... hoặc T:\thư mục\file.xlsx"
+        />
       </Field>
 
       <label className="flex items-center gap-2 text-sm">

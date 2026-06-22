@@ -23,6 +23,7 @@ export type TaskRow = {
   batDau: string; // plannedStart iso ("")
   ketThuc: string; // plannedEnd iso ("")
   thucTe: string; // actualEnd iso ("")
+  result: string; // URL or file path
   hours: number; // giờ công (timesheet)
 };
 

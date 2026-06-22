@@ -19,6 +19,7 @@ export const taskSchema = z.object({
   plannedStart: z.string().optional().nullable(),
   plannedEnd: z.string().optional().nullable(),
   note: z.string().optional().nullable(),
+  result: z.string().optional().nullable(),
   // Người duyệt khởi tạo (luồng "Thêm công việc"). null = việc không cần duyệt khởi tạo.
   approverId: z.string().optional().nullable(),
   // nhiều người thực hiện; roleNo = vị trí + 1

@@ -33,6 +33,7 @@ export default async function ReportsPage() {
         workGroupId: true,
         status: true,
         priority: true,
+        result: true,
         plannedStart: true,
         plannedEnd: true,
         actualEnd: true,
@@ -78,6 +79,7 @@ export default async function ReportsPage() {
     batDau: iso(t.plannedStart),
     ketThuc: iso(t.plannedEnd),
     thucTe: iso(t.actualEnd),
+    result: t.result ?? "",
     hours: hoursByTask.get(t.id) ?? 0,
   }));
 

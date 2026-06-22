@@ -94,6 +94,7 @@ export default async function ManagePage({
         plannedEnd: iso(t.plannedEnd),
         actualEnd: iso(t.actualEnd),
         note: t.note,
+        result: t.result,
         measureNorm: t.measureNorm,
         approved: !!t.approvedAt,
         approvedByName: t.approvedBy?.fullName ?? null,

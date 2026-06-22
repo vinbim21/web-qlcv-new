@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
@@ -231,6 +232,7 @@ export async function saveTask(input: unknown) {
       plannedStart: toDate(data.plannedStart),
       plannedEnd: toDate(data.plannedEnd),
       note: data.note || null,
+      result: data.result ?? undefined,
     };
 
     // Ghi việc + đồng bộ người + thông báo trong 1 transaction (atomic).
@@ -489,6 +491,23 @@ export async function setTaskCompletion(input: unknown) {
         data: { actualEnd: null, status: deriveActiveStatus(t.plannedStart, t._count.assignees), progressPercent: 0 },
       });
     }
+    revalidateTaskViews();
+  });
+}
+
+/**
+ * Cập nhật kết quả công việc (URL hoặc đường dẫn file).
+ * Quyền: Quản trị/Cấp 1 hoặc người được giao việc.
+ */
+export async function saveTaskResult(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const { id, result } = z.object({ id: z.string().min(1), result: z.string().nullable() }).parse(input);
+    if (!canManage(user.role)) {
+      const assigned = await prisma.taskAssignee.findFirst({ where: { taskId: id, userId: user.id } });
+      if (!assigned) throw new Error("Bạn không được giao công việc này");
+    }
+    await prisma.task.update({ where: { id }, data: { result: result || null } });
     revalidateTaskViews();
   });
 }
