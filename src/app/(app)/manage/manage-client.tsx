@@ -32,6 +32,7 @@ import { useRouter } from "next/navigation";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskRowEditor } from "@/components/task-row-editor";
+import { ResultCell } from "@/components/result-cell";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,6 +116,7 @@ export type TaskRow = {
   plannedEnd: string;
   actualEnd: string;
   note: string | null;
+  result: string | null;
   approved: boolean;
   approvedByName: string | null;
   // Duyệt khởi tạo (luồng "Thêm công việc"): approverId != null & !startApproved => đang chờ duyệt.
@@ -231,7 +233,8 @@ type SortKey =
   | "tinhTrang"
   | "batDau"
   | "ketThuc"
-  | "thucTe";
+  | "thucTe"
+  | "ketQua";
 type ColDef = {
   key: SortKey;
   label: string;
@@ -266,6 +269,8 @@ function colText(t: TaskRow, key: SortKey): string {
       return t.plannedEnd;
     case "thucTe":
       return t.actualEnd;
+    case "ketQua":
+      return t.result ?? "";
     default:
       return "";
   }
@@ -405,6 +410,7 @@ const MANAGE_COL_W: Record<string, number> = {
   batDau: 116,
   ketThuc: 116,
   thucTe: 150,
+  ketQua: 120,
 };
 const clampManageW = (n: number, key?: string) =>
   Math.min(MANAGE_MAX_W, Math.max(key ? (MANAGE_COL_MIN_W[key] ?? MANAGE_MIN_W) : MANAGE_MIN_W, Math.round(n)));
@@ -625,6 +631,7 @@ export function ManageClient({
       { key: "batDau", label: "Bắt đầu", filter: "date" },
       { key: "ketThuc", label: "Kết thúc", filter: "date" },
       { key: "thucTe", label: "Thực tế hoàn thành", filter: "date" },
+      { key: "ketQua", label: "Kết quả", filter: "text" },
     ];
     return SHOW_MA ? all : all.filter((c) => c.key !== "sumId");
   }, [distinct]);
@@ -1639,6 +1646,12 @@ export function ManageClient({
                     className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
                   />
                 </label>
+              </td>
+            );
+          if (c.key === "ketQua")
+            return (
+              <td key="ketQua" className="px-2.5 py-1.5 align-top">
+                <ResultCell taskId={t.id} value={t.result} canEdit={t.assigneeIds.includes(currentUserId) || canManage} />
               </td>
             );
           return <td key={c.key} className={cellPad} />;

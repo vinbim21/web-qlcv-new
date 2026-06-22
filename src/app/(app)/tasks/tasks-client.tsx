@@ -61,6 +61,7 @@ import {
   setTaskStartApproval,
 } from "@/server/actions/tasks";
 import { getTaskWeekEntries } from "@/server/actions/timesheet";
+import { ResultCell } from "@/components/result-cell";
 
 type Opt = { id: string; name: string };
 type UserOpt = { id: string; fullName: string };
@@ -93,6 +94,7 @@ export type TaskRow = {
   plannedEnd: string;
   actualEnd: string;
   note: string | null;
+  result: string | null;
   approved: boolean;
   approvedByName: string | null;
   approverId: string | null;
@@ -184,7 +186,8 @@ type SortKey =
   | "tinhTrang"
   | "batDau"
   | "ketThuc"
-  | "thucTe";
+  | "thucTe"
+  | "ketQua";
 type ColDef = {
   key: SortKey;
   label: string;
@@ -221,6 +224,8 @@ function colText(t: TaskRow, key: SortKey): string {
       return t.plannedEnd;
     case "thucTe":
       return t.actualEnd;
+    case "ketQua":
+      return t.result ?? "";
     default:
       return "";
   }
@@ -868,6 +873,7 @@ export function TasksClient({
       { key: "batDau", label: "Bắt đầu", w: 112, filter: "date" },
       { key: "ketThuc", label: "Kết thúc", w: 112, filter: "date" },
       { key: "thucTe", label: "Thực tế hoàn thành", w: 188, filter: "date" },
+      { key: "ketQua", label: "Kết quả", w: 120, filter: "text" },
     ],
     [distinct],
   );
@@ -1357,13 +1363,9 @@ export function TasksClient({
     const mainRow = (
       <tr
         key={t.id}
-        onClick={(e) => {
-          const tag = (e.target as HTMLElement).closest("input,button,a,label,select");
-          if (!tag) openDetail(t);
-        }}
         onDoubleClick={canManage ? () => setEditing(t) : undefined}
         className={cn(
-          "cursor-pointer border-b border-slate-100 bg-[var(--row-bg)]",
+          "border-b border-slate-100 bg-[var(--row-bg)]",
           isSel ? "[--row-bg:#eff6ff]" : "[--row-bg:#ffffff] hover:[--row-bg:#f8fafc]",
         )}
       >
@@ -1392,7 +1394,9 @@ export function TasksClient({
               <td
                 key="congViec"
                 style={bodyFrozenStyle("congViec")}
-                className="border-l border-slate-100 px-2 py-2.5 align-top"
+                className="cursor-pointer border-l border-slate-100 px-2 py-2.5 align-top"
+                onClick={() => void openDetail(t)}
+                title="Xem chi tiết công việc"
               >
                 <span className="font-medium text-slate-800">{t.name}</span>
               </td>
@@ -1514,6 +1518,12 @@ export function TasksClient({
             return (
               <td key="thucTe" className="px-2.5 py-1 align-top">
                 <CompletionCell t={t} canEdit={canEditDone} onComplete={(v) => onCompletion(t, v)} />
+              </td>
+            );
+          if (c.key === "ketQua")
+            return (
+              <td key="ketQua" className="px-2.5 py-1.5 align-top">
+                <ResultCell taskId={t.id} value={t.result} canEdit={t.assigneeIds.includes(currentUserId) || canManage} />
               </td>
             );
           return <td key={c.key} className="px-2.5 py-2.5" />;
