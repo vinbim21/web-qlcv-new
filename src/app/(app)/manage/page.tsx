@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { auth } from "@/server/auth/config";
 import { prisma } from "@/server/db/client";
 import { canAssign, canManage } from "@/server/auth/permissions";
@@ -16,8 +15,6 @@ export default async function ManagePage({
 }) {
   const session = await auth();
   if (!session?.user) return null;
-  // Chỉ Admin / Cấp 1 / Cấp 2 được vào trang Quản lý công việc.
-  if (!canAssign(session.user.role)) redirect("/tasks");
   const manage = canManage(session.user.role);
   const assign = canAssign(session.user.role);
 
@@ -45,6 +42,7 @@ export default async function ManagePage({
         project: { include: { group: true, constructionType: true } },
         approvedBy: { select: { fullName: true } },
         approver: { select: { fullName: true } },
+        endChangeRequester: { select: { fullName: true } },
         assignees: { include: { user: true }, orderBy: { roleNo: "asc" } },
       },
       orderBy: [{ workGroupId: "asc" }, { createdAt: "asc" }],
@@ -102,6 +100,8 @@ export default async function ManagePage({
         approverId: t.approverId,
         approverName: t.approver?.fullName ?? null,
         startApproved: !!t.startApprovedAt,
+        pendingPlannedEnd: t.pendingPlannedEnd ? iso(t.pendingPlannedEnd) : null,
+        endChangeRequesterName: t.endChangeRequester?.fullName ?? null,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
       }))}

@@ -24,8 +24,6 @@ const MAIN_NAV: NavItem[] = [
   { href: "/reports", label: "Báo cáo", icon: PieChart },
 ];
 
-// Chỉ hiển thị cho Admin / Cấp 1 / Cấp 2 (canAssign), chèn ngay sau "Công việc của tôi".
-// "Giao việc" đã gộp vào nút "Thêm công việc" ở /manage (mở lưới nhập trong modal).
 const MANAGE_NAV: NavItem = { href: "/manage", label: "Quản lý công việc", icon: ClipboardCheck };
 
 const ADMIN_NAV: NavItem[] = [
@@ -54,10 +52,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 
 export function SidebarNav({ isAdmin, canAssign }: { isAdmin: boolean; canAssign: boolean }) {
   const pathname = usePathname();
-  // "Quản lý công việc" + "Giao việc" chỉ cho Admin / Cấp 1 / Cấp 2, chèn sau "Công việc của tôi".
-  const mainNav = canAssign
-    ? [MAIN_NAV[0], MAIN_NAV[1], MANAGE_NAV, ...MAIN_NAV.slice(2)]
-    : MAIN_NAV;
+  const mainNav = [MAIN_NAV[0], MAIN_NAV[1], MANAGE_NAV, ...MAIN_NAV.slice(2)];
   return (
     <div className="space-y-3">
       <div className="space-y-0.5">

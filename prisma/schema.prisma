@@ -46,6 +46,7 @@ enum NotificationType {
   TASK_PRIORITY_CHANGED // Việc của tôi đổi ưu tiên
   TASK_DEADLINE_SOON // Sắp đến hạn (sinh lười khi đọc)
   TASK_APPROVAL_REQUESTED // Có việc (NV tự tạo) chờ bạn duyệt
+  TASK_DEADLINE_CHANGE_REQUESTED // NV đề xuất dời hạn, chờ quản lý duyệt
 }
 
 // ---------- Danh mục (lookup) ----------
@@ -188,8 +189,9 @@ model User {
 
   discipline    Discipline?      @relation(fields: [disciplineId], references: [id])
   assignments   TaskAssignee[]
-  approvedTasks Task[]           @relation("TaskApprover")
-  tasksToApprove Task[]          @relation("TaskStartApprover")
+  approvedTasks        Task[]  @relation("TaskApprover")
+  tasksToApprove       Task[]  @relation("TaskStartApprover")
+  endChangeRequests    Task[]  @relation("TaskEndChangeRequester")
   timeSheets    TimeSheetEntry[]
   notifications Notification[]   @relation("NotifRecipient")
 
@@ -254,8 +256,9 @@ model Task {
   phase      Phase?         @relation(fields: [phaseId], references: [id])
   parent        Task?            @relation("TaskTree", fields: [parentId], references: [id])
   children      Task[]           @relation("TaskTree")
-  approvedBy    User?            @relation("TaskApprover", fields: [approvedById], references: [id])
-  approver      User?            @relation("TaskStartApprover", fields: [approverId], references: [id])
+  approvedBy           User?  @relation("TaskApprover", fields: [approvedById], references: [id])
+  approver             User?  @relation("TaskStartApprover", fields: [approverId], references: [id])
+  endChangeRequester   User?  @relation("TaskEndChangeRequester", fields: [endChangeRequesterId], references: [id])
   assignees     TaskAssignee[]
   timeSheets    TimeSheetEntry[]
   notifications Notification[]

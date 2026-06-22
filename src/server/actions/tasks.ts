@@ -10,6 +10,7 @@ import { PRIORITY_LABEL } from "@/lib/labels";
 import {
   createNotifications,
   notifyAssignment,
+  notifyManagers,
   notifyTasksChange,
 } from "@/server/notifications/service";
 import {
@@ -115,6 +116,33 @@ async function createTasksBatchTx(
     });
   }
 
+  // Kiểm tra trùng lặp trước khi cấp seq (tránh lãng phí seq khi throw).
+  const duplicateNames: string[] = [];
+  for (const r of rows) {
+    const ids = [...new Set((opts.forceAssigneeIds ?? r.assigneeIds ?? []).filter(Boolean))];
+    const nm = defaultTaskName(r);
+    const newSet = ids.slice().sort().join(",");
+    const existing = await tx.task.findMany({
+      where: {
+        deletedAt: null,
+        workGroupId: r.workGroupId,
+        projectId: r.projectId || null,
+        level2: r.level2 || null,
+        level3: r.level3 || null,
+        name: nm,
+        phaseId: r.phaseId || null,
+        disciplineId: r.disciplineId || null,
+      },
+      select: { assignees: { select: { userId: true } } },
+    });
+    if (existing.some((t) => t.assignees.map((a) => a.userId).sort().join(",") === newSet)) {
+      duplicateNames.push(nm);
+    }
+  }
+  if (duplicateNames.length > 0) {
+    throw new Error(`Công việc đã tồn tại (trùng lặp): ${duplicateNames.join(", ")}`);
+  }
+
   const out: { id: string; approverId: string | null; name: string }[] = [];
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -212,12 +240,25 @@ export async function saveTask(input: unknown) {
 
       if (data.id) {
         // Diff: chỉ báo người MỚI được thêm (sửa lại việc không spam người cũ).
-        const prev = await tx.taskAssignee.findMany({
-          where: { taskId: data.id },
-          select: { userId: true },
-        });
+        const [prev, cur] = await Promise.all([
+          tx.taskAssignee.findMany({ where: { taskId: data.id }, select: { userId: true } }),
+          tx.task.findUnique({
+            where: { id: data.id },
+            select: { actualEnd: true, plannedStart: true, plannedEnd: true, _count: { select: { assignees: true } } },
+          }),
+        ]);
         const had = new Set(prev.map((p) => p.userId));
         newAssigneeIds = assigneeIds.filter((id) => !had.has(id));
+
+        // Reset hoàn thành khi ngày thay đổi — timeline đổi thì actualEnd cũ không còn hợp lệ.
+        const newPS = toDate(data.plannedStart)?.toISOString().slice(0, 10) ?? null;
+        const newPE = toDate(data.plannedEnd)?.toISOString().slice(0, 10) ?? null;
+        const curPS = cur?.plannedStart ? (cur.plannedStart as Date).toISOString().slice(0, 10) : null;
+        const curPE = cur?.plannedEnd ? (cur.plannedEnd as Date).toISOString().slice(0, 10) : null;
+        const completionReset = cur?.actualEnd && (newPS !== curPS || newPE !== curPE)
+          ? { actualEnd: null, approvedAt: null, approvedById: null, progressPercent: 0,
+              status: deriveActiveStatus(toDate(data.plannedStart), cur._count.assignees) }
+          : null;
 
         if (approverDateOnly) {
           await tx.task.update({
@@ -225,10 +266,11 @@ export async function saveTask(input: unknown) {
             data: {
               plannedStart: toDate(data.plannedStart),
               plannedEnd: toDate(data.plannedEnd),
+              ...(completionReset ?? {}),
             },
           });
         } else {
-          await tx.task.update({ where: { id: data.id }, data: payload });
+          await tx.task.update({ where: { id: data.id }, data: { ...payload, ...(completionReset ?? {}) } });
           await tx.taskAssignee.deleteMany({ where: { taskId: data.id } });
           if (assigneeIds.length > 0) {
             await tx.taskAssignee.createMany({
@@ -238,6 +280,25 @@ export async function saveTask(input: unknown) {
         }
         taskId = data.id;
       } else {
+        // Kiểm tra trùng lặp trước khi tạo mới.
+        const newSet = assigneeIds.slice().sort().join(",");
+        const dupCheck = await tx.task.findMany({
+          where: {
+            deletedAt: null,
+            workGroupId: payload.workGroupId,
+            projectId: payload.projectId,
+            level2: payload.level2,
+            level3: payload.level3,
+            name,
+            phaseId: payload.phaseId,
+            disciplineId: payload.disciplineId,
+          },
+          select: { assignees: { select: { userId: true } } },
+        });
+        if (dupCheck.some((t) => t.assignees.map((a) => a.userId).sort().join(",") === newSet)) {
+          throw new Error(`Công việc "${name}" đã tồn tại với cùng phân loại và người thực hiện`);
+        }
+
         const created = await tx.task.create({
           data: {
             ...payload,
@@ -763,16 +824,34 @@ export async function requestEndDateChange(input: unknown) {
         where: { id: { in: ids }, deletedAt: null },
         data: { plannedEnd: d, pendingPlannedEnd: null, endChangeRequesterId: null },
       });
+      // Reset hoàn thành cho task đang có actualEnd — deadline đổi thì completion cũ không còn hợp lệ.
+      await prisma.task.updateMany({
+        where: { id: { in: ids }, deletedAt: null, actualEnd: { not: null } },
+        data: { actualEnd: null, approvedAt: null, approvedById: null, progressPercent: 0, status: "CHUA_LAM" },
+      });
       revalidateTaskViews();
       return res.count;
     } else {
       // Assignee: lưu pending, chờ quản lý duyệt
-      const res = await prisma.task.updateMany({
+      const affected = await prisma.task.findMany({
         where: { id: { in: ids }, deletedAt: null, assignees: { some: { userId: user.id } } },
+        select: { id: true, name: true },
+      });
+      if (affected.length === 0) return 0;
+      await prisma.task.updateMany({
+        where: { id: { in: affected.map((t) => t.id) } },
         data: { pendingPlannedEnd: d, endChangeRequesterId: user.id },
       });
+      const taskName = affected.length === 1 ? affected[0].name : `${affected.length} công việc`;
+      await notifyManagers({
+        actorId: user.id,
+        type: "TASK_DEADLINE_CHANGE_REQUESTED",
+        taskId: affected.length === 1 ? affected[0].id : null,
+        title: "Đề xuất dời hạn",
+        body: `${user.fullName ?? user.email} xin dời hạn: ${taskName} → ${plannedEnd}`,
+      });
       revalidateTaskViews();
-      return res.count;
+      return affected.length;
     }
   });
 }
@@ -784,13 +863,32 @@ export async function approveEndDateChange(id: string) {
     if (!canManage(user.role)) throw new Error("Không đủ quyền");
     const t = await prisma.task.findUnique({
       where: { id },
-      select: { pendingPlannedEnd: true },
+      select: {
+        name: true, pendingPlannedEnd: true, endChangeRequesterId: true,
+        actualEnd: true, plannedStart: true, _count: { select: { assignees: true } },
+      },
     });
     if (!t?.pendingPlannedEnd) throw new Error("Không có yêu cầu đổi ngày kết thúc");
     await prisma.task.update({
       where: { id },
-      data: { plannedEnd: t.pendingPlannedEnd, pendingPlannedEnd: null, endChangeRequesterId: null },
+      data: {
+        plannedEnd: t.pendingPlannedEnd, pendingPlannedEnd: null, endChangeRequesterId: null,
+        ...(t.actualEnd ? {
+          actualEnd: null, approvedAt: null, approvedById: null, progressPercent: 0,
+          status: deriveActiveStatus(t.plannedStart, t._count.assignees),
+        } : {}),
+      },
     });
+    if (t.endChangeRequesterId) {
+      await createNotifications(prisma, [{
+        userId: t.endChangeRequesterId,
+        actorId: user.id,
+        type: "TASK_DEADLINE_CHANGED",
+        taskId: id,
+        title: "Yêu cầu dời hạn đã được duyệt",
+        body: `${t.name} — hạn mới ${ddmmyyyy(new Date(t.pendingPlannedEnd))}`,
+      }]);
+    }
     revalidateTaskViews();
   });
 }
@@ -801,7 +899,12 @@ export async function rejectEndDateChange(id: string) {
     const user = await requireUser();
     const t = await prisma.task.findUnique({
       where: { id },
-      select: { endChangeRequesterId: true, assignees: { where: { userId: user.id }, select: { id: true } } },
+      select: {
+        name: true,
+        pendingPlannedEnd: true,
+        endChangeRequesterId: true,
+        assignees: { where: { userId: user.id }, select: { id: true } },
+      },
     });
     if (!t) throw new Error("Không tìm thấy công việc");
     const isOwner = t.endChangeRequesterId === user.id || canManage(user.role);
@@ -810,6 +913,19 @@ export async function rejectEndDateChange(id: string) {
       where: { id },
       data: { pendingPlannedEnd: null, endChangeRequesterId: null },
     });
+    // Chỉ báo khi quản lý từ chối (không phải user tự hủy yêu cầu của mình).
+    if (t.endChangeRequesterId && canManage(user.role) && t.endChangeRequesterId !== user.id) {
+      await createNotifications(prisma, [{
+        userId: t.endChangeRequesterId,
+        actorId: user.id,
+        type: "TASK_DEADLINE_CHANGED",
+        taskId: id,
+        title: "Yêu cầu dời hạn bị từ chối",
+        body: t.pendingPlannedEnd
+          ? `${t.name} — đề xuất ${ddmmyyyy(new Date(t.pendingPlannedEnd))} không được duyệt`
+          : t.name,
+      }]);
+    }
     revalidateTaskViews();
   });
 }
