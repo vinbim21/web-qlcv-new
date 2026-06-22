@@ -29,6 +29,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskRowEditor } from "@/components/task-row-editor";
 import { UserMultiSelect } from "@/components/user-multi-select";
@@ -457,7 +458,7 @@ export function ManageClient({
     dateFrom: initial?.from ?? "",
     dateTo: initial?.to ?? "",
   });
-  const [activeWg, setActiveWg] = React.useState(initial?.group ?? ""); // "" = Tất cả (tab Bảng)
+  const [activeWg, setActiveWg] = useLocalStorage("manage:activeWg", initial?.group ?? ""); // "" = Tất cả (tab Bảng)
   const fromReport = Boolean(
     initial && (initial.user || initial.group || initial.phong || initial.from || initial.to),
   );
@@ -466,14 +467,14 @@ export function ManageClient({
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
   // Lọc nhanh từ dải KPI.
-  const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">("");
+  const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">("manage:quick", "");
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
-  const [timePeriod, setTimePeriod] = React.useState<PeriodType>("week");
-  const [pYear, setPYear] = React.useState(_curWeek.current.year);
-  const [pWeek, setPWeek] = React.useState(_curWeek.current.week);
-  const [pMonth, setPMonth] = React.useState(_now.current.getMonth() + 1);
-  const [pQuarter, setPQuarter] = React.useState(Math.ceil((_now.current.getMonth() + 1) / 3));
+  const [timePeriod, setTimePeriod] = useLocalStorage<PeriodType>("manage:timePeriod", "week");
+  const [pYear, setPYear] = useLocalStorage("manage:pYear", _curWeek.current.year);
+  const [pWeek, setPWeek] = useLocalStorage("manage:pWeek", _curWeek.current.week);
+  const [pMonth, setPMonth] = useLocalStorage("manage:pMonth", _now.current.getMonth() + 1);
+  const [pQuarter, setPQuarter] = useLocalStorage("manage:pQuarter", Math.ceil((_now.current.getMonth() + 1) / 3));
   const periodBounds = React.useMemo(
     () => getBounds(timePeriod, pYear, pWeek, pMonth, pQuarter),
     [timePeriod, pYear, pWeek, pMonth, pQuarter],
@@ -499,7 +500,7 @@ export function ManageClient({
     else if (timePeriod === "year") setPYear(y => y + 1);
   }
   // Chế độ xem: bảng (mặc định) / gom theo người / Kanban.
-  const [viewMode, setViewMode] = React.useState<"people" | "table" | "kanban">("table");
+  const [viewMode, setViewMode] = useLocalStorage<"people" | "table" | "kanban">("manage:viewMode", "table");
   const [collapsed, setCollapsed] = React.useState<Set<string> | null>(() => null);
   // Tree collapsed dùng cho view Bảng (group theo Dự án → Loại hình → Hạng mục)
   const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(() => null);
@@ -518,7 +519,7 @@ export function ManageClient({
   const [expandedCols, setExpandedCols] = React.useState<Set<string>>(() => new Set());
 
   // Lọc theo từng cột (funnel + popover). key = col.key.
-  const [colFilters, setColFilters] = React.useState<Record<string, ColFilterVal>>({});
+  const [colFilters, setColFilters] = useLocalStorage<Record<string, ColFilterVal>>("manage:colFilters", {});
   // Popover lọc đang mở: { key, rect }.
   const [openFilter, setOpenFilter] = React.useState<{ key: SortKey; rect: DOMRect } | null>(null);
   const setCF = (k: SortKey, v: ColFilterVal) => setColFilters((s) => ({ ...s, [k]: v }));
@@ -700,7 +701,7 @@ export function ManageClient({
   );
 
   // ---- Sắp xếp ---- (mặc định theo phân cấp Dự án → … để đọc như cây)
-  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({
+  const [sort, setSort] = useLocalStorage<{ key: SortKey; dir: "asc" | "desc" }>("manage:sort", {
     key: "duAn",
     dir: "asc",
   });

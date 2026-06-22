@@ -29,6 +29,7 @@ import {
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import { toast } from "sonner";
 import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskForm } from "@/components/task-form";
@@ -753,15 +754,15 @@ export function TasksClient({
   const router = useRouter();
   const [search, setSearch] = React.useState("");
   const deferredSearch = React.useDeferredValue(search);
-  const [activeWg, setActiveWg] = React.useState("");
-  const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM">("");
+  const [activeWg, setActiveWg] = useLocalStorage("tasks:activeWg", "");
+  const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM">("tasks:quick", "");
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
-  const [timePeriod, setTimePeriod] = React.useState<PeriodType>("week");
-  const [pYear, setPYear] = React.useState(_curWeek.current.year);
-  const [pWeek, setPWeek] = React.useState(_curWeek.current.week);
-  const [pMonth, setPMonth] = React.useState(_now.current.getMonth() + 1);
-  const [pQuarter, setPQuarter] = React.useState(Math.ceil((_now.current.getMonth() + 1) / 3));
+  const [timePeriod, setTimePeriod] = useLocalStorage<PeriodType>("tasks:timePeriod", "week");
+  const [pYear, setPYear] = useLocalStorage("tasks:pYear", _curWeek.current.year);
+  const [pWeek, setPWeek] = useLocalStorage("tasks:pWeek", _curWeek.current.week);
+  const [pMonth, setPMonth] = useLocalStorage("tasks:pMonth", _now.current.getMonth() + 1);
+  const [pQuarter, setPQuarter] = useLocalStorage("tasks:pQuarter", Math.ceil((_now.current.getMonth() + 1) / 3));
   const periodBounds = React.useMemo(
     () => getBounds(timePeriod, pYear, pWeek, pMonth, pQuarter),
     [timePeriod, pYear, pWeek, pMonth, pQuarter],
@@ -786,9 +787,9 @@ export function TasksClient({
     else if (timePeriod === "quarter") { if (pQuarter < 4) setPQuarter(q => q + 1); else { setPYear(y => y + 1); setPQuarter(1); } }
     else if (timePeriod === "year") setPYear(y => y + 1);
   }
-  const [colFilters, setColFilters] = React.useState<Record<string, ColFilterVal>>({});
+  const [colFilters, setColFilters] = useLocalStorage<Record<string, ColFilterVal>>("tasks:colFilters", {});
   const [openFilter, setOpenFilter] = React.useState<{ key: SortKey; rect: DOMRect } | null>(null);
-  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "ketThuc", dir: "asc" });
+  const [sort, setSort] = useLocalStorage<{ key: SortKey; dir: "asc" | "desc" }>("tasks:sort", { key: "ketThuc", dir: "asc" });
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [logging, setLogging] = React.useState<TaskRow | null>(null);
@@ -800,7 +801,7 @@ export function TasksClient({
   const [bulkEndDate, setBulkEndDate] = React.useState<{ ids: string[]; date: string } | null>(null);
   // Tree grouping: null = chưa tương tác (mặc định thu tất cả)
   const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(null);
-  const [viewMode, setViewMode] = React.useState<"tree" | "flat">("tree");
+  const [viewMode, setViewMode] = useLocalStorage<"tree" | "flat">("tasks:viewMode", "tree");
   // Modal chi tiết công việc: note + giờ tuần.
   type WeekEntry = { id: string; date: string; hours: number; note: string | null };
   const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
