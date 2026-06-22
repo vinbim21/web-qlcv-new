@@ -56,6 +56,9 @@ import {
   addCatalogValue,
   batchReorderItems,
   batchSaveCatalogItems,
+  batchUpdateSimpleCatalog,
+  batchUpdateCatalogItems,
+  createCatalogItemReturnId,
   deleteCatalogValue,
   deletePhase,
   deleteWorkGroup,
@@ -67,6 +70,8 @@ import { deleteConstructionType, saveConstructionType } from "@/server/actions/c
 import { deleteDiscipline, saveDiscipline } from "@/server/actions/disciplines";
 import {
   batchSaveCatalogProjects,
+  batchUpdateCatalogProjects,
+  createProjectGroupReturnId,
   deleteProject,
   deleteProjectGroup,
   saveCatalogProject,
@@ -95,6 +100,7 @@ type Row = { id: string; order: number } & Record<string, unknown>;
 
 type TabId = "groups" | "projects" | "bimtools" | "works" | "phases" | "disciplines" | "ctypes";
 type ProjectsScope = "general" | "bimtools";
+type SimpleCatalogModel = "workGroup" | "phase" | "discipline" | "constructionType";
 
 // ---------- Cấu hình cột FilterTable ----------
 type FilterKind = "text" | "multi";
@@ -147,6 +153,26 @@ export function CatalogClient({
     [projectGroups, ptWorkGroupId],
   );
   const ptPgById = React.useMemo(() => new Map(ptProjectGroups.map((g) => [g.id, g])), [ptProjectGroups]);
+
+  // Bulk edit state
+  const [bulkProjectEdit, setBulkProjectEdit] = React.useState<{
+    ids: string[];
+    field: "groupId" | "constructionTypeId" | "name";
+  } | null>(null);
+  const [bulkBimtoolsEdit, setBulkBimtoolsEdit] = React.useState<{
+    ids: string[];
+    field: "projectGroupId" | "parentId" | "value";
+  } | null>(null);
+  const [bulkSimpleEdit, setBulkSimpleEdit] = React.useState<{
+    model: SimpleCatalogModel;
+    ids: string[];
+    title: string;
+    field: "code" | "name" | "abbr" | "order";
+  } | null>(null);
+  const [bulkWorksEdit, setBulkWorksEdit] = React.useState<{
+    ids: string[];
+    field: "workGroupId" | "value";
+  } | null>(null);
 
   // Modal thêm/sửa + xác nhận xóa (dùng chung).
   const [addItemsScope, setAddItemsScope] = React.useState<string | null>(null);
@@ -208,6 +234,19 @@ export function CatalogClient({
       rows={workGroups as unknown as Row[]}
       addLabel="Thêm nhóm"
       minWidth={620}
+      selectable
+      bulkBar={(ids, clear) => (
+        <CatalogBulkBar
+          count={ids.length}
+          onClear={clear}
+          actions={[
+            { label: "Đổi mã", onClick: () => setBulkSimpleEdit({ model: "workGroup", ids, title: "nhóm công việc", field: "code" }) },
+            { label: "Đổi tên", onClick: () => setBulkSimpleEdit({ model: "workGroup", ids, title: "nhóm công việc", field: "name" }) },
+            { label: "Đổi viết tắt", onClick: () => setBulkSimpleEdit({ model: "workGroup", ids, title: "nhóm công việc", field: "abbr" }) },
+            { label: "Đổi thứ tự", onClick: () => setBulkSimpleEdit({ model: "workGroup", ids, title: "nhóm công việc", field: "order" }) },
+          ]}
+        />
+      )}
       onBatchReorder={(ids) => reorder("workGroup", ids)}
       onAdd={() =>
         setRecord({
@@ -327,6 +366,18 @@ export function CatalogClient({
       rows={generalProjects as unknown as Row[]}
       addLabel="Thêm hạng mục"
       minWidth={720}
+      selectable
+      bulkBar={(ids, clear) => (
+        <CatalogBulkBar
+          count={ids.length}
+          onClear={clear}
+          actions={[
+            { label: "Đổi Dự án", onClick: () => setBulkProjectEdit({ ids, field: "groupId" }) },
+            { label: "Đổi Loại hình", onClick: () => setBulkProjectEdit({ ids, field: "constructionTypeId" }) },
+            { label: "Đổi Hạng mục", onClick: () => setBulkProjectEdit({ ids, field: "name" }) },
+          ]}
+        />
+      )}
       infoBar={{ tone: "slate", text: 'Dự án của nhóm Quản lý BIM & Thanh tra BIM — mỗi dòng là một Hạng mục. Quản lý danh sách Dự án ở nút "Quản lý dự án".' }}
       headerExtra={
         <button type="button" onClick={() => setManageProjectsScope("general")}
@@ -389,6 +440,18 @@ export function CatalogClient({
         rows={ptLevel3 as unknown as Row[]}
         addLabel="Thêm hạng mục"
         minWidth={720}
+        selectable
+        bulkBar={(ids, clear) => (
+          <CatalogBulkBar
+            count={ids.length}
+            onClear={clear}
+            actions={[
+              { label: "Đổi Dự án", onClick: () => setBulkBimtoolsEdit({ ids, field: "projectGroupId" }) },
+              { label: "Đổi Loại hình", onClick: () => setBulkBimtoolsEdit({ ids, field: "parentId" }) },
+              { label: "Đổi Hạng mục", onClick: () => setBulkBimtoolsEdit({ ids, field: "value" }) },
+            ]}
+          />
+        )}
         infoBar={{ tone: "slate", text: 'Danh mục Hạng mục của nhóm Phát triển BIM Tools — nguồn gợi ý khi tạo công việc. Quản lý Loại hình ở nút "Quản lý loại hình".' }}
         onBatchReorder={(ids) => reorder("catalogItem", ids)}
         headerExtra={
@@ -485,6 +548,7 @@ export function CatalogClient({
       works={works}
       onBatchReorder={(ids) => reorder("catalogItem", ids)}
       onAdd={(workGroupId, value) => run(addCatalogValue(workGroupId, 5, value), "Đã thêm công việc")}
+      onBulkEdit={(ids, field) => setBulkWorksEdit({ ids, field })}
       onEdit={(r) => {
         const groupOptions = workGroups.map((w) => ({
           value: w.id,
@@ -552,6 +616,20 @@ export function CatalogClient({
         rows={opts.rows as unknown as Row[]}
         addLabel={opts.addLabel}
         infoBar={opts.infoBar}
+        selectable
+        bulkBar={(ids, clear) => (
+          <CatalogBulkBar
+            count={ids.length}
+            onClear={clear}
+            actions={[
+              { label: "Đổi mã", onClick: () => setBulkSimpleEdit({ model: opts.reorderModel as SimpleCatalogModel, ids, title: opts.title.toLowerCase(), field: "code" }) },
+              { label: "Đổi tên", onClick: () => setBulkSimpleEdit({ model: opts.reorderModel as SimpleCatalogModel, ids, title: opts.title.toLowerCase(), field: "name" }) },
+              ...(opts.leadOrder
+                ? [{ label: "Đổi thứ tự", onClick: () => setBulkSimpleEdit({ model: opts.reorderModel as SimpleCatalogModel, ids, title: opts.title.toLowerCase(), field: "order" as const }) }]
+                : []),
+            ]}
+          />
+        )}
         onBatchReorder={opts.reorderModel ? (ids) => reorder(opts.reorderModel!, ids) : undefined}
         onAdd={() =>
           setRecord({
@@ -808,6 +886,91 @@ export function CatalogClient({
         />
       ) : null}
 
+      {/* Bulk edit danh mục đơn */}
+      {bulkSimpleEdit ? (
+        <BulkEditSimpleModal
+          ids={bulkSimpleEdit.ids}
+          title={bulkSimpleEdit.title}
+          field={bulkSimpleEdit.field}
+          allowAbbr={bulkSimpleEdit.model === "workGroup"}
+          allowOrder={bulkSimpleEdit.model === "workGroup" || bulkSimpleEdit.model === "phase"}
+          onClose={() => setBulkSimpleEdit(null)}
+          onSubmit={async (patch) => {
+            const res = await batchUpdateSimpleCatalog(bulkSimpleEdit.model, bulkSimpleEdit.ids, patch);
+            if (res.ok) {
+              toast.success("Đã cập nhật");
+              router.refresh();
+              setBulkSimpleEdit(null);
+            } else {
+              toast.error(res.error);
+            }
+          }}
+        />
+      ) : null}
+
+      {/* Bulk edit Tab Công việc */}
+      {bulkWorksEdit ? (
+        <BulkEditWorksModal
+          ids={bulkWorksEdit.ids}
+          field={bulkWorksEdit.field}
+          workGroups={workGroups}
+          onClose={() => setBulkWorksEdit(null)}
+          onSubmit={async (patch) => {
+            const res = await batchUpdateCatalogItems(bulkWorksEdit.ids, patch);
+            if (res.ok) {
+              toast.success("Đã cập nhật");
+              router.refresh();
+              setBulkWorksEdit(null);
+            } else {
+              toast.error(res.error);
+            }
+          }}
+        />
+      ) : null}
+
+      {/* Bulk edit Tab Dự án */}
+      {bulkProjectEdit ? (
+        <BulkEditProjectsModal
+          ids={bulkProjectEdit.ids}
+          field={bulkProjectEdit.field}
+          projectGroups={generalProjectGroups}
+          constructionTypes={constructionTypes}
+          onClose={() => setBulkProjectEdit(null)}
+          onSubmit={async (patch) => {
+            const res = await batchUpdateCatalogProjects(bulkProjectEdit.ids, patch);
+            if (res.ok) {
+              toast.success("Đã cập nhật");
+              router.refresh();
+              setBulkProjectEdit(null);
+            } else {
+              toast.error(res.error);
+            }
+          }}
+        />
+      ) : null}
+
+      {/* Bulk edit Tab BIM Tools */}
+      {bulkBimtoolsEdit ? (
+        <BulkEditBimtoolsModal
+          ids={bulkBimtoolsEdit.ids}
+          field={bulkBimtoolsEdit.field}
+          ptProjectGroups={ptProjectGroups}
+          ptLevel2={ptLevel2}
+          ptWorkGroupId={ptWorkGroupId ?? ""}
+          onClose={() => setBulkBimtoolsEdit(null)}
+          onSubmit={async (patch) => {
+            const res = await batchUpdateCatalogItems(bulkBimtoolsEdit.ids, patch);
+            if (res.ok) {
+              toast.success("Đã cập nhật");
+              router.refresh();
+              setBulkBimtoolsEdit(null);
+            } else {
+              toast.error(res.error);
+            }
+          }}
+        />
+      ) : null}
+
       {/* Quản lý dự án (cấp cha) */}
       {manageProjectsScope ? (
         <ManageProjectsModal
@@ -866,6 +1029,8 @@ function FilterTable({
   headerExtra,
   infoBar,
   minWidth,
+  selectable,
+  bulkBar,
 }: {
   title: string;
   rows: Row[];
@@ -879,6 +1044,8 @@ function FilterTable({
   headerExtra?: React.ReactNode;
   infoBar?: { tone: "slate" | "blue"; text: string };
   minWidth?: number;
+  selectable?: boolean;
+  bulkBar?: (selectedIds: string[], clearSel: () => void) => React.ReactNode;
 }) {
   const [sort, setSort] = React.useState<{ key: string; dir: "asc" | "desc" } | null>(null);
   const [colFilters, setColFilters] = React.useState<Record<string, string | string[]>>({});
@@ -886,6 +1053,34 @@ function FilterTable({
   // local ordering for optimistic DnD update
   const [localIds, setLocalIds] = React.useState<string[]>(() => rows.map((r) => r.id));
   React.useEffect(() => { setLocalIds(rows.map((r) => r.id)); }, [rows]);
+  // selection state
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [lastCheckedId, setLastCheckedId] = React.useState<string | null>(null);
+  const clearSel = React.useCallback(() => setSelectedIds(new Set()), []);
+  const toggleRow = (id: string, shiftKey = false) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (shiftKey && lastCheckedId) {
+        const start = filtered.findIndex((r) => r.id === lastCheckedId);
+        const end = filtered.findIndex((r) => r.id === id);
+        if (start !== -1 && end !== -1) {
+          const [from, to] = start < end ? [start, end] : [end, start];
+          const shouldSelect = !n.has(id);
+          filtered.slice(from, to + 1).forEach((r) => {
+            if (shouldSelect) n.add(r.id);
+            else n.delete(r.id);
+          });
+          return n;
+        }
+      }
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+    setLastCheckedId(id);
+  };
+  const rowIdSet = React.useMemo(() => new Set(rows.map((r) => r.id)), [rows]);
+  const selArr = React.useMemo(() => [...selectedIds].filter((id) => rowIdSet.has(id)), [selectedIds, rowIdSet]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -971,7 +1166,17 @@ function FilterTable({
     return `"${v as string}"`;
   };
 
-  const colCount = columns.length + (onBatchReorder ? 2 : 1);
+  const allFilteredSelected = filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id));
+  const someFilteredSelected = !allFilteredSelected && filtered.some((r) => selectedIds.has(r.id));
+  const toggleAll = () => {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => { const n = new Set(prev); filtered.forEach((r) => n.delete(r.id)); return n; });
+    } else {
+      setSelectedIds((prev) => { const n = new Set(prev); filtered.forEach((r) => n.add(r.id)); return n; });
+    }
+  };
+
+  const colCount = columns.length + (onBatchReorder ? 2 : 1) + (selectable ? 1 : 0);
   const openCol = openFilter ? colByKey.get(openFilter.key) : null;
 
   return (
@@ -1028,12 +1233,29 @@ function FilterTable({
         </div>
       ) : null}
 
+      {/* Bulk action bar */}
+      {selectable && bulkBar && selArr.length > 0 ? (
+        <div className="px-4 pt-3">{bulkBar(selArr, clearSel)}</div>
+      ) : null}
+
       {/* Bảng */}
       <div className="overflow-x-auto px-1.5 py-1.5">
         <table className="w-full border-collapse text-sm" style={minWidth ? { minWidth } : undefined}>
           <thead>
             <tr className="text-left text-xs font-semibold text-slate-400">
               {onBatchReorder ? <th className="w-8 px-2 py-2" /> : null}
+              {selectable ? (
+                <th className="w-9 px-2 py-2">
+                  <input
+                    type="checkbox"
+                    className="size-4 cursor-pointer rounded border-slate-300 accent-slate-800"
+                    checked={allFilteredSelected}
+                    ref={(el) => { if (el) el.indeterminate = someFilteredSelected; }}
+                    onChange={toggleAll}
+                    title={allFilteredSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                  />
+                </th>
+              ) : null}
               {columns.map((c) => {
                 const active = sort?.key === c.key;
                 const on = colActive(c);
@@ -1062,7 +1284,11 @@ function FilterTable({
             <SortableContext items={localIds} strategy={verticalListSortingStrategy}>
               <tbody>
                 {filtered.map((r) => (
-                  <SortableTableRow key={r.id} id={r.id} showHandle={!!onBatchReorder} canDrag={canDrag}>
+                  <SortableTableRow
+                    key={r.id} id={r.id} showHandle={!!onBatchReorder} canDrag={canDrag}
+                    checked={selectable ? selectedIds.has(r.id) : undefined}
+                    onCheck={selectable ? (shiftKey) => toggleRow(r.id, shiftKey) : undefined}
+                  >
                     {columns.map((c) => (
                       <td key={c.key} className={cn("px-3 py-2.5", c.align === "right" && "text-right")}>
                         {c.cell(r)}
@@ -1108,16 +1334,17 @@ function FilterTable({
 
 // ---------- Hàng kéo thả trong bảng ----------
 function SortableTableRow({
-  id, children, showHandle, canDrag,
+  id, children, showHandle, canDrag, checked, onCheck,
 }: {
   id: string; children: React.ReactNode; showHandle: boolean; canDrag: boolean;
+  checked?: boolean; onCheck?: (shiftKey: boolean) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !canDrag });
   return (
     <tr
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={cn("group border-t border-slate-100 hover:bg-slate-50/70", isDragging && "opacity-40 bg-slate-50")}
+      className={cn("group border-t border-slate-100 hover:bg-slate-50/70", isDragging && "opacity-40 bg-slate-50", checked && "bg-slate-50")}
       {...attributes}
     >
       {showHandle ? (
@@ -1131,6 +1358,20 @@ function SortableTableRow({
           >
             <GripVertical className="size-4" />
           </button>
+        </td>
+      ) : null}
+      {onCheck !== undefined ? (
+        <td className="w-9 px-2 py-2.5">
+          <input
+            type="checkbox"
+            className="size-4 cursor-pointer rounded border-slate-300 accent-slate-800"
+            checked={checked ?? false}
+            onChange={() => undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              onCheck(e.shiftKey);
+            }}
+          />
         </td>
       ) : null}
       {children}
@@ -1569,6 +1810,7 @@ function WorksPanel({
   workGroups,
   works,
   onAdd,
+  onBulkEdit,
   onEdit,
   onDelete,
   onBatchReorder,
@@ -1576,6 +1818,7 @@ function WorksPanel({
   workGroups: WorkGroupRow[];
   works: WorkRow[];
   onAdd: (workGroupId: string, value: string) => void;
+  onBulkEdit: (ids: string[], field: "workGroupId" | "value") => void;
   onEdit: (r: WorkRow) => void;
   onDelete: (r: WorkRow) => void;
   onBatchReorder?: (ids: string[]) => Promise<void>;
@@ -1584,6 +1827,8 @@ function WorksPanel({
   const [newValue, setNewValue] = React.useState("");
   const [adding, setAdding] = React.useState(false);
   const [err, setErr] = React.useState("");
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [lastCheckedId, setLastCheckedId] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const filtered = works.filter((w) => w.workGroupId === activeWg);
@@ -1602,6 +1847,40 @@ function WorksPanel({
     const byId = new Map(filtered.map((w) => [w.id, w]));
     return localIds.map((id) => byId.get(id)).filter(Boolean) as WorkRow[];
   }, [localIds, filtered]);
+  const displayIdSet = React.useMemo(() => new Set(displayItems.map((w) => w.id)), [displayItems]);
+  const selectedArr = React.useMemo(() => [...selectedIds].filter((id) => displayIdSet.has(id)), [selectedIds, displayIdSet]);
+  const allSelected = displayItems.length > 0 && displayItems.every((w) => selectedIds.has(w.id));
+  const someSelected = !allSelected && displayItems.some((w) => selectedIds.has(w.id));
+  const toggleAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) displayItems.forEach((w) => next.delete(w.id));
+      else displayItems.forEach((w) => next.add(w.id));
+      return next;
+    });
+  };
+  const toggleItem = (id: string, shiftKey = false) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && lastCheckedId) {
+        const start = displayItems.findIndex((w) => w.id === lastCheckedId);
+        const end = displayItems.findIndex((w) => w.id === id);
+        if (start !== -1 && end !== -1) {
+          const [from, to] = start < end ? [start, end] : [end, start];
+          const shouldSelect = !next.has(id);
+          displayItems.slice(from, to + 1).forEach((w) => {
+            if (shouldSelect) next.add(w.id);
+            else next.delete(w.id);
+          });
+          return next;
+        }
+      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setLastCheckedId(id);
+  };
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -1662,16 +1941,46 @@ function WorksPanel({
 
       {/* Danh sách công việc của nhóm đang chọn */}
       <div className="px-4 py-3">
+        {selectedArr.length > 0 ? (
+          <CatalogBulkBar
+            count={selectedArr.length}
+            onClear={() => setSelectedIds(new Set())}
+            actions={[
+              { label: "Đổi nhóm", onClick: () => onBulkEdit(selectedArr, "workGroupId") },
+              { label: "Đổi tên", onClick: () => onBulkEdit(selectedArr, "value") },
+            ]}
+          />
+        ) : null}
+
         {filtered.length === 0 ? (
           <p className="py-4 text-center text-sm text-slate-400">Chưa có công việc nào trong nhóm này</p>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={localIds} strategy={verticalListSortingStrategy}>
-              <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+              <div className={cn("mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200", selectedArr.length === 0 && "mt-0")}>
+                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
+                  <input
+                    type="checkbox"
+                    className="size-4 cursor-pointer rounded border-slate-300 accent-slate-800"
+                    checked={allSelected}
+                    ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                    onChange={toggleAll}
+                    title={allSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                  />
+                  <span>Chọn dòng</span>
+                </div>
                 {displayItems.map((w) => (
-                  <SortableWorkItem key={w.id} item={w} onEdit={onEdit} onDelete={onDelete} showHandle={!!onBatchReorder} />
+                  <SortableWorkItem
+                    key={w.id}
+                    item={w}
+                    checked={selectedIds.has(w.id)}
+                    onCheck={(shiftKey) => toggleItem(w.id, shiftKey)}
+                    onEdit={onEdit}
+                    onDelete={onDelete}
+                    showHandle={!!onBatchReorder}
+                  />
                 ))}
-              </ul>
+              </div>
             </SortableContext>
           </DndContext>
         )}
@@ -1711,16 +2020,16 @@ function WorksPanel({
 
 // ---------- Sortable list item cho WorksPanel ----------
 function SortableWorkItem({
-  item, onEdit, onDelete, showHandle,
+  item, checked, onCheck, onEdit, onDelete, showHandle,
 }: {
-  item: WorkRow; onEdit: (r: WorkRow) => void; onDelete: (r: WorkRow) => void; showHandle: boolean;
+  item: WorkRow; checked: boolean; onCheck: (shiftKey: boolean) => void; onEdit: (r: WorkRow) => void; onDelete: (r: WorkRow) => void; showHandle: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
   return (
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={cn("group flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50", isDragging && "opacity-40 bg-slate-50")}
+      className={cn("group flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50", checked && "bg-slate-50", isDragging && "opacity-40 bg-slate-50")}
       {...attributes}
     >
       {showHandle ? (
@@ -1729,6 +2038,16 @@ function SortableWorkItem({
           <GripVertical className="size-4" />
         </button>
       ) : null}
+      <input
+        type="checkbox"
+        className="size-4 cursor-pointer rounded border-slate-300 accent-slate-800"
+        checked={checked}
+        onChange={() => undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          onCheck(e.shiftKey);
+        }}
+      />
       <span className="min-w-0 flex-1 text-sm font-medium text-slate-800">{item.value}</span>
       <div className="flex gap-0.5 opacity-0 transition group-hover:opacity-100">
         <button type="button" title="Sửa" onClick={() => onEdit(item)}
@@ -2242,6 +2561,666 @@ function ManagePtProjectsModal({
           {err ? <p className="text-xs text-red-500">{err}</p> : null}
         </form>
       </div>
+    </Modal>
+  );
+}
+
+// ===================================================================
+//  CatalogBulkBar — bar hiển thị khi chọn nhiều dòng
+// ===================================================================
+function CatalogBulkBar({
+  count,
+  onClear,
+  actions,
+}: {
+  count: number;
+  onClear: () => void;
+  actions: { label: string; onClick: () => void }[];
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-slate-800 px-3 py-2 text-sm text-white">
+      <Check className="size-4 shrink-0 text-slate-400" />
+      <span className="font-medium">{count} dòng đã chọn</span>
+      <span className="text-slate-500">·</span>
+      {actions.map((a) => (
+        <button
+          key={a.label}
+          type="button"
+          onClick={a.onClick}
+          className="rounded-md bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+        >
+          {a.label}
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-auto grid size-6 place-items-center rounded text-slate-400 hover:text-white"
+        title="Bỏ chọn"
+      >
+        <X className="size-4" />
+      </button>
+    </div>
+  );
+}
+
+type SimpleCatalogPatch = { code?: string; name?: string; abbr?: string | null; order?: number };
+
+function BulkEditSimpleModal({
+  ids,
+  title,
+  field,
+  allowAbbr,
+  allowOrder,
+  onClose,
+  onSubmit,
+}: {
+  ids: string[];
+  title: string;
+  field: "code" | "name" | "abbr" | "order";
+  allowAbbr: boolean;
+  allowOrder: boolean;
+  onClose: () => void;
+  onSubmit: (patch: SimpleCatalogPatch) => Promise<void>;
+}) {
+  const fields = [
+    { key: "code" as const, label: "Mã" },
+    { key: "name" as const, label: "Tên" },
+    ...(allowAbbr ? [{ key: "abbr" as const, label: "Viết tắt" }] : []),
+    ...(allowOrder ? [{ key: "order" as const, label: "Thứ tự" }] : []),
+  ];
+  const initial = fields.some((f) => f.key === field) ? field : fields[0].key;
+  const [activeField, setActiveField] = React.useState(initial);
+  const [value, setValue] = React.useState("");
+  const [err, setErr] = React.useState<string | null>(null);
+  const [pending, setPending] = React.useState(false);
+  const inputCls =
+    "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    const patch: SimpleCatalogPatch = {};
+    if (activeField === "order") {
+      const order = Number(value);
+      if (!Number.isFinite(order)) { setErr("Nhập thứ tự hợp lệ"); return; }
+      patch.order = order;
+    } else {
+      const v = value.trim();
+      if (activeField !== "abbr" && !v) { setErr("Nhập giá trị"); return; }
+      if (activeField === "code") patch.code = v;
+      if (activeField === "name") patch.name = v;
+      if (activeField === "abbr") patch.abbr = v || null;
+    }
+    setPending(true);
+    await onSubmit(patch);
+    setPending(false);
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Sửa ${ids.length} dòng ${title}`} className="max-w-lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+          {fields.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => { setActiveField(f.key); setValue(""); setErr(null); }}
+              className={cn(
+                "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                activeField === f.key ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700",
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-600">
+            {fields.find((f) => f.key === activeField)?.label} mới
+            {activeField === "abbr" ? null : <span className="text-red-500"> *</span>}
+          </label>
+          <input
+            autoFocus
+            className={cn(inputCls, (activeField === "code" || activeField === "abbr") && "font-mono uppercase")}
+            type={activeField === "order" ? "number" : "text"}
+            value={value}
+            onChange={(e) => { setValue(e.target.value); setErr(null); }}
+          />
+          <p className="text-[11px] text-amber-500">Giá trị này sẽ áp dụng cho tất cả {ids.length} dòng đã chọn.</p>
+        </div>
+        {err ? <p className="flex items-center gap-1.5 text-xs text-red-600"><AlertCircle className="size-3.5" /> {err}</p> : null}
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+          <Button type="button" variant="outline" onClick={onClose}>Hủy</Button>
+          <Button type="submit" disabled={pending}>
+            <Check className="size-4" /> {pending ? "Đang lưu…" : `Áp dụng cho ${ids.length} dòng`}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+type WorksPatch = { workGroupId?: string; value?: string };
+
+function BulkEditWorksModal({
+  ids,
+  field,
+  workGroups,
+  onClose,
+  onSubmit,
+}: {
+  ids: string[];
+  field: "workGroupId" | "value";
+  workGroups: WorkGroupRow[];
+  onClose: () => void;
+  onSubmit: (patch: WorksPatch) => Promise<void>;
+}) {
+  const [activeField, setActiveField] = React.useState(field);
+  const [workGroupId, setWorkGroupId] = React.useState(workGroups[0]?.id ?? "");
+  const [value, setValue] = React.useState("");
+  const [err, setErr] = React.useState<string | null>(null);
+  const [pending, setPending] = React.useState(false);
+  const inputCls =
+    "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+  const fields = [
+    { key: "workGroupId" as const, label: "Nhóm" },
+    { key: "value" as const, label: "Tên" },
+  ];
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    const patch: WorksPatch = {};
+    if (activeField === "workGroupId") {
+      if (!workGroupId) { setErr("Chọn nhóm công việc"); return; }
+      patch.workGroupId = workGroupId;
+    } else {
+      if (!value.trim()) { setErr("Nhập tên công việc"); return; }
+      patch.value = value.trim();
+    }
+    setPending(true);
+    await onSubmit(patch);
+    setPending(false);
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Sửa ${ids.length} công việc`} className="max-w-lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+          {fields.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => { setActiveField(f.key); setErr(null); }}
+              className={cn(
+                "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                activeField === f.key ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700",
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {activeField === "workGroupId" ? (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">Nhóm công việc</label>
+            <Select value={workGroupId} onChange={(e) => setWorkGroupId(e.target.value)} className="h-9">
+              {workGroups.map((w) => (
+                <option key={w.id} value={w.id}>{w.abbr ? `${w.abbr} — ` : ""}{w.name}</option>
+              ))}
+            </Select>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">
+              Tên công việc mới <span className="text-red-500">*</span>
+            </label>
+            <input autoFocus className={inputCls} value={value} onChange={(e) => { setValue(e.target.value); setErr(null); }} />
+            <p className="text-[11px] text-amber-500">Sẽ đổi tên tất cả {ids.length} dòng đã chọn thành tên này.</p>
+          </div>
+        )}
+        {err ? <p className="flex items-center gap-1.5 text-xs text-red-600"><AlertCircle className="size-3.5" /> {err}</p> : null}
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+          <Button type="button" variant="outline" onClick={onClose}>Hủy</Button>
+          <Button type="submit" disabled={pending}>
+            <Check className="size-4" /> {pending ? "Đang lưu…" : `Áp dụng cho ${ids.length} dòng`}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ===================================================================
+//  BulkEditProjectsModal — Tab 2 Dự án · Hạng mục
+// ===================================================================
+type ProjectsPatch = { groupId?: string; constructionTypeId?: string | null; name?: string };
+
+function BulkEditProjectsModal({
+  ids,
+  field,
+  projectGroups,
+  constructionTypes,
+  onClose,
+  onSubmit,
+}: {
+  ids: string[];
+  field: "groupId" | "constructionTypeId" | "name";
+  projectGroups: ProjectGroupRow[];
+  constructionTypes: SimpleRow[];
+  onClose: () => void;
+  onSubmit: (patch: ProjectsPatch) => Promise<void>;
+}) {
+  const router = useRouter();
+  const [activeField, setActiveField] = React.useState(field);
+  const [groupId, setGroupId] = React.useState(projectGroups[0]?.id ?? "");
+  const [ctId, setCtId] = React.useState("");
+  const [name, setName] = React.useState("");
+  const [err, setErr] = React.useState<string | null>(null);
+  const [pending, setPending] = React.useState(false);
+
+  // "Tạo mới dự án" inline
+  const [creatingGroup, setCreatingGroup] = React.useState(false);
+  const [newGroupCode, setNewGroupCode] = React.useState("");
+  const [newGroupName, setNewGroupName] = React.useState("");
+  const [creatingGroupPending, setCreatingGroupPending] = React.useState(false);
+
+  const inputCls =
+    "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+
+  const FIELDS = [
+    { key: "groupId" as const, label: "Dự án" },
+    { key: "constructionTypeId" as const, label: "Loại hình" },
+    { key: "name" as const, label: "Hạng mục" },
+  ];
+
+  async function handleCreateGroup() {
+    const c = newGroupCode.trim().toUpperCase();
+    const n = newGroupName.trim();
+    if (!c || !n) { setErr("Nhập đủ mã và tên dự án"); return; }
+    setErr(null);
+    setCreatingGroupPending(true);
+    const res = await createProjectGroupReturnId({ code: c, name: n, workGroupId: null });
+    setCreatingGroupPending(false);
+    if (res.ok && res.data) {
+      toast.success(`Đã tạo dự án ${c}`);
+      router.refresh();
+      setGroupId(res.data.id);
+      setCreatingGroup(false);
+      setNewGroupCode(""); setNewGroupName("");
+    } else {
+      setErr(res.ok ? "Lỗi không xác định" : res.error);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    const patch: ProjectsPatch = {};
+    if (activeField === "groupId") {
+      if (!groupId) { setErr("Chọn dự án"); return; }
+      patch.groupId = groupId;
+    } else if (activeField === "constructionTypeId") {
+      patch.constructionTypeId = ctId || null;
+    } else {
+      if (!name.trim()) { setErr("Nhập tên hạng mục"); return; }
+      patch.name = name.trim();
+    }
+    setPending(true);
+    await onSubmit(patch);
+    setPending(false);
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Sửa ${ids.length} hạng mục`} className="max-w-lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Tab chọn trường */}
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+          {FIELDS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => { setActiveField(f.key); setErr(null); }}
+              className={cn(
+                "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                activeField === f.key ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700",
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Nội dung theo trường */}
+        {activeField === "groupId" && (
+          <div className="space-y-2">
+            {!creatingGroup ? (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-600">
+                    Dự án <span className="text-red-500">*</span>
+                  </label>
+                  <Select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="h-9">
+                    {projectGroups.map((g) => (
+                      <option key={g.id} value={g.id}>{g.code} — {g.name}</option>
+                    ))}
+                  </Select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCreatingGroup(true)}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800"
+                >
+                  <Plus className="size-3.5" /> Tạo dự án mới
+                </button>
+              </>
+            ) : (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-medium text-slate-600">Tạo dự án mới</p>
+                <div className="flex gap-2">
+                  <input
+                    autoFocus
+                    className={cn(inputCls, "w-28 shrink-0 font-mono uppercase")}
+                    placeholder="Mã"
+                    value={newGroupCode}
+                    onChange={(e) => { setNewGroupCode(e.target.value.toUpperCase()); setErr(null); }}
+                  />
+                  <input
+                    className={cn(inputCls, "flex-1")}
+                    placeholder="Tên dự án…"
+                    value={newGroupName}
+                    onChange={(e) => { setNewGroupName(e.target.value); setErr(null); }}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={creatingGroupPending}
+                    onClick={handleCreateGroup}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    <Check className="size-3.5" /> {creatingGroupPending ? "Đang lưu…" : "Tạo"}
+                  </button>
+                  <button type="button" onClick={() => { setCreatingGroup(false); setErr(null); }}
+                    className="text-xs text-slate-400 hover:text-slate-600">Hủy</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeField === "constructionTypeId" && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">Loại hình</label>
+            <Select value={ctId} onChange={(e) => setCtId(e.target.value)} className="h-9">
+              <option value="">— Không (xóa loại hình) —</option>
+              {constructionTypes.map((c) => (
+                <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
+              ))}
+            </Select>
+            <p className="text-[11px] text-slate-400">Thêm/sửa loại hình ở tab "Loại hình công trình"</p>
+          </div>
+        )}
+
+        {activeField === "name" && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">
+              Tên hạng mục mới <span className="text-red-500">*</span>
+            </label>
+            <input autoFocus className={inputCls} placeholder="Nhập tên mới…" value={name}
+              onChange={(e) => { setName(e.target.value); setErr(null); }} />
+            <p className="text-[11px] text-amber-500">Sẽ đổi hạng mục cho tất cả {ids.length} dòng đã chọn thành tên này.</p>
+          </div>
+        )}
+
+        {err ? (
+          <p className="flex items-center gap-1.5 text-xs text-red-600">
+            <AlertCircle className="size-3.5" /> {err}
+          </p>
+        ) : null}
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+          <Button type="button" variant="outline" onClick={onClose}>Hủy</Button>
+          <Button type="submit" disabled={pending || creatingGroup}>
+            <Check className="size-4" /> {pending ? "Đang lưu…" : `Áp dụng cho ${ids.length} dòng`}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ===================================================================
+//  BulkEditBimtoolsModal — Tab 3 Dự án BIM Tools
+// ===================================================================
+type BimtoolsPatch = { parentId?: string | null; projectGroupId?: string | null; value?: string };
+
+function BulkEditBimtoolsModal({
+  ids,
+  field,
+  ptProjectGroups,
+  ptLevel2,
+  ptWorkGroupId,
+  onClose,
+  onSubmit,
+}: {
+  ids: string[];
+  field: "projectGroupId" | "parentId" | "value";
+  ptProjectGroups: { id: string; code: string; name: string }[];
+  ptLevel2: { id: string; value: string }[];
+  ptWorkGroupId: string;
+  onClose: () => void;
+  onSubmit: (patch: BimtoolsPatch) => Promise<void>;
+}) {
+  const router = useRouter();
+  const [activeField, setActiveField] = React.useState(field);
+  const [pgId, setPgId] = React.useState("");
+  const [parentId, setParentId] = React.useState(ptLevel2[0]?.id ?? "");
+  const [value, setValue] = React.useState("");
+  const [err, setErr] = React.useState<string | null>(null);
+  const [pending, setPending] = React.useState(false);
+
+  // Tạo mới Dự án BIM Tools
+  const [creatingPg, setCreatingPg] = React.useState(false);
+  const [newPgCode, setNewPgCode] = React.useState("");
+  const [newPgName, setNewPgName] = React.useState("");
+  const [creatingPgPending, setCreatingPgPending] = React.useState(false);
+
+  // Tạo mới Loại hình (Level 2)
+  const [creatingL2, setCreatingL2] = React.useState(false);
+  const [newL2Value, setNewL2Value] = React.useState("");
+  const [creatingL2Pending, setCreatingL2Pending] = React.useState(false);
+
+  const inputCls =
+    "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+
+  const FIELDS = [
+    { key: "projectGroupId" as const, label: "Dự án" },
+    { key: "parentId" as const, label: "Loại hình" },
+    { key: "value" as const, label: "Hạng mục" },
+  ];
+
+  async function handleCreatePg() {
+    const c = newPgCode.trim().toUpperCase();
+    const n = newPgName.trim();
+    if (!c || !n) { setErr("Nhập đủ mã và tên dự án"); return; }
+    setErr(null);
+    setCreatingPgPending(true);
+    const res = await createProjectGroupReturnId({ code: c, name: n, workGroupId: ptWorkGroupId });
+    setCreatingPgPending(false);
+    if (res.ok && res.data) {
+      toast.success(`Đã tạo dự án ${c}`);
+      router.refresh();
+      setPgId(res.data.id);
+      setCreatingPg(false);
+      setNewPgCode(""); setNewPgName("");
+    } else {
+      setErr(res.ok ? "Lỗi không xác định" : res.error);
+    }
+  }
+
+  async function handleCreateL2() {
+    const v = newL2Value.trim();
+    if (!v) { setErr("Nhập tên loại hình"); return; }
+    setErr(null);
+    setCreatingL2Pending(true);
+    const res = await createCatalogItemReturnId(ptWorkGroupId, 2, v);
+    setCreatingL2Pending(false);
+    if (res.ok && res.data) {
+      toast.success(`Đã tạo loại hình ${v}`);
+      router.refresh();
+      setParentId(res.data.id);
+      setCreatingL2(false);
+      setNewL2Value("");
+    } else {
+      setErr(res.ok ? "Lỗi không xác định" : res.error);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    const patch: BimtoolsPatch = {};
+    if (activeField === "projectGroupId") {
+      patch.projectGroupId = pgId || null;
+    } else if (activeField === "parentId") {
+      if (!parentId) { setErr("Chọn loại hình"); return; }
+      patch.parentId = parentId;
+    } else {
+      if (!value.trim()) { setErr("Nhập hạng mục mới"); return; }
+      patch.value = value.trim();
+    }
+    setPending(true);
+    await onSubmit(patch);
+    setPending(false);
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Sửa ${ids.length} hạng mục BIM Tools`} className="max-w-lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Tab chọn trường */}
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+          {FIELDS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => { setActiveField(f.key); setErr(null); }}
+              className={cn(
+                "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                activeField === f.key ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700",
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Dự án */}
+        {activeField === "projectGroupId" && (
+          <div className="space-y-2">
+            {!creatingPg ? (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-600">Dự án</label>
+                  <Select value={pgId} onChange={(e) => setPgId(e.target.value)} className="h-9">
+                    <option value="">— Không gắn dự án —</option>
+                    {ptProjectGroups.map((g) => (
+                      <option key={g.id} value={g.id}>{g.code} — {g.name}</option>
+                    ))}
+                  </Select>
+                </div>
+                <button type="button" onClick={() => setCreatingPg(true)}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800">
+                  <Plus className="size-3.5" /> Tạo dự án mới
+                </button>
+              </>
+            ) : (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-medium text-slate-600">Tạo dự án BIM Tools mới</p>
+                <div className="flex gap-2">
+                  <input autoFocus className={cn(inputCls, "w-28 shrink-0 font-mono uppercase")}
+                    placeholder="Mã" value={newPgCode}
+                    onChange={(e) => { setNewPgCode(e.target.value.toUpperCase()); setErr(null); }} />
+                  <input className={cn(inputCls, "flex-1")} placeholder="Tên dự án…" value={newPgName}
+                    onChange={(e) => { setNewPgName(e.target.value); setErr(null); }} />
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" disabled={creatingPgPending} onClick={handleCreatePg}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+                    <Check className="size-3.5" /> {creatingPgPending ? "Đang lưu…" : "Tạo"}
+                  </button>
+                  <button type="button" onClick={() => { setCreatingPg(false); setErr(null); }}
+                    className="text-xs text-slate-400 hover:text-slate-600">Hủy</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Loại hình */}
+        {activeField === "parentId" && (
+          <div className="space-y-2">
+            {!creatingL2 ? (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-600">
+                    Loại hình <span className="text-red-500">*</span>
+                  </label>
+                  <Select value={parentId} onChange={(e) => setParentId(e.target.value)} className="h-9">
+                    {ptLevel2.map((l) => (
+                      <option key={l.id} value={l.id}>{l.value}</option>
+                    ))}
+                  </Select>
+                </div>
+                <button type="button" onClick={() => setCreatingL2(true)}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800">
+                  <Plus className="size-3.5" /> Tạo loại hình mới
+                </button>
+              </>
+            ) : (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-medium text-slate-600">Tạo loại hình mới</p>
+                <input autoFocus className={inputCls} placeholder="Tên loại hình…" value={newL2Value}
+                  onChange={(e) => { setNewL2Value(e.target.value); setErr(null); }} />
+                <div className="flex gap-2">
+                  <button type="button" disabled={creatingL2Pending} onClick={handleCreateL2}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+                    <Check className="size-3.5" /> {creatingL2Pending ? "Đang lưu…" : "Tạo"}
+                  </button>
+                  <button type="button" onClick={() => { setCreatingL2(false); setErr(null); }}
+                    className="text-xs text-slate-400 hover:text-slate-600">Hủy</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Hạng mục */}
+        {activeField === "value" && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">
+              Tên hạng mục mới <span className="text-red-500">*</span>
+            </label>
+            <input autoFocus className={inputCls} placeholder="Nhập tên mới…" value={value}
+              onChange={(e) => { setValue(e.target.value); setErr(null); }} />
+            <p className="text-[11px] text-amber-500">Sẽ đổi hạng mục cho tất cả {ids.length} dòng đã chọn thành tên này.</p>
+          </div>
+        )}
+
+        {err ? (
+          <p className="flex items-center gap-1.5 text-xs text-red-600">
+            <AlertCircle className="size-3.5" /> {err}
+          </p>
+        ) : null}
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+          <Button type="button" variant="outline" onClick={onClose}>Hủy</Button>
+          <Button type="submit" disabled={pending || creatingPg || creatingL2}>
+            <Check className="size-4" /> {pending ? "Đang lưu…" : `Áp dụng cho ${ids.length} dòng`}
+          </Button>
+        </div>
+      </form>
     </Modal>
   );
 }
