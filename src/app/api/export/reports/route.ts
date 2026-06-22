@@ -69,13 +69,30 @@ export async function GET() {
       ...(selfOnly ? { assignees: { some: { userId: meId } } } : {}),
     },
     select: {
+      id: true,
+      sumId: true,
+      name: true,
+      level2: true,
+      level3: true,
+      level5: true,
       status: true,
       priority: true,
+      actualEnd: true,
+      deletedAt: true,
+      measureNorm: true,
       plannedStart: true,
       plannedEnd: true,
       workGroup: { select: { name: true, order: true } },
-      discipline: { select: { code: true } },
-      assignees: { select: { user: { select: { fullName: true } } } },
+      discipline: { select: { code: true, name: true } },
+      phase: { select: { code: true, name: true } },
+      project: {
+        select: {
+          name: true,
+          group: { select: { code: true, name: true } },
+          constructionType: { select: { code: true, name: true, order: true } },
+        },
+      },
+      assignees: { select: { user: { select: { id: true, fullName: true } } }, orderBy: { roleNo: "asc" } },
     },
     take: 10000,
   });
@@ -201,23 +218,14 @@ export async function GET() {
 
     // ----- Thời gian theo việc (2 sheet) -----
     const tsAll = await prisma.timeSheetEntry.findMany({
-      where: { deletedAt: null, taskId: { not: null }, ...(selfOnly ? { userId: meId } : {}) },
+      where: {
+        deletedAt: null,
+        taskId: { in: tasks.map((t) => t.id) },
+        ...(selfOnly ? { userId: meId } : {}),
+      },
       select: { taskId: true, hours: true, date: true, user: { select: { fullName: true } } },
     });
-    const taskIds = [...new Set(tsAll.map((e) => e.taskId).filter(Boolean) as string[])];
-    const taskInfos = await prisma.task.findMany({
-      where: { id: { in: taskIds } },
-      select: {
-        id: true,
-        sumId: true,
-        name: true,
-        level5: true,
-        deletedAt: true,
-        workGroup: { select: { name: true } },
-        project: { select: { name: true, constructionType: { select: { name: true } } } },
-      },
-    });
-    const tInfo = new Map(taskInfos.map((t) => [t.id, t]));
+    const tInfo = new Map(tasks.map((t) => [t.id, t]));
     const deptNormOf = (level5: string, ctName: string): number | null => {
       const d = byDept.get(`${level5}|${ctName}`);
       return d && d.tasks.size > 0 ? d.hours / d.tasks.size : null;
@@ -240,12 +248,83 @@ export async function GET() {
       if (dt > a.maxD) a.maxD = dt;
     }
 
+    const wsList = wb.addWorksheet("Danh sach cong viec");
+    wsList.columns = [
+      { header: "Dự án", key: "maDuAn", width: 16 },
+      { header: "Loại hình", key: "maLoaiHinh", width: 14 },
+      { header: "Hạng mục", key: "hangMuc", width: 28 },
+      { header: "Công việc", key: "congViec", width: 34 },
+      { header: "Bộ môn", key: "maBoMon", width: 12 },
+      { header: "Giai đoạn", key: "maGiaiDoan", width: 14 },
+      { header: "Thực hiện", key: "thucHien", width: 36 },
+      { header: "Số người", key: "soNguoi", width: 10 },
+      { header: "Số người ghi giờ", key: "soNguoiGhiGio", width: 14 },
+      { header: "Ưu tiên", key: "uuTien", width: 12 },
+      { header: "Tình trạng", key: "tinhTrang", width: 16 },
+      { header: "Bắt đầu", key: "batDau", width: 12 },
+      { header: "Kết thúc", key: "ketThuc", width: 12 },
+      { header: "Thực tế hoàn thành", key: "thucTe", width: 18 },
+      { header: "Tổng giờ", key: "tongGio", width: 10 },
+      { header: "Số ngày", key: "soNgay", width: 10 },
+      { header: "Định mức đầu việc", key: "dinhMuc", width: 18 },
+      { header: "Đo định mức", key: "doDinhMuc", width: 12 },
+    ];
+    wsList.getRow(1).font = { bold: true };
+
+    const sortedListTasks = [...tasks].sort((a, b) =>
+      a.workGroup.order - b.workGroup.order ||
+      (a.project?.group?.code ?? "").localeCompare(b.project?.group?.code ?? "", "vi") ||
+      (a.project?.constructionType?.order ?? 999) - (b.project?.constructionType?.order ?? 999) ||
+      (a.project?.name ?? a.level3 ?? "").localeCompare(b.project?.name ?? b.level3 ?? "", "vi") ||
+      (a.level5 ?? a.name).localeCompare(b.level5 ?? b.name, "vi"),
+    );
+    for (const t of sortedListTasks) {
+      const agg = byTask.get(t.id);
+      const level5 = t.level5 || t.name;
+      const ctName = t.project?.constructionType?.name ?? "Chưa gán loại hình";
+      const dn = deptNormOf(level5, ctName);
+      const eff = effectiveStatus({
+        status: t.status,
+        plannedStart: iso(t.plannedStart),
+        plannedEnd: iso(t.plannedEnd),
+        assigneeCount: t.assignees.length,
+      });
+      wsList.addRow({
+        maDuAn: t.project?.group?.code ?? "",
+        maLoaiHinh: t.project?.constructionType?.code ?? "",
+        hangMuc: t.project?.name ?? t.level3 ?? "",
+        congViec: level5,
+        maBoMon: t.discipline?.code ?? "",
+        maGiaiDoan: t.phase?.code ?? "",
+        thucHien: t.assignees.map((a) => a.user.fullName).join(", "),
+        soNguoi: t.assignees.length,
+        soNguoiGhiGio: agg?.users.size ?? 0,
+        uuTien: PRIORITY_LABEL[t.priority] ?? t.priority,
+        tinhTrang: TASK_STATUS_LABEL[eff] ?? eff,
+        batDau: iso(t.plannedStart),
+        ketThuc: iso(t.plannedEnd),
+        thucTe: iso(t.actualEnd),
+        tongGio: agg ? Number(agg.hours.toFixed(1)) : 0,
+        soNgay: agg?.dates.size ?? 0,
+        dinhMuc: dn != null ? Number(dn.toFixed(1)) : "",
+        doDinhMuc: t.measureNorm ? "Có" : "",
+      });
+    }
+
     const wsT = wb.addWorksheet("Thoi gian theo viec");
     wsT.columns = [
-      { header: "Mã", key: "ma", width: 22 },
+      { header: "Dự án", key: "maDuAn", width: 16 },
+      { header: "Loại hình", key: "maLoaiHinh", width: 14 },
+      { header: "Hạng mục", key: "hangMuc", width: 28 },
+      { header: "Bộ môn", key: "maBoMon", width: 12 },
+      { header: "Giai đoạn", key: "maGiaiDoan", width: 14 },
+      { header: "Thực hiện", key: "thucHien", width: 36 },
+      { header: "Ưu tiên", key: "uuTien", width: 12 },
+      { header: "Tình trạng", key: "tinhTrang", width: 16 },
+      { header: "Thực tế hoàn thành", key: "thucTe", width: 18 },
+      { header: "Đo định mức", key: "doDinhMuc", width: 12 },
       { header: "Công việc", key: "ten", width: 34 },
       { header: "Nhóm", key: "nhom", width: 18 },
-      { header: "Dự án", key: "duan", width: 22 },
       { header: "Tổng giờ", key: "gio", width: 10 },
       { header: "Số người", key: "nguoi", width: 9 },
       { header: "Số ngày", key: "ngay", width: 9 },
@@ -258,8 +337,13 @@ export async function GET() {
 
     const wsTU = wb.addWorksheet("Thoi gian viec-nguoi");
     wsTU.columns = [
-      { header: "Mã", key: "ma", width: 22 },
+      { header: "Mã dự án", key: "maDuAn", width: 16 },
+      { header: "Dự án", key: "duAn", width: 28 },
+      { header: "Loại hình", key: "loaiHinh", width: 24 },
+      { header: "Hạng mục", key: "hangMuc", width: 28 },
       { header: "Công việc", key: "ten", width: 34 },
+      { header: "Bộ môn", key: "boMon", width: 22 },
+      { header: "Giai đoạn", key: "giaiDoan", width: 20 },
       { header: "Nhân sự", key: "nguoi", width: 22 },
       { header: "Giờ", key: "gio", width: 10 },
       { header: "% so ĐM", key: "sodm", width: 10 },
@@ -273,11 +357,25 @@ export async function GET() {
       const level5 = t.level5 || t.name;
       const ctName = t.project?.constructionType?.name ?? "Chưa gán loại hình";
       const dn = deptNormOf(level5, ctName);
+      const eff = effectiveStatus({
+        status: t.status,
+        plannedStart: iso(t.plannedStart),
+        plannedEnd: iso(t.plannedEnd),
+        assigneeCount: t.assignees.length,
+      });
       wsT.addRow({
-        ma: t.sumId ?? "",
+        maDuAn: t.project?.group?.code ?? "",
+        maLoaiHinh: t.project?.constructionType?.code ?? "",
+        hangMuc: t.project?.name ?? t.level3 ?? "",
+        maBoMon: t.discipline?.code ?? "",
+        maGiaiDoan: t.phase?.code ?? "",
+        thucHien: t.assignees.map((a) => a.user.fullName).join(", "),
+        uuTien: PRIORITY_LABEL[t.priority] ?? t.priority,
+        tinhTrang: TASK_STATUS_LABEL[eff] ?? eff,
+        thucTe: iso(t.actualEnd),
+        doDinhMuc: t.measureNorm ? "Có" : "",
         ten: t.name,
         nhom: t.workGroup.name,
-        duan: t.project?.name ?? "",
         gio: Number(agg.hours.toFixed(1)),
         nguoi: agg.users.size,
         ngay: agg.dates.size,
@@ -288,8 +386,13 @@ export async function GET() {
       });
       for (const [name, h] of [...agg.users.entries()].sort((a, b) => b[1] - a[1])) {
         wsTU.addRow({
-          ma: t.sumId ?? "",
+          maDuAn: t.project?.group?.code ?? "",
+          duAn: t.project?.group?.name ?? "",
+          loaiHinh: t.project?.constructionType?.name ?? (t.project ? "" : (t.level2 ?? "")),
+          hangMuc: t.project?.name ?? t.level3 ?? "",
           ten: t.name,
+          boMon: t.discipline?.name ?? "",
+          giaiDoan: t.phase?.name ?? "",
           nguoi: name,
           gio: Number(h.toFixed(1)),
           sodm: dn != null && dn > 0 ? Math.round(((h - dn) / dn) * 100) : "",
