@@ -205,3 +205,58 @@ export async function deleteProject(id: string) {
     revalidatePath("/assign");
   });
 }
+
+// Tạo ProjectGroup và trả về id (dùng trong bulk edit)
+export async function createProjectGroupReturnId(input: {
+  code: string;
+  name: string;
+  workGroupId?: string | null;
+}) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    const code = input.code.trim().toUpperCase();
+    const name = input.name.trim();
+    if (!code) throw new Error("Nhập mã dự án");
+    if (!name) throw new Error("Nhập tên dự án");
+    const dup = await prisma.projectGroup.findUnique({ where: { code }, select: { id: true } });
+    if (dup) throw new Error(`Mã "${code}" đã tồn tại`);
+    const created = await prisma.projectGroup.create({
+      data: { code, name, order: 0, workGroupId: input.workGroupId ?? null },
+    });
+    revalidatePath("/admin/catalog", "layout");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
+    return { id: created.id };
+  });
+}
+
+// Batch update Dự án / Loại hình / Hạng mục cho nhiều hạng mục (Tab Dự án)
+export async function batchUpdateCatalogProjects(
+  ids: string[],
+  patch: { groupId?: string; constructionTypeId?: string | null; name?: string },
+) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    if (!ids.length) throw new Error("Không có mục nào được chọn");
+    let newCode: string | undefined;
+    if (patch.groupId) {
+      const group = await prisma.projectGroup.findUnique({
+        where: { id: patch.groupId },
+        select: { code: true },
+      });
+      if (!group) throw new Error("Dự án không tồn tại");
+      newCode = group.code;
+    }
+    for (const id of ids) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: Record<string, any> = {};
+      if (patch.groupId !== undefined) { data.groupId = patch.groupId; data.code = newCode; }
+      if (patch.constructionTypeId !== undefined) data.constructionTypeId = patch.constructionTypeId || null;
+      if (patch.name !== undefined && patch.name.trim()) data.name = patch.name.trim();
+      if (Object.keys(data).length) await prisma.project.update({ where: { id }, data });
+    }
+    revalidatePath("/admin/catalog", "layout");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
+  });
+}

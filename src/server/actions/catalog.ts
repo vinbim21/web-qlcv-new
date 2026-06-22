@@ -157,6 +157,52 @@ export async function batchSaveCatalogItems(
   });
 }
 
+// Tạo CatalogItem và trả về id (dùng trong bulk edit BIM Tools)
+export async function createCatalogItemReturnId(
+  workGroupId: string,
+  level: number,
+  value: string,
+  parentId?: string | null,
+) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    const v = value.trim();
+    if (!v) throw new Error("Nhập giá trị");
+    const created = await prisma.catalogItem.create({
+      data: { workGroupId, level, value: v, parentId: parentId ?? null },
+    });
+    revalidatePath("/admin/catalog");
+    revalidatePath("/tasks");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
+    return { id: created.id };
+  });
+}
+
+// Batch update parentId / projectGroupId / value cho nhiều CatalogItem (Tab BIM Tools)
+export async function batchUpdateCatalogItems(
+  ids: string[],
+  patch: { workGroupId?: string; parentId?: string | null; projectGroupId?: string | null; value?: string },
+) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    if (!ids.length) throw new Error("Không có mục nào được chọn");
+    for (const id of ids) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: Record<string, any> = {};
+      if (patch.workGroupId !== undefined) data.workGroupId = patch.workGroupId;
+      if (patch.parentId !== undefined) data.parentId = patch.parentId;
+      if (patch.projectGroupId !== undefined) data.projectGroupId = patch.projectGroupId || null;
+      if (patch.value !== undefined && patch.value.trim()) data.value = patch.value.trim();
+      if (Object.keys(data).length) await prisma.catalogItem.update({ where: { id }, data });
+    }
+    revalidatePath("/admin/catalog");
+    revalidatePath("/tasks");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
+  });
+}
+
 // ---------- Batch reorder (drag-and-drop) ----------
 
 type OrderModel = "workGroup" | "phase" | "discipline" | "constructionType" | "projectGroup" | "catalogItem";
@@ -170,5 +216,41 @@ export async function batchReorderItems(model: OrderModel, ids: string[]) {
       ids.map((id, index) => m.update({ where: { id }, data: { order: index } }))
     );
     revalidatePath("/admin/catalog");
+  });
+}
+
+type SimpleCatalogModel = "workGroup" | "phase" | "discipline" | "constructionType";
+
+export async function batchUpdateSimpleCatalog(
+  model: SimpleCatalogModel,
+  ids: string[],
+  patch: { code?: string; name?: string; abbr?: string | null; order?: number },
+) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    if (!ids.length) throw new Error("KhÃ´ng cÃ³ má»¥c nÃ o Ä‘Æ°á»£c chá»n");
+
+    const data: Record<string, string | number | null> = {};
+    if (patch.code !== undefined) {
+      const code = patch.code.trim();
+      if (!code) throw new Error("Nháº­p mÃ£");
+      data.code = code;
+    }
+    if (patch.name !== undefined) {
+      const name = patch.name.trim();
+      if (!name) throw new Error("Nháº­p tÃªn");
+      data.name = name;
+    }
+    if (patch.abbr !== undefined) data.abbr = patch.abbr?.trim().toUpperCase() || null;
+    if (patch.order !== undefined) data.order = patch.order;
+    if (!Object.keys(data).length) throw new Error("ChÆ°a cÃ³ dá»¯ liá»‡u cáº­p nháº­t");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = (prisma as any)[model];
+    await prisma.$transaction(ids.map((id) => m.update({ where: { id }, data })));
+    revalidatePath("/admin/catalog");
+    revalidatePath("/tasks");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
   });
 }
