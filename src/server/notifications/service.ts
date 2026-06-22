@@ -87,6 +87,33 @@ export async function notifyTasksChange(
   await createNotifications(db, rows);
 }
 
+/** Gửi thông báo đến tất cả ADMIN và LEVEL_1. */
+export async function notifyManagers(
+  opts: {
+    actorId?: string | null;
+    type: Prisma.NotificationCreateManyInput["type"];
+    taskId?: string | null;
+    title: string;
+    body?: string | null;
+  },
+) {
+  const managers = await prisma.user.findMany({
+    where: { role: { in: ["ADMIN", "LEVEL_1"] }, deletedAt: null },
+    select: { id: true },
+  });
+  await createNotifications(
+    prisma,
+    managers.map((m) => ({
+      userId: m.id,
+      actorId: opts.actorId,
+      type: opts.type,
+      taskId: opts.taskId,
+      title: opts.title,
+      body: opts.body,
+    })),
+  );
+}
+
 function startOfToday(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);

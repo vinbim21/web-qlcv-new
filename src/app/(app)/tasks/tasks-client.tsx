@@ -10,6 +10,7 @@ import {
   Check,
   ChevronsUpDown,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronsDownUp,
   Clock,
@@ -28,6 +29,7 @@ import {
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import { toast } from "sonner";
 import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskForm } from "@/components/task-form";
@@ -38,6 +40,13 @@ import { Modal } from "@/components/ui/modal";
 import { PRIORITY_LABEL, PRIORITY_OPTIONS, TASK_STATUS_LABEL } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
 import { completionDateError, effectiveStatus, isCompletedLate } from "@/lib/task-status";
+import {
+  type PeriodBounds,
+  type PeriodType,
+  getBounds,
+  getISOWeekYear,
+  isoWeeksInYear,
+} from "@/app/(app)/reports/period-utils";
 import {
   bulkSetDeadline,
   bulkSetPriority,
@@ -135,29 +144,11 @@ function isDueSoon(t: TaskRow): boolean {
 }
 
 // --- lát cắt thời gian ---
-type TimePeriod = "" | "week" | "month" | "quarter" | "year";
-function toISO(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-function periodRange(p: TimePeriod): [string, string] | null {
-  if (!p) return null;
-  const d = startOfToday(), y = d.getFullYear(), m = d.getMonth();
-  if (p === "week") {
-    const day = d.getDay();
-    const mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-    return [toISO(mon), toISO(sun)];
-  }
-  if (p === "month") return [toISO(new Date(y, m, 1)), toISO(new Date(y, m + 1, 0))];
-  if (p === "quarter") { const q = Math.floor(m / 3); return [toISO(new Date(y, q * 3, 1)), toISO(new Date(y, (q + 1) * 3, 0))]; }
-  return [toISO(new Date(y, 0, 1)), toISO(new Date(y, 11, 31))];
-}
-function inPeriod(plannedStart: string, plannedEnd: string, range: [string, string] | null): boolean {
-  if (!range) return true;
+function inPeriod(plannedStart: string, plannedEnd: string, bounds: PeriodBounds | null): boolean {
+  if (!bounds) return true;
   if (!plannedStart && !plannedEnd) return true;
-  // task overlap period nếu: plannedStart <= cuối kỳ VÀ plannedEnd >= đầu kỳ
-  const startOk = !plannedStart || plannedStart <= range[1];
-  const endOk = !plannedEnd || plannedEnd >= range[0];
+  const startOk = !plannedStart || plannedStart <= bounds.end;
+  const endOk = !plannedEnd || plannedEnd >= bounds.start;
   return startOk && endOk;
 }
 
@@ -763,12 +754,42 @@ export function TasksClient({
   const router = useRouter();
   const [search, setSearch] = React.useState("");
   const deferredSearch = React.useDeferredValue(search);
-  const [activeWg, setActiveWg] = React.useState("");
-  const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM">("");
-  const [timePeriod, setTimePeriod] = React.useState<TimePeriod>("week");
-  const [colFilters, setColFilters] = React.useState<Record<string, ColFilterVal>>({});
+  const [activeWg, setActiveWg] = useLocalStorage("tasks:activeWg", "");
+  const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM">("tasks:quick", "");
+  const _now = React.useRef(new Date());
+  const _curWeek = React.useRef(getISOWeekYear(_now.current));
+  const [timePeriod, setTimePeriod] = useLocalStorage<PeriodType>("tasks:timePeriod", "week");
+  const [pYear, setPYear] = useLocalStorage("tasks:pYear", _curWeek.current.year);
+  const [pWeek, setPWeek] = useLocalStorage("tasks:pWeek", _curWeek.current.week);
+  const [pMonth, setPMonth] = useLocalStorage("tasks:pMonth", _now.current.getMonth() + 1);
+  const [pQuarter, setPQuarter] = useLocalStorage("tasks:pQuarter", Math.ceil((_now.current.getMonth() + 1) / 3));
+  const periodBounds = React.useMemo(
+    () => getBounds(timePeriod, pYear, pWeek, pMonth, pQuarter),
+    [timePeriod, pYear, pWeek, pMonth, pQuarter],
+  );
+  function handlePeriodType(t: PeriodType) {
+    const iw = getISOWeekYear(new Date());
+    setTimePeriod(t);
+    setPYear(t === "week" ? iw.year : new Date().getFullYear());
+    setPWeek(iw.week);
+    setPMonth(new Date().getMonth() + 1);
+    setPQuarter(Math.ceil((new Date().getMonth() + 1) / 3));
+  }
+  function handlePeriodPrev() {
+    if (timePeriod === "week") { if (pWeek > 1) setPWeek(w => w - 1); else { setPYear(y => y - 1); setPWeek(isoWeeksInYear(pYear - 1)); } }
+    else if (timePeriod === "month") { if (pMonth > 1) setPMonth(m => m - 1); else { setPYear(y => y - 1); setPMonth(12); } }
+    else if (timePeriod === "quarter") { if (pQuarter > 1) setPQuarter(q => q - 1); else { setPYear(y => y - 1); setPQuarter(4); } }
+    else if (timePeriod === "year") setPYear(y => y - 1);
+  }
+  function handlePeriodNext() {
+    if (timePeriod === "week") { if (pWeek < isoWeeksInYear(pYear)) setPWeek(w => w + 1); else { setPYear(y => y + 1); setPWeek(1); } }
+    else if (timePeriod === "month") { if (pMonth < 12) setPMonth(m => m + 1); else { setPYear(y => y + 1); setPMonth(1); } }
+    else if (timePeriod === "quarter") { if (pQuarter < 4) setPQuarter(q => q + 1); else { setPYear(y => y + 1); setPQuarter(1); } }
+    else if (timePeriod === "year") setPYear(y => y + 1);
+  }
+  const [colFilters, setColFilters] = useLocalStorage<Record<string, ColFilterVal>>("tasks:colFilters", {});
   const [openFilter, setOpenFilter] = React.useState<{ key: SortKey; rect: DOMRect } | null>(null);
-  const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "ketThuc", dir: "asc" });
+  const [sort, setSort] = useLocalStorage<{ key: SortKey; dir: "asc" | "desc" }>("tasks:sort", { key: "ketThuc", dir: "asc" });
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [logging, setLogging] = React.useState<TaskRow | null>(null);
@@ -780,7 +801,7 @@ export function TasksClient({
   const [bulkEndDate, setBulkEndDate] = React.useState<{ ids: string[]; date: string } | null>(null);
   // Tree grouping: null = chưa tương tác (mặc định thu tất cả)
   const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(null);
-  const [viewMode, setViewMode] = React.useState<"tree" | "flat">("tree");
+  const [viewMode, setViewMode] = useLocalStorage<"tree" | "flat">("tasks:viewMode", "tree");
   // Modal chi tiết công việc: note + giờ tuần.
   type WeekEntry = { id: string; date: string; hours: number; note: string | null };
   const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
@@ -815,7 +836,7 @@ export function TasksClient({
     setSearch("");
     setQuick("");
     setActiveWg("");
-    setTimePeriod("");
+    setTimePeriod("all");
   }
 
   // Giá trị phân biệt cho cột lọc "multi".
@@ -871,15 +892,14 @@ export function TasksClient({
   // Nền KPI: search + lọc cột + tab (KHÔNG gồm quick) → số KPI ổn định khi bấm.
   const baseRows = React.useMemo(() => {
     const q = norm(deferredSearch.trim());
-    const pr = periodRange(timePeriod);
     return tasks.filter((t) => {
       if (activeWg && t.workGroupId !== activeWg) return false;
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
-      if (!inPeriod(t.plannedStart, t.plannedEnd, pr)) return false;
+      if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t)) return false;
       return true;
     });
-  }, [tasks, activeWg, deferredSearch, haystacks, cols, colFilters, timePeriod]);
+  }, [tasks, activeWg, deferredSearch, haystacks, cols, colFilters, periodBounds]);
 
   const kpi = React.useMemo(() => {
     let overdue = 0;
@@ -896,17 +916,16 @@ export function TasksClient({
   // Đếm tab nhóm — trên nền tìm + lọc cột + quick (KHÔNG gồm tab).
   const quickFiltered = React.useMemo(() => {
     const q = norm(deferredSearch.trim());
-    const pr = periodRange(timePeriod);
     return tasks.filter((t) => {
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
-      if (!inPeriod(t.plannedStart, t.plannedEnd, pr)) return false;
+      if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t)) return false;
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
       return true;
     });
-  }, [tasks, deferredSearch, haystacks, cols, colFilters, quick, timePeriod]);
+  }, [tasks, deferredSearch, haystacks, cols, colFilters, quick, periodBounds]);
 
   const wgCounts = React.useMemo(() => {
     const m = new Map<string, number>();
@@ -1596,27 +1615,28 @@ export function TasksClient({
       </div>
 
       {/* Lát cắt thời gian */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex overflow-hidden rounded-md border border-slate-200">
-          {(["week", "month", "quarter", "year", ""] as const).map((p, i) => {
-            const LABEL: Record<string, string> = { week: "Tuần", month: "Tháng", quarter: "Quý", year: "Năm", "": "Tất cả" };
-            const active = timePeriod === p;
+          {(["week", "month", "quarter", "year", "all"] as const).map((p, i) => {
+            const LABEL: Record<string, string> = { week: "Tuần", month: "Tháng", quarter: "Quý", year: "Năm", all: "Tất cả" };
             return (
-              <button
-                key={p || "all"}
-                type="button"
-                onClick={() => setTimePeriod(p as TimePeriod)}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-medium transition-colors",
-                  i > 0 && "border-l border-slate-200",
-                  active ? "bg-slate-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50",
-                )}
-              >
-                {LABEL[p]}
-              </button>
+              <button key={p} type="button" onClick={() => handlePeriodType(p)}
+                className={cn("px-3 py-1.5 text-xs font-medium transition-colors", i > 0 && "border-l border-slate-200",
+                  timePeriod === p ? "bg-slate-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50")}
+              >{LABEL[p]}</button>
             );
           })}
         </div>
+        {periodBounds && (
+          <>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={handlePeriodPrev} className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white hover:bg-slate-50"><ChevronLeft className="size-3.5" /></button>
+              <span className="min-w-[180px] text-center text-xs font-semibold text-slate-800">{periodBounds.label}</span>
+              <button type="button" onClick={handlePeriodNext} className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white hover:bg-slate-50"><ChevronRight className="size-3.5" /></button>
+            </div>
+            {timePeriod === "week" && <span className="text-xs text-slate-400">T2–T7 · <span className="font-medium text-slate-600">{quickFiltered.length}</span> việc</span>}
+          </>
+        )}
       </div>
 
       {/* KPI — 3 thẻ bấm lọc nhanh */}
