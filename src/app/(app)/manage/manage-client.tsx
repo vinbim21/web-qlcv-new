@@ -8,6 +8,7 @@ import {
   Calendar,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -46,6 +47,13 @@ import {
 import { cn, removeVietnameseTones } from "@/lib/utils";
 import { PHONG_LABEL, phongOf } from "@/lib/dept-map";
 import { completionDateError, effectiveStatus, isCompletedLate } from "@/lib/task-status";
+import {
+  type PeriodBounds,
+  type PeriodType,
+  getBounds,
+  getISOWeekYear,
+  isoWeeksInYear,
+} from "@/app/(app)/reports/period-utils";
 import {
   approveEndDateChange,
   bulkDelete,
@@ -197,26 +205,11 @@ function thisMonth(iso: string): boolean {
   return !!iso && iso.slice(0, 7) === THIS_MONTH;
 }
 
-type TimePeriod = "" | "week" | "month" | "quarter" | "year";
-function periodRange(p: TimePeriod): [string, string] | null {
-  if (!p) return null;
-  const d = new Date(), y = d.getFullYear(), m = d.getMonth();
-  if (p === "week") {
-    const day = d.getDay();
-    const mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-    return [localIso(mon), localIso(sun)];
-  }
-  if (p === "month") return [localIso(new Date(y, m, 1)), localIso(new Date(y, m + 1, 0))];
-  if (p === "quarter") { const q = Math.floor(m / 3); return [localIso(new Date(y, q * 3, 1)), localIso(new Date(y, (q + 1) * 3, 0))]; }
-  return [localIso(new Date(y, 0, 1)), localIso(new Date(y, 11, 31))];
-}
-function inPeriod(plannedStart: string, plannedEnd: string, range: [string, string] | null): boolean {
-  if (!range) return true;
+function inPeriod(plannedStart: string, plannedEnd: string, bounds: PeriodBounds | null): boolean {
+  if (!bounds) return true;
   if (!plannedStart && !plannedEnd) return true;
-  // task overlap period nếu: plannedStart <= cuối kỳ VÀ plannedEnd >= đầu kỳ
-  const startOk = !plannedStart || plannedStart <= range[1];
-  const endOk = !plannedEnd || plannedEnd >= range[0];
+  const startOk = !plannedStart || plannedStart <= bounds.end;
+  const endOk = !plannedEnd || plannedEnd >= bounds.start;
   return startOk && endOk;
 }
 
@@ -474,7 +467,37 @@ export function ManageClient({
   const [bulkOpen, setBulkOpen] = React.useState(false);
   // Lọc nhanh từ dải KPI.
   const [quick, setQuick] = React.useState<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">("");
-  const [timePeriod, setTimePeriod] = React.useState<TimePeriod>("week");
+  const _now = React.useRef(new Date());
+  const _curWeek = React.useRef(getISOWeekYear(_now.current));
+  const [timePeriod, setTimePeriod] = React.useState<PeriodType>("week");
+  const [pYear, setPYear] = React.useState(_curWeek.current.year);
+  const [pWeek, setPWeek] = React.useState(_curWeek.current.week);
+  const [pMonth, setPMonth] = React.useState(_now.current.getMonth() + 1);
+  const [pQuarter, setPQuarter] = React.useState(Math.ceil((_now.current.getMonth() + 1) / 3));
+  const periodBounds = React.useMemo(
+    () => getBounds(timePeriod, pYear, pWeek, pMonth, pQuarter),
+    [timePeriod, pYear, pWeek, pMonth, pQuarter],
+  );
+  function handlePeriodType(t: PeriodType) {
+    const iw = getISOWeekYear(new Date());
+    setTimePeriod(t);
+    setPYear(t === "week" ? iw.year : new Date().getFullYear());
+    setPWeek(iw.week);
+    setPMonth(new Date().getMonth() + 1);
+    setPQuarter(Math.ceil((new Date().getMonth() + 1) / 3));
+  }
+  function handlePeriodPrev() {
+    if (timePeriod === "week") { if (pWeek > 1) setPWeek(w => w - 1); else { setPYear(y => y - 1); setPWeek(isoWeeksInYear(pYear - 1)); } }
+    else if (timePeriod === "month") { if (pMonth > 1) setPMonth(m => m - 1); else { setPYear(y => y - 1); setPMonth(12); } }
+    else if (timePeriod === "quarter") { if (pQuarter > 1) setPQuarter(q => q - 1); else { setPYear(y => y - 1); setPQuarter(4); } }
+    else if (timePeriod === "year") setPYear(y => y - 1);
+  }
+  function handlePeriodNext() {
+    if (timePeriod === "week") { if (pWeek < isoWeeksInYear(pYear)) setPWeek(w => w + 1); else { setPYear(y => y + 1); setPWeek(1); } }
+    else if (timePeriod === "month") { if (pMonth < 12) setPMonth(m => m + 1); else { setPYear(y => y + 1); setPMonth(1); } }
+    else if (timePeriod === "quarter") { if (pQuarter < 4) setPQuarter(q => q + 1); else { setPYear(y => y + 1); setPQuarter(1); } }
+    else if (timePeriod === "year") setPYear(y => y + 1);
+  }
   // Chế độ xem: bảng (mặc định) / gom theo người / Kanban.
   const [viewMode, setViewMode] = React.useState<"people" | "table" | "kanban">("table");
   const [collapsed, setCollapsed] = React.useState<Set<string> | null>(() => null);
@@ -610,7 +633,6 @@ export function ManageClient({
   // Nền KPI: deep-link + tìm + filter cột (KHÔNG gồm quick & tab) → số KPI ổn định khi bấm.
   const kpiBase = React.useMemo(() => {
     const q = norm(deferredSearch.trim());
-    const pr = periodRange(timePeriod);
     return tasks.filter((t) => {
       // deep-link Báo cáo
       if (f.userId && !t.assigneeIds.includes(f.userId)) return false;
@@ -622,10 +644,10 @@ export function ManageClient({
       }
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
-      if (!inPeriod(t.plannedStart, t.plannedEnd, pr)) return false;
+      if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t)) return false;
       return true;
     });
-  }, [tasks, f.userId, f.phong, f.dateFrom, f.dateTo, deferredSearch, haystacks, cols, colFilters, timePeriod]);
+  }, [tasks, f.userId, f.phong, f.dateFrom, f.dateTo, deferredSearch, haystacks, cols, colFilters, periodBounds]);
 
   const kpi = React.useMemo(() => {
     // KPI bám theo tab nhóm (+ tìm kiếm + lọc cột) nhưng KHÔNG bám quick:
@@ -1900,27 +1922,28 @@ export function ManageClient({
       </div>
 
       {/* Lát cắt thời gian */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex overflow-hidden rounded-md border">
-          {(["week", "month", "quarter", "year", ""] as const).map((p, i) => {
-            const LABEL: Record<string, string> = { week: "Tuần", month: "Tháng", quarter: "Quý", year: "Năm", "": "Tất cả" };
-            const active = timePeriod === p;
+          {(["week", "month", "quarter", "year", "all"] as const).map((p, i) => {
+            const LABEL: Record<string, string> = { week: "Tuần", month: "Tháng", quarter: "Quý", year: "Năm", all: "Tất cả" };
             return (
-              <button
-                key={p || "all"}
-                type="button"
-                onClick={() => setTimePeriod(p as TimePeriod)}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-medium transition-colors",
-                  i > 0 && "border-l",
-                  active ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:bg-muted",
-                )}
-              >
-                {LABEL[p]}
-              </button>
+              <button key={p} type="button" onClick={() => handlePeriodType(p)}
+                className={cn("px-3 py-1.5 text-xs font-medium transition-colors", i > 0 && "border-l",
+                  timePeriod === p ? "bg-foreground text-background" : "bg-background text-muted-foreground hover:bg-muted")}
+              >{LABEL[p]}</button>
             );
           })}
         </div>
+        {periodBounds && (
+          <>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={handlePeriodPrev} className="grid h-7 w-7 place-items-center rounded-md border bg-background hover:bg-muted"><ChevronLeft className="size-3.5" /></button>
+              <span className="min-w-[180px] text-center text-xs font-semibold">{periodBounds.label}</span>
+              <button type="button" onClick={handlePeriodNext} className="grid h-7 w-7 place-items-center rounded-md border bg-background hover:bg-muted"><ChevronRight className="size-3.5" /></button>
+            </div>
+            {timePeriod === "week" && <span className="text-xs text-muted-foreground">T2–T7 · <span className="font-medium">{base.length}</span>/{tasks.length} việc</span>}
+          </>
+        )}
       </div>
 
       {/* Dải KPI cảnh báo — bấm để lọc nhanh */}
