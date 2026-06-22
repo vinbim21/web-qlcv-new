@@ -231,6 +231,7 @@ model Task {
   plannedEnd      DateTime?
   actualEnd       DateTime?
   note            String?
+  result          String? // Kết quả công việc (URL hoặc đường dẫn file)
 
   // Duyệt việc (chỉ Quản trị/Cấp 1) — null = chưa duyệt (ký duyệt SAU khi hoàn thành)
   approvedAt   DateTime?

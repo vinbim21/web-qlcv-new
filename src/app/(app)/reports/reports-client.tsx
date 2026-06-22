@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { ResultCell } from "@/components/result-cell";
 import { Donut, HBars } from "./report-charts";
 import {
   buildKpi,
@@ -72,6 +73,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
       { key: "batDau", label: "Bắt đầu", w: 110, filter: "date" },
       { key: "ketThuc", label: "Kết thúc", w: 110, filter: "date" },
       { key: "thucTe", label: "Thực tế hoàn thành", w: 158, filter: "date" },
+      { key: "result", label: "Kết quả", w: 120, filter: "text" },
     ],
     [rows, people],
   );
@@ -105,7 +107,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
     const q = norm(search.trim());
     return rows.filter((r) => {
       if (q) {
-        const hay = norm([r.ma, r.duAn, r.loaiHinh, r.hangMuc, r.congViec, r.boMon, r.thucHien.join(" ")].join(" "));
+        const hay = norm([r.ma, r.duAn, r.loaiHinh, r.hangMuc, r.congViec, r.boMon, r.thucHien.join(" "), r.result].join(" "));
         if (!hay.includes(q)) return false;
       }
       for (const c of cols) if (!rowMatch(r, c, colFilters[c.key])) return false;
@@ -278,14 +280,14 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
         bodyClass="!px-0 !py-0"
       >
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm" style={{ minWidth: 1120 }}>
+          <table className="w-full border-collapse text-sm" style={{ minWidth: 1240 }}>
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-semibold text-slate-500">
                 {cols.map((c) => {
                   const on = colActive(c, colFilters[c.key]);
                   const act = sort.key === c.key;
                   return (
-                    <th key={c.key} className="group px-3 py-2.5" style={{ minWidth: c.w }}>
+                    <th key={c.key} className="sticky top-0 z-20 bg-slate-50/95 px-3 py-2.5 backdrop-blur group" style={{ minWidth: c.w }}>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -381,6 +383,9 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
                       ) : (
                         <span className="text-slate-300">—</span>
                       )}
+                    </td>
+                    <td className="px-3 py-1.5 align-top text-xs">
+                      <ResultCell taskId={r.id} value={r.result || null} canEdit={false} />
                     </td>
                   </tr>
                 );

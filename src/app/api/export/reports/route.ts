@@ -77,6 +77,7 @@ export async function GET() {
       level5: true,
       status: true,
       priority: true,
+      result: true,
       actualEnd: true,
       deletedAt: true,
       measureNorm: true,
