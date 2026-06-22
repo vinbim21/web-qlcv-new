@@ -47,6 +47,7 @@ import { cn, removeVietnameseTones } from "@/lib/utils";
 import { PHONG_LABEL, phongOf } from "@/lib/dept-map";
 import { completionDateError, effectiveStatus, isCompletedLate } from "@/lib/task-status";
 import {
+  approveEndDateChange,
   bulkDelete,
   bulkReassign,
   bulkSetApproval,
@@ -54,6 +55,7 @@ import {
   bulkSetMeasureNorm,
   bulkSetPriority,
   bulkSetStatus,
+  rejectEndDateChange,
   saveTask,
   setTaskApproval,
   setTaskCompletion,
@@ -110,6 +112,8 @@ export type TaskRow = {
   approverId: string | null;
   approverName: string | null;
   startApproved: boolean;
+  pendingPlannedEnd: string | null;
+  endChangeRequesterName: string | null;
   assigneeIds: string[];
   assigneeNames: string[];
 };
@@ -117,6 +121,11 @@ export type TaskRow = {
 // Việc đang "chờ duyệt khởi tạo" → khóa nhập thời gian.
 function isPendingApproval(t: TaskRow): boolean {
   return !!t.approverId && !t.startApproved;
+}
+
+// Có yêu cầu dời hạn đang chờ quản lý duyệt.
+function hasPendingDeadline(t: TaskRow): boolean {
+  return !!t.pendingPlannedEnd;
 }
 
 function isOverdue(t: TaskRow): boolean {
@@ -632,7 +641,7 @@ export function ManageClient({
       if (isOverdue(t)) overdue++;
       else if (isDueSoon(t)) soon++;
       if (t.assigneeIds.length === 0) unassigned++;
-      if (t.assigneeIds.length === 0 || isPendingApproval(t)) unassignedOrPending++;
+      if (t.assigneeIds.length === 0 || isPendingApproval(t) || hasPendingDeadline(t)) unassignedOrPending++;
       if (effOf(t) === "DANG_LAM") doing++;
       progSum += t.progressPercent;
     }
@@ -651,7 +660,7 @@ export function ManageClient({
     return kpiBase.filter((t) => {
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
-      if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0 && !isPendingApproval(t)) return false;
+      if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0 && !isPendingApproval(t) && !hasPendingDeadline(t)) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
       return true;
     });
@@ -1393,6 +1402,21 @@ export function ManageClient({
               )
             ) : null}
           </div>
+          {hasPendingDeadline(t) ? (
+            canManage ? (
+              <div className="flex items-center gap-1">
+                <span className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-orange-600" title={t.endChangeRequesterName ? `${t.endChangeRequesterName} xin dời hạn` : "Xin dời hạn"}>
+                  <span className="size-1.5 rounded-full bg-orange-500" /> Xin dời → {t.pendingPlannedEnd}
+                </span>
+                <button type="button" onClick={() => { void approveEndDateChange(t.id).then(() => router.refresh()); }} className="text-[10px] font-semibold text-emerald-600 hover:text-emerald-700" title="Duyệt dời hạn">✓</button>
+                <button type="button" onClick={() => { void rejectEndDateChange(t.id).then(() => router.refresh()); }} className="text-[10px] font-semibold text-slate-400 hover:text-red-600" title="Từ chối">✕</button>
+              </div>
+            ) : (
+              <span className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-orange-600">
+                <span className="size-1.5 rounded-full bg-orange-500" /> Xin dời → {t.pendingPlannedEnd}
+              </span>
+            )
+          ) : null}
           {dz !== "DA_DUYET" ? (
             dz === "CHUA_DUYET" && canManage ? (
               <button

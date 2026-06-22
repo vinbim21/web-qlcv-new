@@ -42,6 +42,7 @@ export default async function ManagePage({
         project: { include: { group: true, constructionType: true } },
         approvedBy: { select: { fullName: true } },
         approver: { select: { fullName: true } },
+        endChangeRequester: { select: { fullName: true } },
         assignees: { include: { user: true }, orderBy: { roleNo: "asc" } },
       },
       orderBy: [{ workGroupId: "asc" }, { createdAt: "asc" }],
@@ -99,6 +100,8 @@ export default async function ManagePage({
         approverId: t.approverId,
         approverName: t.approver?.fullName ?? null,
         startApproved: !!t.startApprovedAt,
+        pendingPlannedEnd: t.pendingPlannedEnd ? iso(t.pendingPlannedEnd) : null,
+        endChangeRequesterName: t.endChangeRequester?.fullName ?? null,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
       }))}

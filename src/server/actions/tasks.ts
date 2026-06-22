@@ -10,6 +10,7 @@ import { PRIORITY_LABEL } from "@/lib/labels";
 import {
   createNotifications,
   notifyAssignment,
+  notifyManagers,
   notifyTasksChange,
 } from "@/server/notifications/service";
 import {
@@ -767,12 +768,25 @@ export async function requestEndDateChange(input: unknown) {
       return res.count;
     } else {
       // Assignee: lưu pending, chờ quản lý duyệt
-      const res = await prisma.task.updateMany({
+      const affected = await prisma.task.findMany({
         where: { id: { in: ids }, deletedAt: null, assignees: { some: { userId: user.id } } },
+        select: { id: true, name: true },
+      });
+      if (affected.length === 0) return 0;
+      await prisma.task.updateMany({
+        where: { id: { in: affected.map((t) => t.id) } },
         data: { pendingPlannedEnd: d, endChangeRequesterId: user.id },
       });
+      const taskName = affected.length === 1 ? affected[0].name : `${affected.length} công việc`;
+      await notifyManagers({
+        actorId: user.id,
+        type: "TASK_DEADLINE_CHANGE_REQUESTED",
+        taskId: affected.length === 1 ? affected[0].id : null,
+        title: "Đề xuất dời hạn",
+        body: `${user.fullName ?? user.email} xin dời hạn: ${taskName} → ${plannedEnd}`,
+      });
       revalidateTaskViews();
-      return res.count;
+      return affected.length;
     }
   });
 }
