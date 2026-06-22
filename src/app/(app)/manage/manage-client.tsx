@@ -1153,6 +1153,17 @@ export function ManageClient({
     if (!confirm(`${approved ? "Duyệt" : "Thu hồi duyệt"} ${selected.size} công việc?`)) return;
     await applyBatch(bulkSetApproval({ ids: [...selected], approved }), `Đã ${label}`);
   }
+  async function batchApproveDeadline(approve: boolean) {
+    const ids = tasks.filter((t) => selected.has(t.id) && t.pendingPlannedEnd).map((t) => t.id);
+    if (ids.length === 0) return;
+    if (!confirm(`${approve ? "Duyệt" : "Từ chối"} dời hạn cho ${ids.length} công việc?`)) return;
+    for (const id of ids) {
+      const res = approve ? await approveEndDateChange(id) : await rejectEndDateChange(id);
+      if (!res.ok) { toast.error(res.error); return; }
+    }
+    toast.success(approve ? `Đã duyệt dời hạn ${ids.length} việc` : `Đã từ chối dời hạn ${ids.length} việc`);
+    router.refresh();
+  }
   async function batchDeleteSelected() {
     if (!confirm(`Xóa ${selected.size} công việc? Hành động này không thể hoàn tác.`)) return;
     const res = await bulkDelete({ ids: [...selected] });
@@ -1403,19 +1414,12 @@ export function ManageClient({
             ) : null}
           </div>
           {hasPendingDeadline(t) ? (
-            canManage ? (
-              <div className="flex items-center gap-1">
-                <span className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-orange-600" title={t.endChangeRequesterName ? `${t.endChangeRequesterName} xin dời hạn` : "Xin dời hạn"}>
-                  <span className="size-1.5 rounded-full bg-orange-500" /> Xin dời → {t.pendingPlannedEnd}
-                </span>
-                <button type="button" onClick={() => { void approveEndDateChange(t.id).then(() => router.refresh()); }} className="text-[10px] font-semibold text-emerald-600 hover:text-emerald-700" title="Duyệt dời hạn">✓</button>
-                <button type="button" onClick={() => { void rejectEndDateChange(t.id).then(() => router.refresh()); }} className="text-[10px] font-semibold text-slate-400 hover:text-red-600" title="Từ chối">✕</button>
-              </div>
-            ) : (
-              <span className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-orange-600">
-                <span className="size-1.5 rounded-full bg-orange-500" /> Xin dời → {t.pendingPlannedEnd}
-              </span>
-            )
+            <span
+              className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-orange-600"
+              title={t.endChangeRequesterName ? `${t.endChangeRequesterName} xin dời hạn` : "Xin dời hạn"}
+            >
+              <span className="size-1.5 rounded-full bg-orange-500" /> Xin dời → {t.pendingPlannedEnd}
+            </span>
           ) : null}
           {dz !== "DA_DUYET" ? (
             dz === "CHUA_DUYET" && canManage ? (
@@ -2246,6 +2250,16 @@ export function ManageClient({
           <Button size="sm" variant="outline" onClick={() => void batchApprove(false)}>
             Thu hồi duyệt
           </Button>
+          {tasks.some((t) => selected.has(t.id) && t.pendingPlannedEnd) ? (
+            <>
+              <Button size="sm" variant="outline" className="border-orange-300 text-orange-700 hover:bg-orange-50" onClick={() => void batchApproveDeadline(true)}>
+                Duyệt dời hạn
+              </Button>
+              <Button size="sm" variant="outline" className="border-orange-300 text-orange-700 hover:bg-orange-50" onClick={() => void batchApproveDeadline(false)}>
+                Từ chối dời hạn
+              </Button>
+            </>
+          ) : null}
           <Button size="sm" variant="destructive" onClick={() => void batchDeleteSelected()}>
             Xóa
           </Button>
