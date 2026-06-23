@@ -13,12 +13,12 @@ export default async function ReportsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
   const canViewPerson = canViewPersonReports(session.user.role);
-  // Cấp 3: vào được báo cáo nhưng CHỈ thấy dữ liệu của chính mình.
+  // Level 3 only sees own report data.
   const selfOnly = !canViewPerson;
   const meId = session.user.id;
 
-  const [tasks, hoursAgg] = await Promise.all([
-    // Chỉ đếm VIỆC LÁ (không có việc con) để tránh đếm trùng cha/con.
+  const [tasks, hoursAgg, catalogItems] = await Promise.all([
+    // Count only leaf tasks to avoid parent/child duplicates.
     prisma.task.findMany({
       where: {
         deletedAt: null,
@@ -30,6 +30,8 @@ export default async function ReportsPage() {
         sumId: true,
         name: true,
         level5: true,
+        level2: true,
+        level3: true,
         workGroupId: true,
         status: true,
         priority: true,
@@ -38,36 +40,55 @@ export default async function ReportsPage() {
         plannedEnd: true,
         actualEnd: true,
         workGroup: { select: { name: true, order: true } },
+        phase: { select: { code: true, name: true } },
         discipline: { select: { code: true, name: true } },
         project: {
           select: {
             name: true,
-            group: { select: { name: true } },
-            constructionType: { select: { name: true } },
+            group: { select: { code: true, name: true } },
+            constructionType: { select: { code: true, name: true } },
           },
         },
         assignees: { select: { user: { select: { id: true, fullName: true } } }, orderBy: { roleNo: "asc" } },
       },
       take: 10000,
     }),
-    // Giờ công thật theo từng việc (timesheet). selfOnly → chỉ giờ của chính mình.
+    // Real timesheet hours grouped by task; selfOnly keeps current user only.
     prisma.timeSheetEntry.groupBy({
       by: ["taskId"],
       where: { deletedAt: null, taskId: { not: null }, ...(selfOnly ? { userId: meId } : {}) },
       _sum: { hours: true },
     }),
+    prisma.catalogItem.findMany({
+      where: { level: 3 },
+      select: {
+        workGroupId: true,
+        value: true,
+        parent: { select: { value: true } },
+        projectGroup: { select: { code: true, name: true } },
+      },
+      orderBy: [{ order: "asc" }, { value: "asc" }],
+    }),
   ]);
 
   const hoursByTask = new Map(hoursAgg.map((h) => [h.taskId as string, Number(h._sum.hours ?? 0)]));
+  const catalogByWorkGroupAndValue = new Map<string, typeof catalogItems>();
+  for (const item of catalogItems) {
+    const key = `${item.workGroupId}|${item.value}`;
+    const list = catalogByWorkGroupAndValue.get(key);
+    if (list) list.push(item);
+    else catalogByWorkGroupAndValue.set(key, [item]);
+  }
 
   const rows: TaskRow[] = tasks.map((t) => ({
     id: t.id,
     ma: t.sumId,
-    duAn: t.project?.group?.name ?? "—",
-    loaiHinh: t.project?.constructionType?.name ?? "",
+    duAn: t.project?.group?.code ?? "—",
+    loaiHinh: t.project?.constructionType?.code ?? "",
     hangMuc: t.project?.name ?? "",
     congViec: t.level5 || t.name,
-    boMon: t.discipline?.name ?? "",
+    giaiDoan: t.phase?.code ?? "",
+    boMon: t.discipline?.code ?? "",
     boMonCode: t.discipline?.code ?? null,
     thucHien: t.assignees.map((a) => a.user.fullName),
     thucHienIds: t.assignees.map((a) => a.user.id),
@@ -82,6 +103,16 @@ export default async function ReportsPage() {
     result: t.result ?? "",
     hours: hoursByTask.get(t.id) ?? 0,
   }));
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  for (const row of rows) {
+    const task = taskById.get(row.id);
+    if (!task || task.project) continue;
+    const catalogMatches = task.level3 ? (catalogByWorkGroupAndValue.get(`${task.workGroupId}|${task.level3}`) ?? []) : [];
+    const catalog = catalogMatches.find((c) => !task.level2 || c.parent?.value === task.level2) ?? catalogMatches[0] ?? null;
+    if (catalog?.projectGroup) row.duAn = catalog.projectGroup.code || catalog.projectGroup.name;
+    if (!row.loaiHinh) row.loaiHinh = catalog?.parent?.value ?? task.level2 ?? "";
+    if (!row.hangMuc) row.hangMuc = catalog?.value ?? task.level3 ?? "";
+  }
 
   return <ReportsTabs rows={rows} canViewPerson={canViewPerson} selfOnly={selfOnly} />;
 }

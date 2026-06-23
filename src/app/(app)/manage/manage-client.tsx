@@ -1504,12 +1504,10 @@ export function ManageClient({
           {t.deleteRequestedAt ? (
             <div className="mt-0.5 flex items-center gap-1">
               <span
-                className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
-                title={[t.deleteRequesterName ? `${t.deleteRequesterName} đề xuất xóa` : "Đề xuất xóa", t.deleteRequestNote].filter(Boolean).join(" — ")}
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-red-600"
+                title={[t.deleteRequesterName ? `${t.deleteRequesterName} xin xóa` : "Xin xóa", t.deleteRequestNote].filter(Boolean).join(" — ")}
               >
-                <span className="size-1.5 rounded-full bg-red-500" />
-                {t.deleteRequesterName ?? "?"} xin xóa
-                {t.deleteRequestNote ? ` — ${t.deleteRequestNote}` : ""}
+                <span className="size-1.5 rounded-full bg-red-500" /> Chờ duyệt xóa
               </span>
               <button type="button" title="Duyệt xóa"
                 onClick={async () => {
