@@ -154,6 +154,7 @@ model Project {
   status             ProjectStatus @default(DANG_THUC_HIEN)
   constructionTypeId String? // Loại hình công trình (cho báo cáo định mức)
   startDate          DateTime?
+  packagingDate      DateTime? // Ngày đóng gói / bàn giao hạng mục
   endDate            DateTime?
   description        String?
   createdAt          DateTime      @default(now())
