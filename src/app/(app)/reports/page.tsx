@@ -15,6 +15,10 @@ function normKey(v?: string | null): string {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\u0111/g, "d")
     .replace(/\u0110/g, "D")
+    .replace(/&/g, " va ")
+    .replace(/\+/g, " va ")
+    .replace(/\bva\b/g, " va ")
+    .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
@@ -84,6 +88,7 @@ export default async function ReportsPage() {
   const hoursByTask = new Map(hoursAgg.map((h) => [h.taskId as string, Number(h._sum.hours ?? 0)]));
   const catalogByWorkGroupAndValue = new Map<string, typeof catalogItems>();
   const catalogByWorkGroupAndNormValue = new Map<string, typeof catalogItems>();
+  const catalogByWorkGroupAndNormParent = new Map<string, typeof catalogItems>();
   for (const item of catalogItems) {
     const key = `${item.workGroupId}|${item.value}`;
     const list = catalogByWorkGroupAndValue.get(key);
@@ -94,6 +99,11 @@ export default async function ReportsPage() {
     const normList = catalogByWorkGroupAndNormValue.get(norm);
     if (normList) normList.push(item);
     else catalogByWorkGroupAndNormValue.set(norm, [item]);
+
+    const parentNorm = `${item.workGroupId}|${normKey(item.parent?.value)}`;
+    const parentNormList = catalogByWorkGroupAndNormParent.get(parentNorm);
+    if (parentNormList) parentNormList.push(item);
+    else catalogByWorkGroupAndNormParent.set(parentNorm, [item]);
   }
 
   const rows: TaskRow[] = tasks.map((t) => ({
@@ -125,14 +135,23 @@ export default async function ReportsPage() {
     if (!task || task.project) continue;
     const exactMatches = task.level3 ? (catalogByWorkGroupAndValue.get(`${task.workGroupId}|${task.level3}`) ?? []) : [];
     const normMatches = task.level3 ? (catalogByWorkGroupAndNormValue.get(`${task.workGroupId}|${normKey(task.level3)}`) ?? []) : [];
+    const parentNormMatches = task.level2
+      ? (catalogByWorkGroupAndNormParent.get(`${task.workGroupId}|${normKey(task.level2)}`) ?? [])
+      : [];
     const seen = new Set<string>();
-    const catalogMatches = [...exactMatches, ...normMatches].filter((c) => {
+    const catalogMatches = [...exactMatches, ...normMatches, ...parentNormMatches].filter((c) => {
       const key = `${c.workGroupId}|${c.value}|${c.parent?.value ?? ""}|${c.projectGroup?.code ?? ""}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
     const catalog =
+      catalogMatches.find(
+        (c) =>
+          c.projectGroup &&
+          (!task.level2 || normKey(c.parent?.value) === normKey(task.level2)) &&
+          (!task.level3 || normKey(c.value) === normKey(task.level3)),
+      ) ??
       catalogMatches.find((c) => c.projectGroup && (!task.level2 || normKey(c.parent?.value) === normKey(task.level2))) ??
       catalogMatches.find((c) => c.projectGroup) ??
       catalogMatches.find((c) => !task.level2 || normKey(c.parent?.value) === normKey(task.level2)) ??
