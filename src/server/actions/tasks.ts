@@ -787,8 +787,109 @@ export async function bulkReassign(input: unknown) {
 export async function deleteTask(id: string) {
   return runAction(async () => {
     const user = await requireUser();
-    if (!canManage(user.role)) throw new Error("Không đủ quyền");
+    const t = await prisma.task.findUnique({
+      where: { id },
+      select: { startApprovedAt: true, assignees: { where: { userId: user.id }, select: { id: true } } },
+    });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    const isAssignee = t.assignees.length > 0;
+    // Quản lý xóa được mọi lúc; assignee chỉ xóa được khi chưa duyệt khởi tạo
+    if (!canManage(user.role)) {
+      if (!isAssignee) throw new Error("Không đủ quyền");
+      if (t.startApprovedAt) throw new Error("Việc đã được duyệt — dùng 'Đề xuất xóa' để gửi yêu cầu lên quản lý");
+    }
     await prisma.task.update({ where: { id }, data: { deletedAt: new Date() } });
+    revalidateTaskViews();
+  });
+}
+
+/** Người được giao đề xuất xóa việc đã được duyệt khởi tạo. */
+export async function requestDeleteTask(id: string, note: string) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const t = await prisma.task.findUnique({
+      where: { id },
+      select: { name: true, startApprovedAt: true, approverId: true, assignees: { where: { userId: user.id }, select: { id: true } } },
+    });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    if (!t.assignees.length && !canManage(user.role)) throw new Error("Không đủ quyền");
+    await prisma.task.update({
+      where: { id },
+      data: { deleteRequestedAt: new Date(), deleteRequesterId: user.id, deleteRequestNote: note.trim() || null },
+    });
+    if (t.approverId) {
+      await createNotifications(prisma, [{
+        userId: t.approverId,
+        actorId: user.id,
+        type: "TASK_DELETE_REQUESTED",
+        taskId: id,
+        title: "Đề xuất xóa công việc",
+        body: `${user.fullName ?? user.email} đề xuất xóa: ${t.name}${note.trim() ? ` — ${note.trim()}` : ""}`,
+      }]);
+    } else {
+      await notifyManagers({
+        actorId: user.id,
+        type: "TASK_DELETE_REQUESTED",
+        taskId: id,
+        title: "Đề xuất xóa công việc",
+        body: `${user.fullName ?? user.email} đề xuất xóa: ${t.name}${note.trim() ? ` — ${note.trim()}` : ""}`,
+      });
+    }
+    revalidateTaskViews();
+  });
+}
+
+/** Quản lý duyệt yêu cầu xóa → soft delete. */
+export async function approveDeleteTask(id: string) {
+  return runAction(async () => {
+    const user = await requireUser();
+    if (!canManage(user.role)) throw new Error("Không đủ quyền");
+    const t = await prisma.task.findUnique({
+      where: { id },
+      select: { name: true, deleteRequesterId: true, deleteRequestNote: true },
+    });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    if (!t.deleteRequesterId) throw new Error("Không có yêu cầu xóa");
+    await prisma.task.update({ where: { id }, data: { deletedAt: new Date() } });
+    if (t.deleteRequesterId) {
+      await createNotifications(prisma, [{
+        userId: t.deleteRequesterId,
+        actorId: user.id,
+        type: "TASK_DELETE_REQUESTED",
+        taskId: null,
+        title: "Yêu cầu xóa được duyệt",
+        body: `Công việc "${t.name}" đã được xóa`,
+      }]);
+    }
+    revalidateTaskViews();
+  });
+}
+
+/** Quản lý từ chối yêu cầu xóa. */
+export async function rejectDeleteTask(id: string) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const t = await prisma.task.findUnique({
+      where: { id },
+      select: { name: true, deleteRequesterId: true },
+    });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    const isOwner = t.deleteRequesterId === user.id || canManage(user.role);
+    if (!isOwner) throw new Error("Không đủ quyền");
+    await prisma.task.update({
+      where: { id },
+      data: { deleteRequestedAt: null, deleteRequesterId: null, deleteRequestNote: null },
+    });
+    if (t.deleteRequesterId && canManage(user.role) && t.deleteRequesterId !== user.id) {
+      await createNotifications(prisma, [{
+        userId: t.deleteRequesterId,
+        actorId: user.id,
+        type: "TASK_DELETE_REQUESTED",
+        taskId: id,
+        title: "Yêu cầu xóa bị từ chối",
+        body: `Công việc "${t.name}" — quản lý không duyệt xóa`,
+      }]);
+    }
     revalidateTaskViews();
   });
 }
@@ -833,7 +934,7 @@ export async function bulkSetPlannedStart(input: unknown) {
 export async function requestEndDateChange(input: unknown) {
   return runAction(async () => {
     const user = await requireUser();
-    const { ids, plannedEnd } = input as { ids: string[]; plannedEnd: string };
+    const { ids, plannedEnd, note } = input as { ids: string[]; plannedEnd: string; note?: string };
     const d = toDate(plannedEnd);
     if (!d) throw new Error("Ngày không hợp lệ");
     const isManager = canManage(user.role);
@@ -841,7 +942,7 @@ export async function requestEndDateChange(input: unknown) {
       // Quản lý: đổi trực tiếp, xóa pending nếu có
       const res = await prisma.task.updateMany({
         where: { id: { in: ids }, deletedAt: null },
-        data: { plannedEnd: d, pendingPlannedEnd: null, endChangeRequesterId: null },
+        data: { plannedEnd: d, pendingPlannedEnd: null, endChangeRequesterId: null, endChangeNote: null },
       });
       // Reset hoàn thành cho task đang có actualEnd — deadline đổi thì completion cũ không còn hợp lệ.
       await prisma.task.updateMany({
@@ -859,15 +960,16 @@ export async function requestEndDateChange(input: unknown) {
       if (affected.length === 0) return 0;
       await prisma.task.updateMany({
         where: { id: { in: affected.map((t) => t.id) } },
-        data: { pendingPlannedEnd: d, endChangeRequesterId: user.id },
+        data: { pendingPlannedEnd: d, endChangeRequesterId: user.id, endChangeNote: note?.trim() || null },
       });
       const taskName = affected.length === 1 ? affected[0].name : `${affected.length} công việc`;
+      const noteStr = note?.trim() ? ` — ${note.trim()}` : "";
       await notifyManagers({
         actorId: user.id,
         type: "TASK_DEADLINE_CHANGE_REQUESTED",
         taskId: affected.length === 1 ? affected[0].id : null,
         title: "Đề xuất dời hạn",
-        body: `${user.fullName ?? user.email} xin dời hạn: ${taskName} → ${plannedEnd}`,
+        body: `${user.fullName ?? user.email} xin dời hạn: ${taskName} → ${plannedEnd}${noteStr}`,
       });
       revalidateTaskViews();
       return affected.length;
@@ -891,7 +993,7 @@ export async function approveEndDateChange(id: string) {
     await prisma.task.update({
       where: { id },
       data: {
-        plannedEnd: t.pendingPlannedEnd, pendingPlannedEnd: null, endChangeRequesterId: null,
+        plannedEnd: t.pendingPlannedEnd, pendingPlannedEnd: null, endChangeRequesterId: null, endChangeNote: null,
         ...(t.actualEnd ? {
           actualEnd: null, approvedAt: null, approvedById: null, progressPercent: 0,
           status: deriveActiveStatus(t.plannedStart, t._count.assignees),
@@ -930,7 +1032,7 @@ export async function rejectEndDateChange(id: string) {
     if (!isOwner) throw new Error("Không đủ quyền");
     await prisma.task.update({
       where: { id },
-      data: { pendingPlannedEnd: null, endChangeRequesterId: null },
+      data: { pendingPlannedEnd: null, endChangeRequesterId: null, endChangeNote: null },
     });
     // Chỉ báo khi quản lý từ chối (không phải user tự hủy yêu cầu của mình).
     if (t.endChangeRequesterId && canManage(user.role) && t.endChangeRequesterId !== user.id) {
