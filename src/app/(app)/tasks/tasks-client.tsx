@@ -53,6 +53,9 @@ import {
   approveEndDateChange,
   bulkSetPlannedStart,
   deleteTask,
+  requestDeleteTask,
+  approveDeleteTask,
+  rejectDeleteTask,
   rejectEndDateChange,
   requestEndDateChange,
   saveMyTasks,
@@ -105,6 +108,10 @@ export type TaskRow = {
   startApproved: boolean;
   pendingPlannedEnd: string;
   endChangeRequesterId: string | null;
+  endChangeNote: string | null;
+  deleteRequestedAt: string | null;
+  deleteRequesterId: string | null;
+  deleteRequestNote: string | null;
   assigneeIds: string[];
   assigneeNames: string[];
 };
@@ -809,7 +816,7 @@ export function TasksClient({
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [bulkDeadline, setBulkDeadline] = React.useState<{ ids: string[]; date: string } | null>(null);
   const [bulkStartDate, setBulkStartDate] = React.useState<{ ids: string[]; date: string } | null>(null);
-  const [bulkEndDate, setBulkEndDate] = React.useState<{ ids: string[]; date: string } | null>(null);
+  const [bulkEndDate, setBulkEndDate] = React.useState<{ ids: string[]; date: string; note: string } | null>(null);
   // Tree grouping: null = chưa tương tác (mặc định thu tất cả)
   const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(null);
   const [viewMode, setViewMode] = useLocalStorage<"tree" | "flat">("tasks:viewMode", "tree");
@@ -818,6 +825,7 @@ export function TasksClient({
   const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
   const [detailEntries, setDetailEntries] = React.useState<WeekEntry[]>([]);
   const [detailLoading, setDetailLoading] = React.useState(false);
+  const [deleteDialog, setDeleteDialog] = React.useState<TaskRow | null>(null);
 
   async function openDetail(t: TaskRow) {
     setDetailTask(t);
@@ -1268,7 +1276,7 @@ export function TasksClient({
   }
   async function runBulkEndDate() {
     if (!bulkEndDate?.date) return;
-    const res = await requestEndDateChange({ ids: bulkEndDate.ids, plannedEnd: bulkEndDate.date });
+    const res = await requestEndDateChange({ ids: bulkEndDate.ids, plannedEnd: bulkEndDate.date, note: bulkEndDate.note });
     if (res.ok) {
       const msg = canManage
         ? `Đã đổi ngày kết thúc cho ${res.data ?? ""} công việc`
@@ -1495,7 +1503,8 @@ export function TasksClient({
                 <span className={overdue ? "font-medium text-red-600" : "text-slate-600"}>{fmtDate(t.plannedEnd)}</span>
                 {t.pendingPlannedEnd ? (
                   <div className="mt-0.5 flex items-center gap-1">
-                    <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                    <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                          title={t.endChangeNote ? `Lý do: ${t.endChangeNote}` : undefined}>
                       → {fmtDate(t.pendingPlannedEnd)}
                     </span>
                     {canManage ? (
@@ -1557,16 +1566,56 @@ export function TasksClient({
             );
           return <td key={c.key} className="px-2.5 py-2.5" />;
         })}
-        {/* Ghi giờ */}
-        <td className="px-2 py-2.5 text-center align-top">
-          <button
-            type="button"
-            onClick={() => setLogging(t)}
-            title="Ghi giờ cho công việc này"
-            className="grid size-8 place-items-center rounded-md text-slate-400 hover:bg-blue-50 hover:text-blue-600"
-          >
-            <Clock className="size-4" />
-          </button>
+        {/* Ghi giờ + badge chờ duyệt xóa */}
+        <td className="px-2 py-2 text-center align-top">
+          {t.deleteRequestedAt ? (
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
+                    title={t.deleteRequestNote ? `Lý do: ${t.deleteRequestNote}` : undefined}>
+                Chờ duyệt xóa
+              </span>
+              <div className="flex items-center gap-0.5">
+                {t.deleteRequesterId === currentUserId && (
+                  <button type="button" title="Hủy yêu cầu xóa"
+                    onClick={async () => {
+                      const r = await rejectDeleteTask(t.id);
+                      if (r.ok) { toast.success("Đã hủy yêu cầu xóa"); router.refresh(); }
+                      else toast.error(r.error);
+                    }}
+                    className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-100">
+                    <X className="size-3" />
+                  </button>
+                )}
+                {canManage && (
+                  <>
+                    <button type="button" title="Duyệt xóa"
+                      onClick={async () => {
+                        const r = await approveDeleteTask(t.id);
+                        if (r.ok) { toast.success("Đã xóa công việc"); router.refresh(); }
+                        else toast.error(r.error);
+                      }}
+                      className="grid size-5 place-items-center rounded text-emerald-600 hover:bg-emerald-50">
+                      <Check className="size-3" />
+                    </button>
+                    <button type="button" title="Từ chối xóa"
+                      onClick={async () => {
+                        const r = await rejectDeleteTask(t.id);
+                        if (r.ok) { toast.success("Đã từ chối yêu cầu xóa"); router.refresh(); }
+                        else toast.error(r.error);
+                      }}
+                      className="grid size-5 place-items-center rounded text-red-500 hover:bg-red-50">
+                      <X className="size-3" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setLogging(t)} title="Ghi giờ cho công việc này"
+              className="grid size-8 place-items-center rounded-md text-slate-400 hover:bg-blue-50 hover:text-blue-600">
+              <Clock className="size-4" />
+            </button>
+          )}
         </td>
       </tr>
     );
@@ -2093,7 +2142,7 @@ export function TasksClient({
           </button>
           <button
             type="button"
-            onClick={() => setBulkEndDate({ ids: [...selected], date: "" })}
+            onClick={() => setBulkEndDate({ ids: [...selected], date: "", note: "" })}
             className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
             <Calendar className="size-3.5" /> {canManage ? "Đổi ngày kết thúc" : "Đề xuất đổi hạn"}
@@ -2107,6 +2156,19 @@ export function TasksClient({
               <Plus className="size-3.5" /> Thêm tương tự
             </button>
           ) : null}
+          {selected.size === 1 && (() => {
+            const t = tasks.find((x) => x.id === [...selected][0]);
+            if (!t) return null;
+            if (!t.assigneeIds.includes(currentUserId) && !canManage) return null;
+            if (t.deleteRequestedAt) return null;
+            return (
+              <button type="button"
+                onClick={() => setDeleteDialog(t)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">
+                <Trash2 className="size-3.5" /> Xóa
+              </button>
+            );
+          })()}
           <button
             type="button"
             onClick={clearSel}
@@ -2155,6 +2217,16 @@ export function TasksClient({
         </Modal>
       ) : null}
 
+      {/* Modal: xóa / đề xuất xóa công việc */}
+      {deleteDialog ? (
+        <DeleteTaskDialog
+          task={deleteDialog}
+          canManage={canManage}
+          onClose={() => setDeleteDialog(null)}
+          onDeleted={() => { setDeleteDialog(null); router.refresh(); }}
+        />
+      ) : null}
+
       {/* Modal: đề xuất / đổi ngày kết thúc */}
       {bulkEndDate ? (
         <Modal
@@ -2177,6 +2249,15 @@ export function TasksClient({
               onChange={(e) => setBulkEndDate({ ...bulkEndDate, date: e.target.value })}
               className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
             />
+            {!canManage && (
+              <textarea
+                rows={2}
+                placeholder="Lý do đề xuất (tùy chọn)…"
+                value={bulkEndDate.note}
+                onChange={(e) => setBulkEndDate({ ...bulkEndDate, note: e.target.value })}
+                className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-slate-400"
+              />
+            )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -2402,6 +2483,73 @@ function BulkTimesheetDialog({
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+// ===================================================================
+//  DeleteTaskDialog — Xóa hoặc đề xuất xóa công việc
+// ===================================================================
+function DeleteTaskDialog({
+  task,
+  canManage,
+  onClose,
+  onDeleted,
+}: {
+  task: { id: string; name: string; startApproved: boolean; approverName: string | null };
+  canManage: boolean;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [note, setNote] = React.useState("");
+  const [pending, setPending] = React.useState(false);
+
+  const needsApproval = task.startApproved && !canManage;
+
+  async function handleConfirm() {
+    setPending(true);
+    if (needsApproval) {
+      const r = await requestDeleteTask(task.id, note);
+      if (r.ok) { toast.success("Đã gửi đề xuất xóa tới quản lý"); onDeleted(); }
+      else { toast.error(r.error); setPending(false); }
+    } else {
+      const r = await deleteTask(task.id);
+      if (r.ok) { toast.success("Đã xóa công việc"); onDeleted(); }
+      else { toast.error(r.error); setPending(false); }
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose}
+      title={needsApproval ? "Đề xuất xóa công việc" : "Xóa công việc"}
+      className="max-w-sm">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-700">
+          {needsApproval
+            ? <>Công việc <strong>&quot;{task.name}&quot;</strong> đã được quản lý duyệt. Yêu cầu xóa sẽ được gửi tới{task.approverName ? <> <strong>{task.approverName}</strong></> : " quản lý"} để phê duyệt.</>
+            : <>Xóa công việc <strong>&quot;{task.name}&quot;</strong>? Hành động này không thể hoàn tác.</>}
+        </p>
+        <textarea
+          rows={2}
+          placeholder={needsApproval ? "Lý do đề xuất xóa (tùy chọn)…" : "Ghi chú (tùy chọn)…"}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-slate-400"
+        />
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+          <button type="button" onClick={onClose}
+            className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
+            Hủy
+          </button>
+          <button type="button" disabled={pending} onClick={handleConfirm}
+            className={cn(
+              "rounded-md px-3.5 py-2 text-sm font-medium text-white disabled:opacity-50",
+              needsApproval ? "bg-amber-600 hover:bg-amber-700" : "bg-red-600 hover:bg-red-700",
+            )}>
+            {pending ? "Đang xử lý…" : needsApproval ? "Gửi đề xuất xóa" : "Xóa"}
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }

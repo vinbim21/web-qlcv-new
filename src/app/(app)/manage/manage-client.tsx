@@ -57,6 +57,7 @@ import {
   isoWeeksInYear,
 } from "@/app/(app)/reports/period-utils";
 import {
+  approveDeleteTask,
   approveEndDateChange,
   bulkDelete,
   bulkReassign,
@@ -65,6 +66,7 @@ import {
   bulkSetMeasureNorm,
   bulkSetPriority,
   bulkSetStatus,
+  rejectDeleteTask,
   rejectEndDateChange,
   saveTask,
   setTaskApproval,
@@ -128,6 +130,11 @@ export type TaskRow = {
   startApproved: boolean;
   pendingPlannedEnd: string | null;
   endChangeRequesterName: string | null;
+  endChangeNote: string | null;
+  deleteRequestedAt: string | null;
+  deleteRequesterId: string | null;
+  deleteRequesterName: string | null;
+  deleteRequestNote: string | null;
   assigneeIds: string[];
   assigneeNames: string[];
 };
@@ -186,10 +193,10 @@ function isDueSoon(t: TaskRow): boolean {
 function deadlineLabel(t: TaskRow): string {
   if (!t.plannedEnd) return "Không hạn";
   const n = daysUntil(t.plannedEnd);
-  if (n === null) return t.plannedEnd;
+  if (n === null) return fmtDate(t.plannedEnd);
   if (n < 0) return `Quá hạn ${-n} ngày`;
   if (n === 0) return "Hạn hôm nay";
-  return `Còn ${n} ngày · ${t.plannedEnd}`;
+  return `Còn ${n} ngày · ${fmtDate(t.plannedEnd)}`;
 }
 
 // YYYY-MM-DD theo giờ địa phương (tránh lệch timezone của toISOString).
@@ -659,7 +666,7 @@ export function ManageClient({
       }
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
-      if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t)) return false;
+      if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t) && !t.deleteRequestedAt) return false;
       return true;
     });
   }, [tasks, f.userId, f.phong, f.dateFrom, f.dateTo, deferredSearch, haystacks, cols, colFilters, periodBounds]);
@@ -678,7 +685,7 @@ export function ManageClient({
       if (isOverdue(t)) overdue++;
       else if (isDueSoon(t)) soon++;
       if (t.assigneeIds.length === 0) unassigned++;
-      if (t.assigneeIds.length === 0 || isPendingApproval(t) || hasPendingDeadline(t)) unassignedOrPending++;
+      if (t.assigneeIds.length === 0 || isPendingApproval(t) || hasPendingDeadline(t) || !!t.deleteRequestedAt) unassignedOrPending++;
       if (effOf(t) === "DANG_LAM") doing++;
       progSum += t.progressPercent;
     }
@@ -697,7 +704,7 @@ export function ManageClient({
     return kpiBase.filter((t) => {
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
-      if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0 && !isPendingApproval(t) && !hasPendingDeadline(t)) return false;
+      if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0 && !isPendingApproval(t) && !hasPendingDeadline(t) && !t.deleteRequestedAt) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
       return true;
     });
@@ -1225,6 +1232,18 @@ export function ManageClient({
     toast.success(approve ? `Đã duyệt dời hạn ${ids.length} việc` : `Đã từ chối dời hạn ${ids.length} việc`);
     router.refresh();
   }
+  async function batchApproveDelete() {
+    const ids = tasks.filter((t) => selected.has(t.id) && t.deleteRequestedAt).map((t) => t.id);
+    if (ids.length === 0) return;
+    if (!confirm(`Duyệt xóa ${ids.length} công việc? Hành động này không thể hoàn tác.`)) return;
+    for (const id of ids) {
+      const res = await approveDeleteTask(id);
+      if (!res.ok) { toast.error(res.error); return; }
+    }
+    toast.success(`Đã xóa ${ids.length} công việc`);
+    setSelected(new Set());
+    router.refresh();
+  }
   async function batchDeleteSelected() {
     if (!confirm(`Xóa ${selected.size} công việc? Hành động này không thể hoàn tác.`)) return;
     const res = await bulkDelete({ ids: [...selected] });
@@ -1446,7 +1465,7 @@ export function ManageClient({
             {late ? (
               // Việc đã XONG nhưng muộn → chú thích rose mềm (không báo động đỏ), ghi rõ số ngày trễ.
               <span
-                title={`Hoàn thành trễ hạn ${lateDays} ngày (hạn ${t.plannedEnd} · xong ${t.actualEnd})`}
+                title={`Hoàn thành trễ hạn ${lateDays} ngày (hạn ${fmtDate(t.plannedEnd)} · xong ${fmtDate(t.actualEnd)})`}
                 className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 ring-1 ring-inset ring-rose-200"
               >
                 <Flag className="size-2.5 shrink-0" /> Trễ {lateDays} ngày
@@ -1477,10 +1496,40 @@ export function ManageClient({
           {hasPendingDeadline(t) ? (
             <span
               className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-orange-600"
-              title={t.endChangeRequesterName ? `${t.endChangeRequesterName} xin dời hạn` : "Xin dời hạn"}
+              title={[t.endChangeRequesterName ? `${t.endChangeRequesterName} xin dời hạn` : "Xin dời hạn", t.endChangeNote].filter(Boolean).join(" — ")}
             >
-              <span className="size-1.5 rounded-full bg-orange-500" /> Xin dời → {t.pendingPlannedEnd}
+              <span className="size-1.5 rounded-full bg-orange-500" /> Xin dời → {fmtDate(t.pendingPlannedEnd ?? "")}
             </span>
+          ) : null}
+          {t.deleteRequestedAt ? (
+            <div className="mt-0.5 flex items-center gap-1">
+              <span
+                className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
+                title={[t.deleteRequesterName ? `${t.deleteRequesterName} đề xuất xóa` : "Đề xuất xóa", t.deleteRequestNote].filter(Boolean).join(" — ")}
+              >
+                <span className="size-1.5 rounded-full bg-red-500" />
+                {t.deleteRequesterName ?? "?"} xin xóa
+                {t.deleteRequestNote ? ` — ${t.deleteRequestNote}` : ""}
+              </span>
+              <button type="button" title="Duyệt xóa"
+                onClick={async () => {
+                  const r = await approveDeleteTask(t.id);
+                  if (r.ok) { toast.success("Đã xóa công việc"); router.refresh(); }
+                  else toast.error(r.error);
+                }}
+                className="grid size-4 place-items-center rounded text-emerald-600 hover:bg-emerald-50">
+                <Check className="size-3" />
+              </button>
+              <button type="button" title="Từ chối xóa"
+                onClick={async () => {
+                  const r = await rejectDeleteTask(t.id);
+                  if (r.ok) { toast.success("Đã từ chối yêu cầu xóa"); router.refresh(); }
+                  else toast.error(r.error);
+                }}
+                className="grid size-4 place-items-center rounded text-red-500 hover:bg-red-50">
+                <X className="size-3" />
+              </button>
+            </div>
           ) : null}
           {dz !== "DA_DUYET" ? (
             dz === "CHUA_DUYET" && canManage ? (
@@ -2370,6 +2419,11 @@ export function ManageClient({
           <Button size="sm" variant="outline" onClick={() => void batchApprove(false)}>
             Thu hồi duyệt
           </Button>
+          {tasks.some((t) => selected.has(t.id) && t.deleteRequestedAt) ? (
+            <Button size="sm" variant="outline" className="border-red-300 text-red-700 hover:bg-red-50" onClick={() => void batchApproveDelete()}>
+              Duyệt xóa
+            </Button>
+          ) : null}
           {tasks.some((t) => selected.has(t.id) && t.pendingPlannedEnd) ? (
             <>
               <Button size="sm" variant="outline" className="border-orange-300 text-orange-700 hover:bg-orange-50" onClick={() => void batchApproveDeadline(true)}>
