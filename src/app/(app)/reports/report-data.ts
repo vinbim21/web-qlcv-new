@@ -7,11 +7,12 @@ export type EffStatus = "CHUA_LAM" | "DANG_LAM" | "HOAN_THANH" | "TAM_DUNG" | "Q
 export type TaskRow = {
   id: string;
   ma: string | null; // sumId
-  duAn: string; // tên Dự án (ProjectGroup), "—" nếu không thuộc dự án
-  loaiHinh: string; // Loại hình công trình, "" nếu chưa gán
+  duAn: string; // mã Dự án (ProjectGroup), "—" nếu không thuộc dự án
+  loaiHinh: string; // mã Loại hình công trình, "" nếu chưa gán
   hangMuc: string; // tên Hạng mục (Project)
   congViec: string; // tên công việc (đầu việc)
-  boMon: string; // tên Bộ môn, "" nếu không có
+  giaiDoan: string; // giai đoạn, "" nếu chưa có
+  boMon: string; // mã Bộ môn, "" nếu không có
   boMonCode: string | null; // mã Bộ môn (để gộp Phòng)
   thucHien: string[]; // tên người thực hiện
   thucHienIds: string[]; // id người thực hiện (cùng thứ tự thucHien) — cho deep-link pivot

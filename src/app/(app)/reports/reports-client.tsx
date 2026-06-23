@@ -66,6 +66,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
       { key: "loaiHinh", label: "Loại hình", w: 120, filter: "multi", opts: uniq(rows, (r) => r.loaiHinh), lvl: 2 },
       { key: "hangMuc", label: "Hạng mục", w: 125, filter: "multi", opts: uniq(rows, (r) => r.hangMuc), lvl: 3 },
       { key: "congViec", label: "Công việc", w: 190, filter: "multi", opts: uniq(rows, (r) => r.congViec) },
+      { key: "giaiDoan", label: "Giai đoạn", w: 110, filter: "multi", opts: uniq(rows, (r) => r.giaiDoan) },
       { key: "boMon", label: "Bộ môn", w: 110, filter: "multi", opts: uniq(rows, (r) => r.boMon) },
       { key: "thucHien", label: "Thực hiện", w: 150, filter: "multi", opts: people },
       { key: "uuTien", label: "Ưu tiên", w: 100, filter: "multi", opts: ["CAO", "TRUNG_BINH", "THAP"], labelMap: PRIO_LABEL },
@@ -107,7 +108,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
     const q = norm(search.trim());
     return rows.filter((r) => {
       if (q) {
-        const hay = norm([r.ma, r.duAn, r.loaiHinh, r.hangMuc, r.congViec, r.boMon, r.thucHien.join(" "), r.result].join(" "));
+        const hay = norm([r.ma, r.duAn, r.loaiHinh, r.hangMuc, r.congViec, r.giaiDoan, r.boMon, r.thucHien.join(" "), r.result].join(" "));
         if (!hay.includes(q)) return false;
       }
       for (const c of cols) if (!rowMatch(r, c, colFilters[c.key])) return false;
@@ -158,7 +159,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
         vb = (b as unknown as Record<string, string>)[key] || "";
       }
       let c = String(va).localeCompare(String(vb), "vi");
-      if (c === 0) c = (a.duAn + a.hangMuc + a.congViec).localeCompare(b.duAn + b.hangMuc + b.congViec, "vi");
+      if (c === 0) c = (a.duAn + a.hangMuc + a.congViec + a.giaiDoan).localeCompare(b.duAn + b.hangMuc + b.congViec + b.giaiDoan, "vi");
       return dir === "asc" ? c : -c;
     });
     return arr;
@@ -280,7 +281,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
         bodyClass="!px-0 !py-0"
       >
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm" style={{ minWidth: 1240 }}>
+          <table className="w-full border-collapse text-sm" style={{ minWidth: 1350 }}>
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-semibold text-slate-500">
                 {cols.map((c) => {
@@ -342,6 +343,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
                     <td className="px-3 py-2 align-top text-slate-600">{r.loaiHinh || <span className="text-slate-300">—</span>}</td>
                     <td className="px-3 py-2 align-top text-slate-600">{r.hangMuc || <span className="text-slate-300">—</span>}</td>
                     <td className="px-3 py-2 align-top font-medium text-slate-800">{r.congViec}</td>
+                    <td className="px-3 py-2 align-top text-xs text-slate-600">{r.giaiDoan || <span className="text-slate-300">—</span>}</td>
                     <td className="px-3 py-2 align-top text-xs text-slate-600">{r.boMon || <span className="text-slate-300">—</span>}</td>
                     <td className="px-3 py-2 align-top text-xs">
                       {r.thucHien.length ? (

@@ -108,9 +108,11 @@ export type TaskRow = {
   startApproved: boolean;
   pendingPlannedEnd: string;
   endChangeRequesterId: string | null;
+  endChangeRequesterName: string | null;
   endChangeNote: string | null;
   deleteRequestedAt: string | null;
   deleteRequesterId: string | null;
+  deleteRequesterName: string | null;
   deleteRequestNote: string | null;
   assigneeIds: string[];
   assigneeNames: string[];
@@ -1504,7 +1506,7 @@ export function TasksClient({
                 {t.pendingPlannedEnd ? (
                   <div className="mt-0.5 flex items-center gap-1">
                     <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-                          title={t.endChangeNote ? `Lý do: ${t.endChangeNote}` : undefined}>
+                          title={[t.endChangeRequesterName ? `${t.endChangeRequesterName} xin dời hạn` : "Xin dời hạn", t.endChangeNote].filter(Boolean).join(" — ")}>
                       → {fmtDate(t.pendingPlannedEnd)}
                     </span>
                     {canManage ? (
@@ -1570,9 +1572,9 @@ export function TasksClient({
         <td className="px-2 py-2 text-center align-top">
           {t.deleteRequestedAt ? (
             <div className="flex flex-col items-center gap-0.5">
-              <span className="inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700"
-                    title={t.deleteRequestNote ? `Lý do: ${t.deleteRequestNote}` : undefined}>
-                Chờ duyệt xóa
+              <span className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-red-600"
+                    title={[t.deleteRequesterName ? `${t.deleteRequesterName} xin xóa` : "Xin xóa", t.deleteRequestNote].filter(Boolean).join(" — ")}>
+                <span className="size-1.5 rounded-full bg-red-500" /> Chờ duyệt xóa
               </span>
               <div className="flex items-center gap-0.5">
                 {t.deleteRequesterId === currentUserId && (
