@@ -73,6 +73,7 @@ import {
 import { deleteConstructionType, saveConstructionType } from "@/server/actions/construction-types";
 import { deleteDiscipline, saveDiscipline } from "@/server/actions/disciplines";
 import {
+  batchDuplicateCatalogProjects,
   batchSaveCatalogProjects,
   batchUpdateCatalogProjects,
   createProjectGroupReturnId,
@@ -192,7 +193,7 @@ export function CatalogClient({
   // Bulk edit state
   const [bulkProjectEdit, setBulkProjectEdit] = React.useState<{
     ids: string[];
-    field: "groupId" | "constructionTypeId" | "name" | "blockSystem";
+    field: "groupId" | "constructionTypeId" | "name" | "blockSystem" | "startDate" | "packagingDate";
   } | null>(null);
   const [bulkBimtoolsEdit, setBulkBimtoolsEdit] = React.useState<{
     ids: string[];
@@ -208,6 +209,7 @@ export function CatalogClient({
     ids: string[];
     field: "workGroupId" | "value";
   } | null>(null);
+  const [bulkDuplicateIds, setBulkDuplicateIds] = React.useState<string[] | null>(null);
 
   // Modal thêm/sửa + xác nhận xóa (dùng chung).
   const [addItemsScope, setAddItemsScope] = React.useState<string | null>(null);
@@ -423,6 +425,9 @@ export function CatalogClient({
                 { label: "Đổi Dự án", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "groupId" }) },
                 { label: "Đổi Loại hình", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "constructionTypeId" }) },
                 { label: "Đổi Khối/Hệ thống", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "blockSystem" }) },
+                { label: "Đổi Bắt đầu", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "startDate" }) },
+                { label: "Đổi Đóng gói", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "packagingDate" }) },
+                { label: "Nhân bản", onClick: () => setBulkDuplicateIds([...groupedSelectedIds]) },
                 {
                   label: "Xóa dòng đã chọn",
                   tone: "danger",
@@ -617,6 +622,9 @@ export function CatalogClient({
             { label: "Đổi Loại hình", onClick: () => setBulkProjectEdit({ ids, field: "constructionTypeId" }) },
             { label: "Đổi Hạng mục", onClick: () => setBulkProjectEdit({ ids, field: "name" }) },
             { label: "Đổi Khối/Hệ thống", onClick: () => setBulkProjectEdit({ ids, field: "blockSystem" }) },
+            { label: "Đổi Bắt đầu", onClick: () => setBulkProjectEdit({ ids, field: "startDate" }) },
+            { label: "Đổi Đóng gói", onClick: () => setBulkProjectEdit({ ids, field: "packagingDate" }) },
+            { label: "Nhân bản", onClick: () => setBulkDuplicateIds(ids) },
             {
               label: "Xóa dòng đã chọn",
               tone: "danger",
@@ -1221,6 +1229,24 @@ export function CatalogClient({
               toast.success("Đã cập nhật");
               router.refresh();
               setBulkProjectEdit(null);
+            } else {
+              toast.error(res.error);
+            }
+          }}
+        />
+      ) : null}
+
+      {/* Bulk duplicate Tab Dự án */}
+      {bulkDuplicateIds ? (
+        <BulkDuplicateProjectsModal
+          ids={bulkDuplicateIds}
+          onClose={() => setBulkDuplicateIds(null)}
+          onSubmit={async (blockSystem) => {
+            const res = await batchDuplicateCatalogProjects(bulkDuplicateIds, blockSystem);
+            if (res.ok) {
+              toast.success(`Đã nhân bản ${bulkDuplicateIds.length} hạng mục`);
+              router.refresh();
+              setBulkDuplicateIds(null);
             } else {
               toast.error(res.error);
             }
@@ -3125,9 +3151,70 @@ function BulkEditWorksModal({
 }
 
 // ===================================================================
+//  BulkDuplicateProjectsModal — Nhân bản hạng mục với Khối/Hệ thống mới
+// ===================================================================
+function BulkDuplicateProjectsModal({
+  ids,
+  onClose,
+  onSubmit,
+}: {
+  ids: string[];
+  onClose: () => void;
+  onSubmit: (blockSystem: string | null) => Promise<void>;
+}) {
+  const [blockSystem, setBlockSystem] = React.useState("");
+  const [err, setErr] = React.useState<string | null>(null);
+  const [pending, setPending] = React.useState(false);
+
+  const inputCls =
+    "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setPending(true);
+    await onSubmit(blockSystem.trim() || null);
+    setPending(false);
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Nhân bản ${ids.length} hạng mục`} className="max-w-md">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          Sẽ tạo <strong>{ids.length} bản sao</strong> mới — giữ nguyên Dự án, Loại hình, Hạng mục, Ngày, Quy mô — chỉ thay Khối/Hệ thống.
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-slate-600">
+            Khối/Hệ thống mới <span className="text-slate-400">(để trống nếu không có)</span>
+          </label>
+          <input
+            autoFocus
+            className={inputCls}
+            placeholder="VD: GIR, HA, I9A…"
+            value={blockSystem}
+            onChange={(e) => { setBlockSystem(e.target.value); setErr(null); }}
+          />
+        </div>
+        {err ? (
+          <p className="flex items-center gap-1.5 text-xs text-red-600">
+            <AlertCircle className="size-3.5" /> {err}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+          <Button type="button" variant="outline" onClick={onClose}>Hủy</Button>
+          <Button type="submit" disabled={pending}>
+            <Check className="size-4" /> {pending ? "Đang nhân bản…" : `Nhân bản ${ids.length} hạng mục`}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ===================================================================
 //  BulkEditProjectsModal — Tab 2 Dự án · Hạng mục
 // ===================================================================
-type ProjectsPatch = { groupId?: string; constructionTypeId?: string | null; name?: string; blockSystem?: string | null };
+type ProjectsPatch = { groupId?: string; constructionTypeId?: string | null; name?: string; blockSystem?: string | null; startDate?: string | null; packagingDate?: string | null };
 
 function BulkEditProjectsModal({
   ids,
@@ -3138,7 +3225,7 @@ function BulkEditProjectsModal({
   onSubmit,
 }: {
   ids: string[];
-  field: "groupId" | "constructionTypeId" | "name" | "blockSystem";
+  field: "groupId" | "constructionTypeId" | "name" | "blockSystem" | "startDate" | "packagingDate";
   projectGroups: ProjectGroupRow[];
   constructionTypes: SimpleRow[];
   onClose: () => void;
@@ -3150,6 +3237,8 @@ function BulkEditProjectsModal({
   const [ctId, setCtId] = React.useState("");
   const [name, setName] = React.useState("");
   const [blockSystem, setBlockSystem] = React.useState("");
+  const [startDate, setStartDate] = React.useState("");
+  const [packagingDate, setPackagingDate] = React.useState("");
   const [err, setErr] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
 
@@ -3167,6 +3256,8 @@ function BulkEditProjectsModal({
     { key: "constructionTypeId" as const, label: "Loại hình" },
     { key: "name" as const, label: "Hạng mục" },
     { key: "blockSystem" as const, label: "Khối/Hệ thống" },
+    { key: "startDate" as const, label: "Bắt đầu" },
+    { key: "packagingDate" as const, label: "Đóng gói" },
   ];
 
   async function handleCreateGroup() {
@@ -3200,8 +3291,12 @@ function BulkEditProjectsModal({
     } else if (activeField === "name") {
       if (!name.trim()) { setErr("Nhập tên hạng mục"); return; }
       patch.name = name.trim();
-    } else {
+    } else if (activeField === "blockSystem") {
       patch.blockSystem = blockSystem.trim() || null;
+    } else if (activeField === "startDate") {
+      patch.startDate = startDate || null;
+    } else {
+      patch.packagingDate = packagingDate || null;
     }
     setPending(true);
     await onSubmit(patch);
@@ -3316,6 +3411,24 @@ function BulkEditProjectsModal({
             <input autoFocus className={inputCls} placeholder="Nhập Khối/Hệ thống, để trống để xóa" value={blockSystem}
               onChange={(e) => { setBlockSystem(e.target.value); setErr(null); }} />
             <p className="text-[11px] text-amber-500">Sẽ đổi Khối/Hệ thống cho tất cả {ids.length} dòng đã chọn.</p>
+          </div>
+        )}
+
+        {activeField === "startDate" && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">Ngày bắt đầu</label>
+            <input autoFocus type="date" className={inputCls} value={startDate}
+              onChange={(e) => { setStartDate(e.target.value); setErr(null); }} />
+            <p className="text-[11px] text-amber-500">Sẽ đặt ngày bắt đầu cho {ids.length} hạng mục đã chọn. Để trống để xóa ngày.</p>
+          </div>
+        )}
+
+        {activeField === "packagingDate" && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">Ngày đóng gói / bàn giao</label>
+            <input autoFocus type="date" className={inputCls} value={packagingDate}
+              onChange={(e) => { setPackagingDate(e.target.value); setErr(null); }} />
+            <p className="text-[11px] text-amber-500">Sẽ đặt ngày đóng gói cho {ids.length} hạng mục đã chọn. Để trống để xóa ngày.</p>
           </div>
         )}
 
