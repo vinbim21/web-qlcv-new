@@ -52,6 +52,7 @@ export default async function TasksPage() {
         workGroupName: t.workGroup.name,
         projectId: t.projectId,
         projectName: t.project?.name ?? null,
+        blockSystem: t.project?.blockSystem ?? null,
         groupCode: t.project?.group?.code ?? catalogPgMap.get(`${t.workGroupId}::${t.level3}`)?.code ?? null,
         groupName: t.project?.group?.name ?? catalogPgMap.get(`${t.workGroupId}::${t.level3}`)?.name ?? null,
         loaiHinhCode: t.project?.constructionType?.code ?? null,

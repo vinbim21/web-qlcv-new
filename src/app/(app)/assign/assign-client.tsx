@@ -14,6 +14,7 @@ import type { Catalog, Opt, UserOpt } from "@/components/task-form";
 export type ProjectOpt = Opt & {
   code: string;
   l3: string;
+  blockSystem: string;
   groupId: string;
   groupCode: string;
   groupName: string;
@@ -27,7 +28,7 @@ import { saveTasksBatch } from "@/server/actions/tasks";
 type SortDir = "asc" | "desc";
 const MIN_COL_W = 80;
 const MAX_COL_W = 600;
-const WIDTH_KEY = "assign-col-widths-v1";
+const WIDTH_KEY = "assign-col-widths-v2";
 const clampW = (n: number) => Math.min(MAX_COL_W, Math.max(MIN_COL_W, Math.round(n)));
 
 // ----- Cấu hình cột theo từng bảng (suy ra từ prisma/import/extract.py) -----
@@ -36,6 +37,7 @@ type ColKey =
   | "project"
   | "level2"
   | "level3"
+  | "blockSystem"
   | "discipline"
   | "level5"
   | "phase"
@@ -46,22 +48,22 @@ type ColKey =
   | "approver";
 
 const COLS_DEFAULT: ColKey[] = [
-  "id", "level2", "level3", "discipline", "level5",
+  "level2", "level3", "discipline", "level5",
   "priority", "assignees", "plannedStart", "plannedEnd",
 ];
 // Bảng 3 (Quản lý BIM): thêm Dự án + Giai đoạn.
 const COLS_B3: ColKey[] = [
-  "id", "project", "level2", "level3", "discipline", "level5", "phase",
+  "project", "level2", "level3", "blockSystem", "discipline", "level5", "phase",
   "priority", "assignees", "plannedStart", "plannedEnd",
 ];
 // Bảng 4 (Thanh tra BIM): như mặc định + cột Dự án trước Loại hình (không có Giai đoạn).
 const COLS_B4: ColKey[] = [
-  "id", "project", "level2", "level3", "discipline", "level5",
+  "project", "level2", "level3", "blockSystem", "discipline", "level5",
   "priority", "assignees", "plannedStart", "plannedEnd",
 ];
 // Bảng 6 (Quản lý phần mềm): chỉ 1 người (giới hạn bằng max).
 const COLS_B6: ColKey[] = [
-  "id", "level2", "level3", "discipline", "level5", "priority", "assignees", "plannedStart", "plannedEnd",
+  "level2", "level3", "discipline", "level5", "priority", "assignees", "plannedStart", "plannedEnd",
 ];
 
 function columnsFor(code?: string, withApprover = false): ColKey[] {
@@ -74,10 +76,11 @@ function columnsFor(code?: string, withApprover = false): ColKey[] {
 const COL_LABEL: Record<ColKey, string> = {
   id: "Id",
   project: "Dự án",
-  level2: "Loại hình (L2)",
-  level3: "Hạng mục (L3)",
-  discipline: "Bộ môn (L4)",
-  level5: "Đầu việc (L5)",
+  level2: "Loại hình",
+  level3: "Hạng mục",
+  blockSystem: "Khối/Hệ thống",
+  discipline: "Bộ môn",
+  level5: "Công việc",
   phase: "Giai đoạn",
   priority: "Ưu tiên",
   assignees: "Người thực hiện",
@@ -91,10 +94,11 @@ const COL_LABEL: Record<ColKey, string> = {
 const COL_PX: Record<ColKey, number> = {
   id: 76,
   project: 150,
-  level2: 150,
+  level2: 110,
   level3: 150,
+  blockSystem: 150,
   discipline: 120,
-  level5: 160,
+  level5: 230,
   phase: 120,
   priority: 110,
   assignees: 230,
@@ -112,6 +116,7 @@ type GridRow = {
   projectGroupId: string; // UI only — dùng để cascade lọc Loại hình → Hạng mục
   level2: string;
   level3: string;
+  blockSystem: string;
   level5: string;
   disciplineId: string;
   phaseId: string;
@@ -127,6 +132,7 @@ const EMPTY: Omit<GridRow, "key"> = {
   projectGroupId: "",
   level2: "",
   level3: "",
+  blockSystem: "",
   level5: "",
   disciplineId: "",
   phaseId: "",
@@ -139,6 +145,7 @@ const EMPTY: Omit<GridRow, "key"> = {
 
 const INITIAL_ROWS = 5;
 const CELL = "h-8 text-xs";
+const NONE = "— Không —";
 
 let keySeq = 0;
 const makeRows = (n: number): GridRow[] =>
@@ -282,6 +289,7 @@ export function AssignClient({
           // Dùng constructionTypeCode và project name để cascade hiển thị đúng
           if (proj.constructionTypeCode) resolved.level2 = proj.constructionTypeCode;
           if (proj.name) resolved.level3 = proj.name;
+          resolved.blockSystem = proj.blockSystem ?? "";
         }
       }
       init[defaultWorkGroupId][0] = { ...init[defaultWorkGroupId][0], ...resolved };
@@ -386,6 +394,7 @@ export function AssignClient({
       case "phase": return !r.phaseId;
       case "level2": return !r.level2.trim();
       case "level3": return !r.level3.trim();
+      case "blockSystem": return !r.blockSystem.trim();
       case "level5": return !r.level5.trim();
       case "assignees": return r.assigneeIds.length === 0;
       case "plannedStart": return !r.plannedStart;
@@ -401,6 +410,7 @@ export function AssignClient({
       case "id": return a.key - b.key; // Id theo thứ tự tạo dòng
       case "level2": return t(a.level2).localeCompare(t(b.level2));
       case "level3": return t(a.level3).localeCompare(t(b.level3));
+      case "blockSystem": return t(a.blockSystem).localeCompare(t(b.blockSystem));
       case "level5": return t(a.level5).localeCompare(t(b.level5));
       case "project": {
         const pa = projects.find((p) => p.id === a.projectId);
@@ -458,6 +468,20 @@ export function AssignClient({
     if (withApprover && validRows.some((r) => !r.approverId)) {
       toast.error("Mỗi dòng phải chọn Người duyệt");
       return;
+    }
+    if (cols.includes("blockSystem")) {
+      const ambiguousRow = validRows.find((r) => {
+        if (!r.projectGroupId || !r.level2.trim() || !r.level3.trim() || r.projectId) return false;
+        return projects.filter((p) =>
+          p.groupId === r.projectGroupId &&
+          p.constructionTypeCode === r.level2.trim() &&
+          p.name === r.level3.trim(),
+        ).length > 1;
+      });
+      if (ambiguousRow) {
+        toast.error("Chọn Khối/Hệ thống cho các hạng mục có nhiều khối/hệ thống");
+        return;
+      }
     }
     const payload = validRows.map((r) => ({
       workGroupId: activeWg,
@@ -518,11 +542,11 @@ export function AssignClient({
             options={["— Không —", ...pgCodes]}
             onChange={(v) => {
               if (v === "— Không —") {
-                updateRow(r.key, { projectGroupId: "", level2: "", level3: "", projectId: "" });
+                updateRow(r.key, { projectGroupId: "", level2: "", level3: "", blockSystem: "", projectId: "" });
                 return;
               }
               const pg = projects.find((p) => p.groupCode === v);
-              updateRow(r.key, { projectGroupId: pg?.groupId ?? "", level2: "", level3: "", projectId: "" });
+              updateRow(r.key, { projectGroupId: pg?.groupId ?? "", level2: "", level3: "", blockSystem: "", projectId: "" });
             }}
           />
         );
@@ -593,6 +617,39 @@ export function AssignClient({
             ))}
           </Select>
         );
+      case "blockSystem": {
+        const pool = projects.filter((p) =>
+          (!r.projectGroupId || p.groupId === r.projectGroupId) &&
+          (!r.level2.trim() || p.constructionTypeCode === r.level2.trim()) &&
+          (!r.level3.trim() || p.name === r.level3.trim()),
+        );
+        const blockOpts = [...new Set(pool.map((p) => p.blockSystem?.trim() ?? "").filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
+        const hasNoBlock = pool.some((p) => !(p.blockSystem?.trim()));
+        const opts = [...(hasNoBlock ? [NONE] : []), ...blockOpts];
+        return (
+          <SearchableCombobox
+            className={CELL}
+            creatable={false}
+            placeholder={NONE}
+            value={r.blockSystem || (hasNoBlock ? NONE : "")}
+            options={opts.length ? opts : [NONE]}
+            onChange={(label) => {
+              const blockSystem = label === NONE ? "" : label;
+              const nl2 = r.level2.trim();
+              const nl3 = r.level3.trim();
+              const p = r.projectGroupId && nl2 && nl3
+                ? projects.find((pp) =>
+                    pp.groupId === r.projectGroupId &&
+                    pp.constructionTypeCode === nl2 &&
+                    pp.name === nl3 &&
+                    (pp.blockSystem?.trim() ?? "") === blockSystem,
+                  )
+                : null;
+              updateRow(r.key, { blockSystem, projectId: p?.id ?? "" });
+            }}
+          />
+        );
+      }
       case "level2":
       case "level3":
       case "level5": {
@@ -634,17 +691,20 @@ export function AssignClient({
                 if (col === "level2") {
                   // Đổi Loại hình → xóa Hạng mục + projectId vì cascade thay đổi
                   patch.level3 = "";
+                  patch.blockSystem = "";
                   patch.projectId = "";
                 } else if (col === "level3") {
                   // Chọn Hạng mục → tự resolve projectId
                   const nl2 = r.level2.trim();
                   const nl3 = v.trim();
                   if (r.projectGroupId && nl2 && nl3) {
-                    const p = projects.find(
+                    const matches = projects.filter(
                       (pp) => pp.groupId === r.projectGroupId && pp.constructionTypeCode === nl2 && pp.name === nl3,
                     );
-                    patch.projectId = p ? p.id : "";
+                    patch.blockSystem = matches.length === 1 ? (matches[0].blockSystem?.trim() ?? "") : "";
+                    patch.projectId = matches.length === 1 ? matches[0].id : "";
                   } else {
+                    patch.blockSystem = "";
                     patch.projectId = "";
                   }
                 }

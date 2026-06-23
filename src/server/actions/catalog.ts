@@ -101,14 +101,37 @@ export async function updateCatalogValue(id: string, value: string, parentId?: s
     await requireRole("ADMIN");
     const v = value.trim();
     if (!v) throw new Error("Nhập giá trị");
-    await prisma.catalogItem.update({
-      where: { id },
-      data: {
-        value: v,
-        parentId: parentId !== undefined ? (parentId ?? null) : undefined,
-        projectGroupId: projectGroupId !== undefined ? (projectGroupId ?? null) : undefined,
-      },
+
+    // Đọc giá trị cũ để cascade-update task đang lưu tên dạng chuỗi.
+    const old = await prisma.catalogItem.findUniqueOrThrow({ where: { id }, select: { value: true, level: true, workGroupId: true } });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.catalogItem.update({
+        where: { id },
+        data: {
+          value: v,
+          parentId: parentId !== undefined ? (parentId ?? null) : undefined,
+          projectGroupId: projectGroupId !== undefined ? (projectGroupId ?? null) : undefined,
+        },
+      });
+
+      // Đồng bộ tên sang các task đang dùng giá trị cũ (level2/3/5 lưu dạng string).
+      const wg = old.workGroupId;
+      const oldVal = old.value;
+      if (old.level === 2) {
+        await tx.task.updateMany({ where: { workGroupId: wg, level2: oldVal }, data: { level2: v } });
+      } else if (old.level === 3) {
+        await tx.task.updateMany({ where: { workGroupId: wg, level3: oldVal }, data: { level3: v } });
+        // name thường = level3 khi không có level5
+        await tx.task.updateMany({ where: { workGroupId: wg, level3: v, level5: null, name: oldVal }, data: { name: v } });
+        await tx.task.updateMany({ where: { workGroupId: wg, level3: v, level5: "", name: oldVal }, data: { name: v } });
+      } else if (old.level === 5) {
+        await tx.task.updateMany({ where: { workGroupId: wg, level5: oldVal }, data: { level5: v } });
+        // name thường = level5
+        await tx.task.updateMany({ where: { workGroupId: wg, level5: v, name: oldVal }, data: { name: v } });
+      }
     });
+
     revalidatePath("/admin/catalog");
     revalidatePath("/tasks");
     revalidatePath("/manage");

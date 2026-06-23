@@ -34,6 +34,7 @@ import {
   Layers,
   ListChecks,
   Lock,
+  Copy,
   Pencil,
   Plus,
   RotateCcw,
@@ -51,6 +52,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { SearchableCombobox } from "@/components/searchable-combobox";
 import { cn, removeVietnameseTones } from "@/lib/utils";
 import {
   addCatalogValue,
@@ -90,6 +92,7 @@ type ProjectRow = {
   groupId: string | null;
   code: string;
   name: string;
+  blockSystem: string | null;
   scale: string | null;
   constructionTypeId: string | null;
   taskCount: number;
@@ -153,11 +156,35 @@ export function CatalogClient({
     [projectGroups, ptWorkGroupId],
   );
   const ptPgById = React.useMemo(() => new Map(ptProjectGroups.map((g) => [g.id, g])), [ptProjectGroups]);
+  const generalProjectGroupLabels = React.useMemo(
+    () => generalProjectGroups.map((g) => `${g.code} — ${g.name}`),
+    [generalProjectGroups],
+  );
+  const projectGroupLabelById = React.useMemo(
+    () => new Map(generalProjectGroups.map((g) => [g.id, `${g.code} — ${g.name}`])),
+    [generalProjectGroups],
+  );
+  const projectGroupIdByLabel = React.useMemo(
+    () => new Map(generalProjectGroups.map((g) => [`${g.code} — ${g.name}`, g.id])),
+    [generalProjectGroups],
+  );
+  const ctLabels = React.useMemo(
+    () => constructionTypes.map((c) => `${c.code} — ${c.name}`),
+    [constructionTypes],
+  );
+  const ctLabelById = React.useMemo(
+    () => new Map(constructionTypes.map((c) => [c.id, `${c.code} — ${c.name}`])),
+    [constructionTypes],
+  );
+  const ctIdByLabel = React.useMemo(
+    () => new Map(constructionTypes.map((c) => [`${c.code} — ${c.name}`, c.id])),
+    [constructionTypes],
+  );
 
   // Bulk edit state
   const [bulkProjectEdit, setBulkProjectEdit] = React.useState<{
     ids: string[];
-    field: "groupId" | "constructionTypeId" | "name";
+    field: "groupId" | "constructionTypeId" | "name" | "blockSystem";
   } | null>(null);
   const [bulkBimtoolsEdit, setBulkBimtoolsEdit] = React.useState<{
     ids: string[];
@@ -343,7 +370,7 @@ export function CatalogClient({
     {
       key: "groupId",
       label: "Dự án",
-      type: "select",
+      type: "combobox",
       span: 3,
       required: true,
       hint: 'tạo/đổi tên dự án ở nút "Quản lý dự án"',
@@ -352,12 +379,13 @@ export function CatalogClient({
     {
       key: "constructionTypeId",
       label: "Loại hình",
-      type: "select",
+      type: "combobox",
       span: 3,
       hint: "từ danh mục Loại hình công trình",
       options: [{ value: "", label: "— Không —" }, ...ctOptions],
     },
     { key: "name", label: "Hạng mục", required: true, span: 2, autoFocus: true },
+    { key: "blockSystem", label: "Khối/Hệ thống", span: 1 },
     { key: "scale", label: "Quy mô (m² sàn)", span: 1, placeholder: "vd 12.000 m²" },
   ];
   const projectsView = () => (
@@ -375,6 +403,30 @@ export function CatalogClient({
             { label: "Đổi Dự án", onClick: () => setBulkProjectEdit({ ids, field: "groupId" }) },
             { label: "Đổi Loại hình", onClick: () => setBulkProjectEdit({ ids, field: "constructionTypeId" }) },
             { label: "Đổi Hạng mục", onClick: () => setBulkProjectEdit({ ids, field: "name" }) },
+            { label: "Đổi Khối/Hệ thống", onClick: () => setBulkProjectEdit({ ids, field: "blockSystem" }) },
+            {
+              label: "Xóa dòng đã chọn",
+              tone: "danger",
+              onClick: () => {
+                const selected = generalProjects.filter((p) => ids.includes(p.id));
+                const blocked = selected.filter((p) => p.taskCount > 0);
+                setConfirm({
+                  name: `${ids.length} hạng mục đã chọn`,
+                  blockMsg: blocked.length
+                    ? `${blocked.length} hạng mục đang có công việc. Hãy gỡ/chuyển các công việc trước khi xóa.`
+                    : undefined,
+                  warnMsg: `Sẽ xóa ${ids.length} hạng mục đã chọn.`,
+                  run: async () => {
+                    for (const id of ids) {
+                      const res = await deleteProject(id);
+                      if (!res.ok) return res;
+                    }
+                    clear();
+                    return { ok: true, data: null } satisfies Result<null>;
+                  },
+                });
+              },
+            },
           ]}
         />
       )}
@@ -392,8 +444,13 @@ export function CatalogClient({
       }}
       onEdit={(r) => {
         const p = r as unknown as ProjectRow;
-        setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, scale: p.scale ?? "" },
-          submit: (v) => saveCatalogProject({ id: p.id, groupId: v.groupId, name: v.name, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null }) });
+        setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "" },
+          submit: (v) => saveCatalogProject({ id: p.id, groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null }) });
+      }}
+      onDuplicate={(r) => {
+        const p = r as unknown as ProjectRow;
+        setRecord({ title: "Nhân bản hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "" },
+          submit: (v) => saveCatalogProject({ groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null }) });
       }}
       onDelete={(r) => {
         const p = r as unknown as ProjectRow;
@@ -407,6 +464,8 @@ export function CatalogClient({
           text: (r) => ctById.get((r.constructionTypeId as string) ?? "")?.name ?? "",
           cell: (r) => { const ct = ctById.get((r.constructionTypeId as string) ?? ""); return ct ? <span className="font-mono text-xs text-slate-600" title={ct.name}>{ct.code}</span> : <Dash />; } },
         { key: "name", label: "Hạng mục", filter: "text", text: (r) => String(r.name ?? ""), cell: (r) => <strong className="font-medium text-slate-800">{String(r.name)}</strong> },
+        { key: "blockSystem", label: "Khối/Hệ thống", thClass: "w-44", filter: "text", text: (r) => String(r.blockSystem ?? ""),
+          cell: (r) => r.blockSystem ? <span className="text-slate-700">{String(r.blockSystem)}</span> : <Dash /> },
         { key: "scale", label: "Quy mô (m² sàn)", thClass: "w-44", align: "right", filter: "text", text: (r) => String(r.scale ?? ""),
           cell: (r) => r.scale ? <span className="font-medium tabular-nums text-slate-700">{String(r.scale)}</span> : <Dash /> },
       ]}
@@ -1023,6 +1082,7 @@ function FilterTable({
   addLabel,
   onAdd,
   onEdit,
+  onDuplicate,
   onDelete,
   onBatchReorder,
   rowExtra,
@@ -1038,6 +1098,7 @@ function FilterTable({
   addLabel: string;
   onAdd: () => void;
   onEdit: (r: Row) => void;
+  onDuplicate?: (r: Row) => void;
   onDelete: (r: Row) => void;
   onBatchReorder?: (ids: string[]) => Promise<void>;
   rowExtra?: (r: Row) => React.ReactNode;
@@ -1178,6 +1239,9 @@ function FilterTable({
 
   const colCount = columns.length + (onBatchReorder ? 2 : 1) + (selectable ? 1 : 0);
   const openCol = openFilter ? colByKey.get(openFilter.key) : null;
+  const hasStickyBulk = !!(selectable && bulkBar && selArr.length > 0);
+  const stickyHeadTop = hasStickyBulk ? "top-[52px]" : "top-0";
+  const stickyHeadClass = cn("sticky z-20 bg-slate-50 shadow-[0_1px_0_0_theme(colors.slate.200)]", stickyHeadTop);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-card shadow-sm">
@@ -1235,7 +1299,7 @@ function FilterTable({
 
       {/* Bulk action bar */}
       {selectable && bulkBar && selArr.length > 0 ? (
-        <div className="px-4 pt-3">{bulkBar(selArr, clearSel)}</div>
+        <div className="sticky top-0 z-30 bg-card px-4 pt-3">{bulkBar(selArr, clearSel)}</div>
       ) : null}
 
       {/* Bảng */}
@@ -1243,9 +1307,9 @@ function FilterTable({
         <table className="w-full border-collapse text-sm" style={minWidth ? { minWidth } : undefined}>
           <thead>
             <tr className="text-left text-xs font-semibold text-slate-400">
-              {onBatchReorder ? <th className="w-8 px-2 py-2" /> : null}
+              {onBatchReorder ? <th className={cn("w-8 px-2 py-2", stickyHeadClass)} /> : null}
               {selectable ? (
-                <th className="w-9 px-2 py-2">
+                <th className={cn("w-9 px-2 py-2", stickyHeadClass)}>
                   <input
                     type="checkbox"
                     className="size-4 cursor-pointer rounded border-slate-300 accent-slate-800"
@@ -1260,7 +1324,7 @@ function FilterTable({
                 const active = sort?.key === c.key;
                 const on = colActive(c);
                 return (
-                  <th key={c.key} className={cn("px-3 py-2", c.thClass, c.align === "right" && "text-right")}>
+                  <th key={c.key} className={cn("px-3 py-2", stickyHeadClass, c.thClass, c.align === "right" && "text-right")}>
                     <div className={cn("flex items-center gap-1", c.align === "right" && "justify-end")}>
                       <button type="button" onClick={() => toggleSort(c.key)} className="flex items-center gap-1 hover:text-slate-700">
                         <span>{c.label}</span>
@@ -1277,7 +1341,7 @@ function FilterTable({
                   </th>
                 );
               })}
-              <th className="w-24 px-3 py-2 text-right">Thao tác</th>
+              <th className={cn("w-24 px-3 py-2 text-right", stickyHeadClass)}>Thao tác</th>
             </tr>
           </thead>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -1297,6 +1361,12 @@ function FilterTable({
                     <td className="px-3 py-2.5">
                       <div className="flex justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
                         {rowExtra ? rowExtra(r) : null}
+                        {onDuplicate ? (
+                          <button type="button" title="Nhân bản" onClick={() => onDuplicate(r)}
+                            className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                            <Copy className="size-4" />
+                          </button>
+                        ) : null}
                         <button type="button" title="Sửa" onClick={() => onEdit(r)}
                           className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                           <Pencil className="size-4" />
@@ -1519,7 +1589,7 @@ type Field = {
   required?: boolean;
   mono?: boolean;
   uppercase?: boolean;
-  type?: "text" | "number" | "select";
+  type?: "text" | "number" | "select" | "combobox";
   placeholder?: string;
   hint?: string;
   span?: 1 | 2 | 3;
@@ -1597,6 +1667,16 @@ function RecordModal({
                     </option>
                   ))}
                 </Select>
+              ) : f.type === "combobox" ? (
+                <SearchableCombobox
+                  value={(f.options ?? []).find((o) => o.value === (values[f.key] ?? ""))?.label ?? ""}
+                  options={(f.options ?? []).map((o) => o.label)}
+                  creatable={false}
+                  className="h-9"
+                  autoFocus={f.autoFocus}
+                  placeholder="Tìm..."
+                  onChange={(label) => set(f.key, (f.options ?? []).find((o) => o.label === label)?.value ?? "")}
+                />
               ) : (
                 <input
                   className={cn(inputCls, f.mono && "font-mono", f.uppercase && "uppercase")}
@@ -2078,7 +2158,7 @@ function Dash() {
 // ===================================================================
 //  AddMultipleItemsModal — thêm nhiều hạng mục cho cùng Dự án + Loại hình
 // ===================================================================
-type ItemRow = { id: string; name: string; scale: string };
+type ItemRow = { id: string; name: string; blockSystem: string; scale: string };
 
 function AddMultipleItemsModal({
   projectGroups,
@@ -2092,27 +2172,33 @@ function AddMultipleItemsModal({
   onSubmit: (
     groupId: string,
     constructionTypeId: string | null,
-    items: { name: string; scale: string | null }[],
+    items: { name: string; blockSystem: string | null; scale: string | null }[],
   ) => Promise<void>;
 }) {
   const [groupId, setGroupId] = React.useState(projectGroups[0]?.id ?? "");
   const [ctId, setCtId] = React.useState("");
-  const [rows, setRows] = React.useState<ItemRow[]>([{ id: crypto.randomUUID(), name: "", scale: "" }]);
+  const [rows, setRows] = React.useState<ItemRow[]>([{ id: crypto.randomUUID(), name: "", blockSystem: "", scale: "" }]);
   const [err, setErr] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
 
   const inputCls =
     "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+  const projectLabels = React.useMemo(() => projectGroups.map((g) => `${g.code} — ${g.name}`), [projectGroups]);
+  const projectLabelById = React.useMemo(() => new Map(projectGroups.map((g) => [g.id, `${g.code} — ${g.name}`])), [projectGroups]);
+  const projectIdByLabel = React.useMemo(() => new Map(projectGroups.map((g) => [`${g.code} — ${g.name}`, g.id])), [projectGroups]);
+  const ctLabels = React.useMemo(() => constructionTypes.map((c) => `${c.code} — ${c.name}`), [constructionTypes]);
+  const ctLabelById = React.useMemo(() => new Map(constructionTypes.map((c) => [c.id, `${c.code} — ${c.name}`])), [constructionTypes]);
+  const ctIdByLabel = React.useMemo(() => new Map(constructionTypes.map((c) => [`${c.code} — ${c.name}`, c.id])), [constructionTypes]);
 
   function addRow() {
-    setRows((prev) => [...prev, { id: crypto.randomUUID(), name: "", scale: "" }]);
+    setRows((prev) => [...prev, { id: crypto.randomUUID(), name: "", blockSystem: "", scale: "" }]);
   }
 
   function removeRow(id: string) {
     setRows((prev) => prev.filter((r) => r.id !== id));
   }
 
-  function setRow(id: string, field: "name" | "scale", value: string) {
+  function setRow(id: string, field: "name" | "blockSystem" | "scale", value: string) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
     setErr(null);
   }
@@ -2124,12 +2210,12 @@ function AddMultipleItemsModal({
     if (!valid.length) { setErr("Nhập ít nhất 1 hạng mục."); return; }
     setErr(null);
     setPending(true);
-    await onSubmit(groupId, ctId || null, valid.map((r) => ({ name: r.name.trim(), scale: r.scale.trim() || null })));
+    await onSubmit(groupId, ctId || null, valid.map((r) => ({ name: r.name.trim(), blockSystem: r.blockSystem.trim() || null, scale: r.scale.trim() || null })));
     setPending(false);
   }
 
   return (
-    <Modal open onClose={onClose} title="Thêm hạng mục" className="max-w-xl">
+    <Modal open onClose={onClose} title="Thêm hạng mục" className="max-w-2xl">
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Dự án + Loại hình — dùng chung cho tất cả hạng mục */}
         <div className="grid grid-cols-3 gap-3">
@@ -2137,41 +2223,53 @@ function AddMultipleItemsModal({
             <label className="text-xs font-medium text-slate-600">
               Dự án <span className="text-red-500">*</span>
             </label>
-            <Select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="h-9">
-              {projectGroups.map((g) => (
-                <option key={g.id} value={g.id}>{g.code} — {g.name}</option>
-              ))}
-            </Select>
+            <SearchableCombobox
+              value={projectLabelById.get(groupId) ?? ""}
+              options={projectLabels}
+              creatable={false}
+              className="h-9"
+              placeholder="Tìm dự án..."
+              onChange={(label) => setGroupId(projectIdByLabel.get(label) ?? "")}
+            />
             <p className="text-[11px] text-slate-400">tạo/đổi tên dự án ở nút "Quản lý dự án"</p>
           </div>
           <div className="col-span-3 space-y-1.5">
             <label className="text-xs font-medium text-slate-600">Loại hình</label>
-            <Select value={ctId} onChange={(e) => setCtId(e.target.value)} className="h-9">
-              <option value="">— Không —</option>
-              {constructionTypes.map((c) => (
-                <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
-              ))}
-            </Select>
+            <SearchableCombobox
+              value={ctId ? ctLabelById.get(ctId) ?? "" : "— Không —"}
+              options={["— Không —", ...ctLabels]}
+              creatable={false}
+              className="h-9"
+              placeholder="Tìm loại hình..."
+              onChange={(label) => setCtId(label === "— Không —" ? "" : ctIdByLabel.get(label) ?? "")}
+            />
             <p className="text-[11px] text-slate-400">từ danh mục Loại hình công trình</p>
           </div>
         </div>
 
         {/* Danh sách hạng mục */}
         <div className="space-y-2">
-          <div className="grid grid-cols-[1fr_160px_28px] gap-2 px-1">
+          <div className="grid grid-cols-[1fr_150px_150px_28px] gap-2 px-1">
             <span className="text-xs font-medium text-slate-500">Hạng mục <span className="text-red-500">*</span></span>
+            <span className="text-xs font-medium text-slate-500">Khối/Hệ thống</span>
             <span className="text-xs font-medium text-slate-500">Quy mô (m² sàn)</span>
             <span />
           </div>
           <div className="max-h-60 space-y-2 overflow-y-auto pr-1">
             {rows.map((row, idx) => (
-              <div key={row.id} className="grid grid-cols-[1fr_160px_28px] items-center gap-2">
+              <div key={row.id} className="grid grid-cols-[1fr_150px_150px_28px] items-center gap-2">
                 <input
                   className={inputCls}
                   value={row.name}
                   placeholder={`Hạng mục ${idx + 1}`}
                   autoFocus={idx === 0}
                   onChange={(e) => setRow(row.id, "name", e.target.value)}
+                />
+                <input
+                  className={inputCls}
+                  value={row.blockSystem}
+                  placeholder="Khối / hệ"
+                  onChange={(e) => setRow(row.id, "blockSystem", e.target.value)}
                 />
                 <input
                   className={inputCls}
@@ -2575,7 +2673,7 @@ function CatalogBulkBar({
 }: {
   count: number;
   onClear: () => void;
-  actions: { label: string; onClick: () => void }[];
+  actions: { label: string; onClick: () => void; tone?: "default" | "danger" }[];
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-300 bg-slate-800 px-3 py-2 text-sm text-white">
@@ -2587,7 +2685,12 @@ function CatalogBulkBar({
           key={a.label}
           type="button"
           onClick={a.onClick}
-          className="rounded-md bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+          className={cn(
+            "rounded-md px-2.5 py-1 text-xs font-medium",
+            a.tone === "danger"
+              ? "bg-red-500/20 text-red-100 hover:bg-red-500/30"
+              : "bg-white/15 hover:bg-white/25",
+          )}
         >
           {a.label}
         </button>
@@ -2795,7 +2898,7 @@ function BulkEditWorksModal({
 // ===================================================================
 //  BulkEditProjectsModal — Tab 2 Dự án · Hạng mục
 // ===================================================================
-type ProjectsPatch = { groupId?: string; constructionTypeId?: string | null; name?: string };
+type ProjectsPatch = { groupId?: string; constructionTypeId?: string | null; name?: string; blockSystem?: string | null };
 
 function BulkEditProjectsModal({
   ids,
@@ -2806,7 +2909,7 @@ function BulkEditProjectsModal({
   onSubmit,
 }: {
   ids: string[];
-  field: "groupId" | "constructionTypeId" | "name";
+  field: "groupId" | "constructionTypeId" | "name" | "blockSystem";
   projectGroups: ProjectGroupRow[];
   constructionTypes: SimpleRow[];
   onClose: () => void;
@@ -2817,6 +2920,7 @@ function BulkEditProjectsModal({
   const [groupId, setGroupId] = React.useState(projectGroups[0]?.id ?? "");
   const [ctId, setCtId] = React.useState("");
   const [name, setName] = React.useState("");
+  const [blockSystem, setBlockSystem] = React.useState("");
   const [err, setErr] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
 
@@ -2833,6 +2937,7 @@ function BulkEditProjectsModal({
     { key: "groupId" as const, label: "Dự án" },
     { key: "constructionTypeId" as const, label: "Loại hình" },
     { key: "name" as const, label: "Hạng mục" },
+    { key: "blockSystem" as const, label: "Khối/Hệ thống" },
   ];
 
   async function handleCreateGroup() {
@@ -2863,9 +2968,11 @@ function BulkEditProjectsModal({
       patch.groupId = groupId;
     } else if (activeField === "constructionTypeId") {
       patch.constructionTypeId = ctId || null;
-    } else {
+    } else if (activeField === "name") {
       if (!name.trim()) { setErr("Nhập tên hạng mục"); return; }
       patch.name = name.trim();
+    } else {
+      patch.blockSystem = blockSystem.trim() || null;
     }
     setPending(true);
     await onSubmit(patch);
@@ -2971,6 +3078,15 @@ function BulkEditProjectsModal({
             <input autoFocus className={inputCls} placeholder="Nhập tên mới…" value={name}
               onChange={(e) => { setName(e.target.value); setErr(null); }} />
             <p className="text-[11px] text-amber-500">Sẽ đổi hạng mục cho tất cả {ids.length} dòng đã chọn thành tên này.</p>
+          </div>
+        )}
+
+        {activeField === "blockSystem" && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">Khối/Hệ thống</label>
+            <input autoFocus className={inputCls} placeholder="Nhập Khối/Hệ thống, để trống để xóa" value={blockSystem}
+              onChange={(e) => { setBlockSystem(e.target.value); setErr(null); }} />
+            <p className="text-[11px] text-amber-500">Sẽ đổi Khối/Hệ thống cho tất cả {ids.length} dòng đã chọn.</p>
           </div>
         )}
 
