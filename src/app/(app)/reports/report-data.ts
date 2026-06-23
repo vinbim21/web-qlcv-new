@@ -11,6 +11,7 @@ export type TaskRow = {
   loaiHinh: string; // Loại hình công trình, "" nếu chưa gán
   hangMuc: string; // tên Hạng mục (Project)
   congViec: string; // tên công việc (đầu việc)
+  giaiDoan: string; // giai đoạn, "" nếu chưa có
   boMon: string; // tên Bộ môn, "" nếu không có
   boMonCode: string | null; // mã Bộ môn (để gộp Phòng)
   thucHien: string[]; // tên người thực hiện
