@@ -116,24 +116,26 @@ export function ResultCell({ taskId, value, canEdit }: ResultCellProps) {
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1 min-w-0" onClick={stopBubble}>
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          onBlur={save}
-          disabled={saving}
-          placeholder="Nhập URL hoặc đường dẫn file…"
-          className="h-6 flex-1 min-w-0 rounded border border-blue-400 px-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-400"
-        />
-        <button
-          type="button"
-          onMouseDown={(e) => { e.preventDefault(); cancel(); }}
-          className="shrink-0 rounded p-0.5 text-slate-400 hover:text-red-500"
-        >
-          <X className="size-3" />
-        </button>
+      <div className="relative h-5 min-w-[24px]" onClick={stopBubble}>
+        <div className="absolute bottom-0 left-0 z-50 flex w-[300px] items-center gap-1 rounded border border-blue-400 bg-white px-1 shadow-lg">
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={onKeyDown}
+            onBlur={save}
+            disabled={saving}
+            placeholder="Nhập URL hoặc đường dẫn file…"
+            className="h-6 flex-1 min-w-0 text-xs outline-none"
+          />
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); cancel(); }}
+            className="shrink-0 rounded p-0.5 text-slate-400 hover:text-red-500"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
       </div>
     );
   }

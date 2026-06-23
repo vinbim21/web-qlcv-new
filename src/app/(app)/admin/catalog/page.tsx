@@ -66,6 +66,8 @@ export default async function CatalogPage() {
         blockSystem: p.blockSystem,
         scale: p.scale,
         constructionTypeId: p.constructionTypeId,
+        startDate: p.startDate ? p.startDate.toISOString().slice(0, 10) : null,
+        packagingDate: p.packagingDate ? p.packagingDate.toISOString().slice(0, 10) : null,
         taskCount: p._count.tasks,
       }))}
       works={level5.map((i) => ({ id: i.id, workGroupId: i.workGroupId, value: i.value, order: i.order }))}
