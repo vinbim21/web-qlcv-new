@@ -149,6 +149,7 @@ model Project {
   groupId            String? // FK → ProjectGroup (Dự án cha); nullable trước backfill
   code               String // KHÔNG unique đơn lẻ: nhóm Quản lý BIM mỗi (mã + tên) là 1 dự án riêng
   name               String
+  blockSystem        String? // Khối / Hệ thống trong hạng mục
   scale              String? // Quy mô công trình (nhập tay, dùng cho nhóm Quản lý BIM)
   status             ProjectStatus @default(DANG_THUC_HIEN)
   constructionTypeId String? // Loại hình công trình (cho báo cáo định mức)
@@ -164,7 +165,7 @@ model Project {
   tasks            Task[]
   timeSheets       TimeSheetEntry[]
 
-  @@unique([code, name])
+  @@index([code, name, constructionTypeId, blockSystem])
   @@index([status])
   @@index([constructionTypeId])
   @@index([groupId])

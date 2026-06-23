@@ -97,6 +97,7 @@ export type TaskRow = {
   workGroupName: string;
   projectId: string | null;
   projectName: string | null;
+  blockSystem: string | null;
   groupCode: string | null; // mã Dự án (ProjectGroup.code)
   groupName: string | null;
   loaiHinhCode: string | null; // mã Loại hình công trình (constructionType)
@@ -256,7 +257,7 @@ function colText(t: TaskRow, key: SortKey): string {
     case "loaiHinh":
       return t.loaiHinhCode ?? (t.projectId ? "" : (t.level2 ?? ""));
     case "hangMuc":
-      return t.level3 ?? "";
+      return t.projectName ?? t.level3 ?? "";
     case "congViec":
       return t.name;
     case "giaiDoan":
@@ -274,6 +275,10 @@ function colText(t: TaskRow, key: SortKey): string {
     default:
       return "";
   }
+}
+
+function blockSystemText(t: TaskRow): string {
+  return t.blockSystem?.trim() ?? "";
 }
 
 // Preset của các cột ngày.
@@ -748,7 +753,7 @@ export function ManageClient({
     const l2Idx = t.projectId ? null : (l2OrderMap.get(t.workGroupId)?.get(t.level2 ?? "") ?? null);
     const l2Part = l2Idx !== null ? String(l2Idx).padStart(5, "0") : norm(colText(t, "loaiHinh"));
     const l5Idx = l5OrderMap.get(t.workGroupId)?.get(t.name) ?? 9999;
-    return norm(colText(t, "duAn")) + l2Part + norm(colText(t, "hangMuc")) + String(l5Idx).padStart(5, "0");
+    return norm(colText(t, "duAn")) + l2Part + norm(colText(t, "hangMuc")) + norm(blockSystemText(t)) + String(l5Idx).padStart(5, "0");
   };
   function sortVal(t: TaskRow, key: SortKey): string | number {
     switch (key) {
@@ -809,7 +814,7 @@ export function ManageClient({
 
   // ---- Tree grouping cho view Bảng ----
   type TreeNode =
-    | { type: "g1" | "g2" | "g3"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }
+    | { type: "g1" | "g2" | "g3" | "g4"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }
     | { type: "task"; task: TaskRow }
     | { type: "insert"; ctx: NonNullable<typeof insertCtx> };
 
@@ -821,7 +826,9 @@ export function ManageClient({
       const dk = colText(t, "duAn") || "—";
       const lk = colText(t, "loaiHinh") || "—";
       const hk = colText(t, "hangMuc") || "—";
+      const bk = blockSystemText(t);
       keys.add(`h:${dk}|${lk}|${hk}`);
+      if (bk) keys.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
     return keys;
   }, [treeCollapsed, sorted]);
@@ -861,7 +868,21 @@ export function ManageClient({
           nodes.push({ type: "g3", key: d3, label: hk, count: hTasks.length, overdue: hTasks.filter(isOverdue).length, tasks: hTasks });
           if (ins?.groupKey === d3) nodes.push({ type: "insert", ctx: ins });
           if (effectiveTreeCollapsed.has(d3)) continue;
-          for (const t of hTasks) nodes.push({ type: "task", task: t });
+          const withBlock = hTasks.filter((t) => blockSystemText(t));
+          const withoutBlock = hTasks.filter((t) => !blockSystemText(t));
+          const byBlock = new Map<string, TaskRow[]>();
+          for (const t of withBlock) {
+            const k = blockSystemText(t);
+            (byBlock.get(k) ?? (byBlock.set(k, []), byBlock.get(k)!)).push(t);
+          }
+          for (const [bk, bTasks] of byBlock) {
+            const d4 = `b:${dk}|${lk}|${hk}|${bk}`;
+            nodes.push({ type: "g4", key: d4, label: bk, count: bTasks.length, overdue: bTasks.filter(isOverdue).length, tasks: bTasks });
+            if (ins?.groupKey === d4) nodes.push({ type: "insert", ctx: ins });
+            if (effectiveTreeCollapsed.has(d4)) continue;
+            for (const t of bTasks) nodes.push({ type: "task", task: t });
+          }
+          for (const t of withoutBlock) nodes.push({ type: "task", task: t });
         }
       }
     }
@@ -870,30 +891,34 @@ export function ManageClient({
 
   // Tất cả keys theo từng cấp (dùng cho expand/collapse từng cấp).
   const allTreeKeys = React.useMemo(() => {
-    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>();
+    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>(), b = new Set<string>();
     for (const t of sorted) {
       const dk = colText(t, "duAn") || "—";
       const lk = colText(t, "loaiHinh") || "—";
       const hk = colText(t, "hangMuc") || "—";
+      const bk = blockSystemText(t);
       d.add(`d:${dk}`);
       l.add(`l:${dk}|${lk}`);
       h.add(`h:${dk}|${lk}|${hk}`);
+      if (bk) b.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
-    return { d: [...d], l: [...l], h: [...h] };
+    return { d: [...d], l: [...l], h: [...h], b: [...b] };
   }, [sorted]);
 
   const selectedTreeKeys = React.useMemo(() => {
-    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>();
+    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>(), b = new Set<string>();
     for (const t of sorted) {
       if (!selected.has(t.id)) continue;
       const dk = colText(t, "duAn") || "—";
       const lk = colText(t, "loaiHinh") || "—";
       const hk = colText(t, "hangMuc") || "—";
+      const bk = blockSystemText(t);
       d.add(`d:${dk}`);
       l.add(`l:${dk}|${lk}`);
       h.add(`h:${dk}|${lk}|${hk}`);
+      if (bk) b.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
-    return { d: [...d], l: [...l], h: [...h], all: [...d, ...l, ...h] };
+    return { d: [...d], l: [...l], h: [...h], b: [...b], all: [...d, ...l, ...h, ...b] };
   }, [sorted, selected]);
 
   function toggleTreeNode(key: string) {
@@ -917,8 +942,10 @@ export function ManageClient({
         allTreeKeys.d.forEach((k) => n.delete(k));
       } else if (allTreeKeys.l.some((k) => n.has(k))) {
         allTreeKeys.l.forEach((k) => n.delete(k));
-      } else {
+      } else if (allTreeKeys.h.some((k) => n.has(k))) {
         allTreeKeys.h.forEach((k) => n.delete(k));
+      } else {
+        allTreeKeys.b.forEach((k) => n.delete(k));
       }
       return n;
     });
@@ -932,7 +959,9 @@ export function ManageClient({
         selectedTreeKeys.all.forEach((k) => n.add(k));
         return n;
       }
-      if (allTreeKeys.h.some((k) => !n.has(k))) {
+      if (allTreeKeys.b.some((k) => !n.has(k))) {
+        allTreeKeys.b.forEach((k) => n.add(k));
+      } else if (allTreeKeys.h.some((k) => !n.has(k))) {
         allTreeKeys.h.forEach((k) => n.add(k));
       } else if (allTreeKeys.l.some((k) => !n.has(k))) {
         allTreeKeys.l.forEach((k) => n.add(k));
@@ -1686,14 +1715,14 @@ export function ManageClient({
   }
 
   // Dòng tiêu đề nhóm trong tree view Bảng (3 cấp với indent khác nhau).
-  function treeGroupRow(node: { type: "g1" | "g2" | "g3"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
+  function treeGroupRow(node: { type: "g1" | "g2" | "g3" | "g4"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
     const { type, key, label, count, overdue, tasks: groupTasks } = node;
   const isCollapsed = effectiveTreeCollapsed.has(key);
   const Chevron = isCollapsed ? ChevronRight : ChevronDown;
   const bg = type === "g1" ? "bg-slate-100" : "bg-slate-50";
   const parentProject: string = "";
   const parentLoaiHinh: string = "";
-  const indent = type === "g1" ? 0 : type === "g2" ? widthOf("duAn") : widthOf("duAn") + widthOf("loaiHinh");
+  const indent = type === "g1" ? 0 : type === "g2" ? widthOf("duAn") : type === "g3" ? widthOf("duAn") + widthOf("loaiHinh") : widthOf("duAn") + widthOf("loaiHinh") + widthOf("hangMuc");
     const textCls =
       type === "g1"
         ? "text-[13px] font-semibold text-slate-700"
@@ -1717,6 +1746,12 @@ export function ManageClient({
         const idx = content.indexOf("|");
         const d = content.slice(0, idx); const l = content.slice(idx + 1);
         return { groupKey: key, workGroupId, projectGroupCode: d === "—" ? "" : d, constructionTypeCode: l === "—" ? "" : l, hangMuc: "" };
+      }
+      if (type === "g4") {
+        const content = key.slice(2);
+        const i1 = content.indexOf("|"); const i2 = content.indexOf("|", i1 + 1); const i3 = content.indexOf("|", i2 + 1);
+        const d = content.slice(0, i1); const l = content.slice(i1 + 1, i2); const h = content.slice(i2 + 1, i3);
+        return { groupKey: key, workGroupId, projectGroupCode: d === "—" ? "" : d, constructionTypeCode: l === "—" ? "" : l, hangMuc: h === "—" ? "" : h };
       }
       const content = key.slice(2);
       const i1 = content.indexOf("|"); const i2 = content.indexOf("|", i1 + 1);
