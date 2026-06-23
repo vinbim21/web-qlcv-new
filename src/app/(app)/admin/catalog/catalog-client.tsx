@@ -25,6 +25,8 @@ import {
   Building,
   Building2,
   Check,
+  ChevronDown,
+  ChevronRight,
   ChevronsUpDown,
   Database,
   Filter,
@@ -95,6 +97,8 @@ type ProjectRow = {
   blockSystem: string | null;
   scale: string | null;
   constructionTypeId: string | null;
+  startDate: string | null;
+  packagingDate: string | null;
   taskCount: number;
 };
 type WorkRow = { id: string; workGroupId: string; value: string; order: number };
@@ -143,6 +147,10 @@ export function CatalogClient({
   const router = useRouter();
   const [tab, setTab] = React.useState<TabId>("groups");
   const [manageProjectsScope, setManageProjectsScope] = React.useState<string | null>(null);
+  const [projectsViewMode, setProjectsViewMode] = React.useState<"table" | "grouped">("table");
+  const [groupedCollapsed, setGroupedCollapsed] = React.useState<Set<string>>(new Set());
+  const [groupedHmCollapsed, setGroupedHmCollapsed] = React.useState<Set<string>>(new Set());
+  const [groupedSelectedIds, setGroupedSelectedIds] = React.useState<Set<string>>(new Set());
 
   const ptWorkGroupId = workGroups.find((w) => w.abbr === "PT")?.id ?? null;
   const generalProjectGroups = projectGroups.filter((g) => !g.workGroupId);
@@ -387,8 +395,213 @@ export function CatalogClient({
     { key: "name", label: "Hạng mục", required: true, span: 2, autoFocus: true },
     { key: "blockSystem", label: "Khối/Hệ thống", span: 1 },
     { key: "scale", label: "Quy mô (m² sàn)", span: 1, placeholder: "vd 12.000 m²" },
+    { key: "startDate", label: "Bắt đầu", type: "date" as const, span: 1 },
+    { key: "packagingDate", label: "Đóng gói", type: "date" as const, span: 1 },
   ];
+  // ---- View gom nhóm theo Dự án → Hạng mục (2-cấp tree với checkbox) ----
+  const groupedProjectsView = () => {
+    const byGroup = new Map<string, { group: ProjectGroupRow; items: ProjectRow[] }>();
+    for (const g of generalProjectGroups) byGroup.set(g.id, { group: g, items: [] });
+    for (const p of generalProjects) {
+      const gid = p.groupId ?? "__none__";
+      if (!byGroup.has(gid)) byGroup.set(gid, { group: { id: gid, code: "—", name: "(Không nhóm)", order: 9999, workGroupId: null, itemCount: 0 }, items: [] });
+      byGroup.get(gid)!.items.push(p);
+    }
+    const toggleGrouped = (id: string) => setGroupedCollapsed(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    const toggleHm = (key: string) => setGroupedHmCollapsed(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    const toggleSel = (id: string) => setGroupedSelectedIds(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+    return (
+      <div className="rounded-xl border border-slate-200 bg-card shadow-sm">
+        {/* Bulk bar khi có chọn */}
+        {groupedSelectedIds.size > 0 && (
+          <div className="sticky top-0 z-30 border-b border-slate-200 bg-card px-4 py-2">
+            <CatalogBulkBar
+              count={groupedSelectedIds.size}
+              onClear={() => setGroupedSelectedIds(new Set())}
+              actions={[
+                { label: "Đổi Dự án", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "groupId" }) },
+                { label: "Đổi Loại hình", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "constructionTypeId" }) },
+                { label: "Đổi Khối/Hệ thống", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "blockSystem" }) },
+                {
+                  label: "Xóa dòng đã chọn",
+                  tone: "danger",
+                  onClick: () => {
+                    const selected = generalProjects.filter((p) => groupedSelectedIds.has(p.id));
+                    const blocked = selected.filter((p) => p.taskCount > 0);
+                    setConfirm({
+                      name: `${groupedSelectedIds.size} hạng mục đã chọn`,
+                      blockMsg: blocked.length ? `${blocked.length} hạng mục đang có công việc.` : undefined,
+                      warnMsg: `Sẽ xóa ${groupedSelectedIds.size} hạng mục đã chọn.`,
+                      run: async () => {
+                        for (const id of [...groupedSelectedIds]) {
+                          const res = await deleteProject(id);
+                          if (!res.ok) return res;
+                        }
+                        setGroupedSelectedIds(new Set());
+                        return { ok: true, data: null } satisfies Result<null>;
+                      },
+                    });
+                  },
+                },
+              ]}
+            />
+          </div>
+        )}
+        {[...byGroup.values()].filter(e => e.items.length > 0).map(({ group, items }) => {
+          const collapsed = groupedCollapsed.has(group.id);
+          // Gom Hạng mục theo tên (nhiều blockSystem → 1 nhóm)
+          const hmMap = new Map<string, ProjectRow[]>();
+          for (const p of items) {
+            if (!hmMap.has(p.name)) hmMap.set(p.name, []);
+            hmMap.get(p.name)!.push(p);
+          }
+          const allGroupIds = items.map(p => p.id);
+          const allGroupSel = allGroupIds.length > 0 && allGroupIds.every(id => groupedSelectedIds.has(id));
+          return (
+            <div key={group.id} className="border-b border-slate-100 last:border-0">
+              {/* Header dự án */}
+              <div className="flex items-center gap-2 bg-slate-100 px-3 py-2">
+                <input
+                  type="checkbox"
+                  className="size-3.5 shrink-0 accent-slate-700"
+                  checked={allGroupSel}
+                  onChange={() => setGroupedSelectedIds(s => {
+                    const n = new Set(s);
+                    if (allGroupSel) allGroupIds.forEach(id => n.delete(id));
+                    else allGroupIds.forEach(id => n.add(id));
+                    return n;
+                  })}
+                />
+                <button
+                  type="button"
+                  onClick={() => toggleGrouped(group.id)}
+                  className="flex items-center gap-2 text-left"
+                >
+                  {collapsed ? <ChevronRight className="size-4 text-slate-400" /> : <ChevronDown className="size-4 text-slate-400" />}
+                  <span className="font-mono text-xs font-semibold text-slate-500">{group.code}</span>
+                  <span className="text-sm font-semibold text-slate-700">{group.name}</span>
+                  <span className="ml-1 rounded-full bg-slate-200 px-1.5 text-xs text-slate-500">{items.length}</span>
+                </button>
+              </div>
+              {/* Sub-groups theo tên Hạng mục */}
+              {!collapsed && [...hmMap.entries()].map(([hmName, hmItems]) => {
+                const hmKey = `${group.id}|${hmName}`;
+                const hmCollapsed = groupedHmCollapsed.has(hmKey);
+                const firstItem = hmItems[0];
+                const hmIds = hmItems.map(p => p.id);
+                const allHmSel = hmIds.every(id => groupedSelectedIds.has(id));
+                const someHmSel = !allHmSel && hmIds.some(id => groupedSelectedIds.has(id));
+                return (
+                  <div key={hmKey} className="border-t border-slate-100">
+                    {/* Dòng group Hạng mục */}
+                    <div className="flex items-center gap-2 bg-slate-50 py-1.5 pl-8 pr-3">
+                      <input
+                        type="checkbox"
+                        className="size-3.5 shrink-0 accent-slate-700"
+                        checked={allHmSel}
+                        ref={(el) => { if (el) el.indeterminate = someHmSel; }}
+                        onChange={() => setGroupedSelectedIds(s => {
+                          const n = new Set(s);
+                          if (allHmSel) hmIds.forEach(id => n.delete(id));
+                          else hmIds.forEach(id => n.add(id));
+                          return n;
+                        })}
+                      />
+                      <button type="button" onClick={() => toggleHm(hmKey)} className="flex items-center gap-1.5 text-left">
+                        {hmCollapsed ? <ChevronRight className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                        <span className="text-xs font-medium text-slate-600">{hmName}</span>
+                        {hmItems.length > 1 && <span className="rounded-full bg-slate-200 px-1.5 text-xs text-slate-400">{hmItems.length}</span>}
+                      </button>
+                      {/* Ngày Bắt đầu / Đóng gói từ item đầu tiên */}
+                      {(firstItem.startDate || firstItem.packagingDate) && (
+                        <span className="ml-3 text-xs text-slate-400">
+                          {firstItem.startDate && <span className="mr-3">BD: <span className="font-medium text-slate-500">{firstItem.startDate}</span></span>}
+                          {firstItem.packagingDate && <span>ĐG: <span className="font-medium text-slate-500">{firstItem.packagingDate}</span></span>}
+                        </span>
+                      )}
+                    </div>
+                    {/* Các dòng hạng mục con */}
+                    {!hmCollapsed && (
+                      <table className="w-full border-collapse text-sm">
+                        {hmItems.length > 1 && (
+                          <thead>
+                            <tr className="text-left text-xs font-semibold text-slate-400">
+                              <th className="w-9 pl-16 pr-2 py-1.5" />
+                              <th className="w-28 px-3 py-1.5">Loại hình</th>
+                              <th className="w-44 px-3 py-1.5">Khối/Hệ thống</th>
+                              <th className="w-32 px-3 py-1.5">Bắt đầu</th>
+                              <th className="w-32 px-3 py-1.5">Đóng gói</th>
+                              <th className="w-36 px-3 py-1.5 text-right">Quy mô</th>
+                              <th className="w-24 px-3 py-1.5 text-right">Thao tác</th>
+                            </tr>
+                          </thead>
+                        )}
+                        <tbody>
+                          {hmItems.map(p => {
+                            const ct = p.constructionTypeId ? ctById.get(p.constructionTypeId) : null;
+                            const isSel = groupedSelectedIds.has(p.id);
+                            return (
+                              <tr key={p.id} className={cn("group border-t border-slate-100 hover:bg-slate-50", isSel && "bg-slate-50")}>
+                                <td className="w-9 pl-16 pr-2 py-2">
+                                  <input
+                                    type="checkbox"
+                                    className="size-3.5 accent-slate-700"
+                                    checked={isSel}
+                                    onChange={() => toggleSel(p.id)}
+                                  />
+                                </td>
+                                <td className="w-28 px-3 py-2">
+                                  {ct ? <span className="font-mono text-xs text-slate-600" title={ct.name}>{ct.code}</span> : <span className="text-slate-300">—</span>}
+                                </td>
+                                <td className="w-44 px-3 py-2">{p.blockSystem ? <span className="text-slate-700">{p.blockSystem}</span> : <span className="text-slate-300">—</span>}</td>
+                                <td className="w-32 px-3 py-2 tabular-nums text-slate-600">{p.startDate ?? <span className="text-slate-300">—</span>}</td>
+                                <td className="w-32 px-3 py-2 tabular-nums text-slate-600">{p.packagingDate ?? <span className="text-slate-300">—</span>}</td>
+                                <td className="w-36 px-3 py-2 text-right tabular-nums text-slate-600">{p.scale ?? <span className="text-slate-300">—</span>}</td>
+                                <td className="w-24 px-3 py-2">
+                                  <div className="flex justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
+                                    <button type="button" title="Sửa" onClick={() => {
+                                      setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "" },
+                                        submit: (v) => saveCatalogProject({ id: p.id, groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null, startDate: v.startDate || null, packagingDate: v.packagingDate || null }) });
+                                    }} className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                                      <Pencil className="size-4" />
+                                    </button>
+                                    <button type="button" title="Xóa" onClick={() => setConfirm({ name: p.name, blockMsg: p.taskCount > 0 ? `Hạng mục đang có ${p.taskCount} công việc.` : undefined, run: () => deleteProject(p.id) })}
+                                      className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500">
+                                      <Trash2 className="size-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   const projectsView = () => (
+    <>
+      {/* Toggle Bảng / Dự án */}
+      <div className="mb-3 flex items-center gap-2">
+        {(["table", "grouped"] as const).map(m => (
+          <button key={m} type="button" onClick={() => setProjectsViewMode(m)}
+            className={cn("rounded-md px-3 py-1.5 text-sm font-medium transition",
+              projectsViewMode === m ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200 hover:bg-slate-50"
+            )}>
+            {m === "table" ? "Bảng" : "Dự án"}
+          </button>
+        ))}
+      </div>
+      {projectsViewMode === "grouped" ? groupedProjectsView() :
     <FilterTable
       title="Dự án · Hạng mục"
       rows={generalProjects as unknown as Row[]}
@@ -444,13 +657,13 @@ export function CatalogClient({
       }}
       onEdit={(r) => {
         const p = r as unknown as ProjectRow;
-        setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "" },
-          submit: (v) => saveCatalogProject({ id: p.id, groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null }) });
+        setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "" },
+          submit: (v) => saveCatalogProject({ id: p.id, groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null, startDate: v.startDate || null, packagingDate: v.packagingDate || null }) });
       }}
       onDuplicate={(r) => {
         const p = r as unknown as ProjectRow;
-        setRecord({ title: "Nhân bản hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "" },
-          submit: (v) => saveCatalogProject({ groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null }) });
+        setRecord({ title: "Nhân bản hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "" },
+          submit: (v) => saveCatalogProject({ groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null, startDate: v.startDate || null, packagingDate: v.packagingDate || null }) });
       }}
       onDelete={(r) => {
         const p = r as unknown as ProjectRow;
@@ -463,13 +676,18 @@ export function CatalogClient({
         { key: "ct", label: "Loại hình", thClass: "w-52", filter: "multi",
           text: (r) => ctById.get((r.constructionTypeId as string) ?? "")?.name ?? "",
           cell: (r) => { const ct = ctById.get((r.constructionTypeId as string) ?? ""); return ct ? <span className="font-mono text-xs text-slate-600" title={ct.name}>{ct.code}</span> : <Dash />; } },
-        { key: "name", label: "Hạng mục", filter: "text", text: (r) => String(r.name ?? ""), cell: (r) => <strong className="font-medium text-slate-800">{String(r.name)}</strong> },
+        { key: "name", label: "Hạng mục", thClass: "w-72", filter: "text", text: (r) => String(r.name ?? ""), cell: (r) => <strong className="font-medium text-slate-800">{String(r.name)}</strong> },
         { key: "blockSystem", label: "Khối/Hệ thống", thClass: "w-44", filter: "text", text: (r) => String(r.blockSystem ?? ""),
           cell: (r) => r.blockSystem ? <span className="text-slate-700">{String(r.blockSystem)}</span> : <Dash /> },
+        { key: "startDate", label: "Bắt đầu", thClass: "w-32", filter: "text", text: (r) => String(r.startDate ?? ""),
+          cell: (r) => r.startDate ? <span className="tabular-nums text-slate-600">{String(r.startDate)}</span> : <Dash /> },
+        { key: "packagingDate", label: "Đóng gói", thClass: "w-32", filter: "text", text: (r) => String(r.packagingDate ?? ""),
+          cell: (r) => r.packagingDate ? <span className="tabular-nums text-slate-600">{String(r.packagingDate)}</span> : <Dash /> },
         { key: "scale", label: "Quy mô (m² sàn)", thClass: "w-44", align: "right", filter: "text", text: (r) => String(r.scale ?? ""),
           cell: (r) => r.scale ? <span className="font-medium tabular-nums text-slate-700">{String(r.scale)}</span> : <Dash /> },
       ]}
-    />
+    />}
+    </>
   );
 
   // ============== TAB bimtools — Phát triển BIM Tools (Level 2 Loại hình / Level 3 Hạng mục) ==============
@@ -721,8 +939,8 @@ export function CatalogClient({
   return (
     <div>
       {/* Header vùng */}
-      <div className="border-b border-slate-200">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="flex flex-wrap items-start justify-between gap-3 pb-2">
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">Khai báo thông tin</h1>
@@ -739,8 +957,9 @@ export function CatalogClient({
           </span>
         </div>
 
-        {/* Tab bar */}
-        <div className="-mb-px mt-4 flex gap-0.5 overflow-x-auto">
+        {/* Tab bar — sticky bên dưới app header */}
+        <div className="sticky top-14 z-30 -mx-4 border-b border-slate-200 bg-background px-4 lg:-mx-6 lg:px-6">
+        <div className="-mb-px mt-1 flex gap-0.5 overflow-x-auto">
           {TABS.map((t, i) => {
             const active = tab === t.id;
             return (
@@ -777,10 +996,11 @@ export function CatalogClient({
             );
           })}
         </div>
+        </div>{/* /sticky tab bar */}
       </div>
 
       {/* Panel nội dung */}
-      <div className="pt-6">
+      <div className="pt-4">
         <div>
           {tab === "groups" ? groupsView() : null}
           {tab === "projects" ? projectsView() : null}
@@ -1239,12 +1459,12 @@ function FilterTable({
 
   const colCount = columns.length + (onBatchReorder ? 2 : 1) + (selectable ? 1 : 0);
   const openCol = openFilter ? colByKey.get(openFilter.key) : null;
-  const hasStickyBulk = !!(selectable && bulkBar && selArr.length > 0);
-  const stickyHeadTop = hasStickyBulk ? "top-[52px]" : "top-0";
-  const stickyHeadClass = cn("sticky z-20 bg-slate-50 shadow-[0_1px_0_0_theme(colors.slate.200)]", stickyHeadTop);
+  const stickyHeadClass = "sticky top-0 z-20 bg-slate-50 shadow-[0_1px_0_0_theme(colors.slate.200)]";
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-card shadow-sm">
+    <div className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-card shadow-sm" style={{ maxHeight: "calc(100vh - 240px)", minHeight: 320 }}>
+      {/* Fixed header block (outside scroll area) */}
+      <div className="shrink-0 rounded-t-xl bg-card pb-2 shadow-[0_1px_0_0_theme(colors.slate.100)]">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3">
         <h2 className="text-[15px] font-semibold text-slate-800">{title}</h2>
@@ -1299,11 +1519,12 @@ function FilterTable({
 
       {/* Bulk action bar */}
       {selectable && bulkBar && selArr.length > 0 ? (
-        <div className="sticky top-0 z-30 bg-card px-4 pt-3">{bulkBar(selArr, clearSel)}</div>
+        <div className="bg-card px-4 pt-3">{bulkBar(selArr, clearSel)}</div>
       ) : null}
+      </div>{/* /sticky header block */}
 
       {/* Bảng */}
-      <div className="overflow-x-auto px-1.5 py-1.5">
+      <div className="min-h-0 flex-1 overflow-auto px-1.5 py-1.5">
         <table className="w-full border-collapse text-sm" style={minWidth ? { minWidth } : undefined}>
           <thead>
             <tr className="text-left text-xs font-semibold text-slate-400">
@@ -1589,7 +1810,7 @@ type Field = {
   required?: boolean;
   mono?: boolean;
   uppercase?: boolean;
-  type?: "text" | "number" | "select" | "combobox";
+  type?: "text" | "number" | "select" | "combobox" | "date";
   placeholder?: string;
   hint?: string;
   span?: 1 | 2 | 3;
@@ -1676,6 +1897,14 @@ function RecordModal({
                   autoFocus={f.autoFocus}
                   placeholder="Tìm..."
                   onChange={(label) => set(f.key, (f.options ?? []).find((o) => o.label === label)?.value ?? "")}
+                />
+              ) : f.type === "date" ? (
+                <input
+                  className={cn(inputCls, "tabular-nums")}
+                  type="date"
+                  value={values[f.key] ?? ""}
+                  autoFocus={f.autoFocus}
+                  onChange={(e) => set(f.key, e.target.value)}
                 />
               ) : (
                 <input

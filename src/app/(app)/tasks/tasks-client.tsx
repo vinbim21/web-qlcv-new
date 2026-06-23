@@ -75,6 +75,8 @@ export type TaskRow = {
   projectId: string | null;
   projectName: string | null;
   blockSystem: string | null;
+  projectStartDate: string | null;
+  projectPackagingDate: string | null;
   groupCode: string | null;
   groupName: string | null;
   loaiHinhCode: string | null;
@@ -1572,6 +1574,26 @@ export function TasksClient({
     return [mainRow];
   }
 
+  // Ngày Bắt đầu / Đóng gói từ project đầu tiên trong nhóm.
+  // Ngày Bắt đầu / Đóng gói — luôn hiện ở g3 (Hạng mục), kể cả khi có Khối/Hệ thống.
+  function projectDatesForGroup(groupTasks: TaskRow[], type: "g1" | "g2" | "g3" | "g4"): { startDate: string | null; packagingDate: string | null } | null {
+    if (type !== "g3") return null;
+    const t = groupTasks[0];
+    if (!t?.projectId) return null;
+    if (!t.projectStartDate && !t.projectPackagingDate) return null;
+    return { startDate: t.projectStartDate, packagingDate: t.projectPackagingDate };
+  }
+
+  // Pixel left của cột key (tính từ cạnh trái table, bao gồm sel col).
+  function taskColLeft(key: string): number {
+    let x = SEL_W;
+    for (const c of cols) {
+      if (c.key === key) return x;
+      x += c.w;
+    }
+    return x;
+  }
+
   // Dòng tiêu đề nhóm trong tree view (Dự án → Loại hình → Hạng mục → Khối/Hệ thống)
   function treeGroupRow(node: { type: "g1" | "g2" | "g3" | "g4"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
     const { type, key, label, count, overdue, tasks: groupTasks } = node;
@@ -1591,9 +1613,13 @@ export function TasksClient({
     const indent = type === "g1" ? 0 : type === "g2" ? duAnW : type === "g3" ? duAnW + loaiHinhW : duAnW + loaiHinhW + hangMucW;
     const allSel = groupTasks.length > 0 && groupTasks.every((t) => selected.has(t.id));
     const someSel = !allSel && groupTasks.some((t) => selected.has(t.id));
+    const projDates = projectDatesForGroup(groupTasks, type);
+    const batDauLeft = taskColLeft("batDau");
+    const ketThucLeft = taskColLeft("ketThuc");
+
     return (
       <tr key={`tree-${key}`} className={cn(bg, borderCls)}>
-        <td colSpan={colSpan} className="p-0">
+        <td colSpan={colSpan} className="relative p-0">
           <div className={cn("sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center gap-0 py-1.5", bg)}>
             {/* Checkbox: cùng width + padding với <td className="px-2"> của task row */}
             <div style={{ width: SEL_W }} className="flex shrink-0 items-center px-2">
@@ -1625,6 +1651,27 @@ export function TasksClient({
               </span>
             </button>
           </div>
+          {projDates && (
+            <>
+              {projDates.startDate && (
+                <span
+                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-medium text-slate-500"
+                  style={{ left: batDauLeft + 10 }}
+                >
+                  {fmtDate(projDates.startDate)}
+                </span>
+              )}
+              {projDates.packagingDate && (
+                <span
+                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-medium text-slate-500"
+                  style={{ left: ketThucLeft + 10 }}
+                  title="Đóng gói"
+                >
+                  {fmtDate(projDates.packagingDate)}
+                </span>
+              )}
+            </>
+          )}
         </td>
       </tr>
     );

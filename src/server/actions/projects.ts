@@ -120,6 +120,8 @@ export async function saveCatalogProject(input: {
   blockSystem?: string | null;
   constructionTypeId?: string | null;
   scale?: string | null;
+  startDate?: string | null;
+  packagingDate?: string | null;
 }) {
   return runAction(async () => {
     await requireRole("ADMIN");
@@ -128,6 +130,8 @@ export async function saveCatalogProject(input: {
     if (!name) throw new Error("Nhập tên hạng mục");
     const blockSystem = input.blockSystem?.trim() || null;
     const scale = input.scale?.trim() || null;
+    const startDate = toDate(input.startDate);
+    const packagingDate = toDate(input.packagingDate);
     const constructionTypeId = input.constructionTypeId || null;
 
     const group = await prisma.projectGroup.findUnique({
@@ -153,7 +157,12 @@ export async function saveCatalogProject(input: {
     if (input.id) {
       await prisma.project.update({
         where: { id: input.id },
-        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId },
+        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId, startDate, packagingDate },
+      });
+      // Đồng bộ ngày Bắt đầu/Đóng gói sang tất cả hạng mục cùng Dự án + cùng tên (khác Khối/Hệ thống)
+      await prisma.project.updateMany({
+        where: { groupId: input.groupId, name, id: { not: input.id }, deletedAt: null },
+        data: { startDate, packagingDate },
       });
       await prisma.task.updateMany({
         where: { projectId: input.id, deletedAt: null },
@@ -161,7 +170,7 @@ export async function saveCatalogProject(input: {
       });
     } else {
       await prisma.project.create({
-        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId },
+        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId, startDate, packagingDate },
       });
     }
     revalidatePath("/admin/catalog", "layout");

@@ -98,6 +98,8 @@ export type TaskRow = {
   projectId: string | null;
   projectName: string | null;
   blockSystem: string | null;
+  projectStartDate: string | null;
+  projectPackagingDate: string | null;
   groupCode: string | null; // mã Dự án (ProjectGroup.code)
   groupName: string | null;
   loaiHinhCode: string | null; // mã Loại hình công trình (constructionType)
@@ -1714,6 +1716,26 @@ export function ManageClient({
     );
   }
 
+  // Ngày Bắt đầu / Đóng gói từ project đầu tiên trong nhóm — luôn hiện ở g3 (Hạng mục).
+  function projectDatesForGroup(groupTasks: TaskRow[], type: "g1" | "g2" | "g3" | "g4"): { startDate: string | null; packagingDate: string | null } | null {
+    if (type !== "g3") return null;
+    const t = groupTasks[0];
+    if (!t?.projectId) return null;
+    if (!t.projectStartDate && !t.projectPackagingDate) return null;
+    return { startDate: t.projectStartDate, packagingDate: t.projectPackagingDate };
+  }
+
+  // Pixel left của cột key trong bảng (tính từ cạnh trái table, bao gồm cả sel col).
+  function colLeft(key: string): number {
+    const selW = canManage ? MANAGE_SEL_PX : 0;
+    let x = selW;
+    for (const c of cols) {
+      if (c.key === key) return x;
+      x += widthOf(c.key);
+    }
+    return x;
+  }
+
   // Dòng tiêu đề nhóm trong tree view Bảng (3 cấp với indent khác nhau).
   function treeGroupRow(node: { type: "g1" | "g2" | "g3" | "g4"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
     const { type, key, label, count, overdue, tasks: groupTasks } = node;
@@ -1723,6 +1745,7 @@ export function ManageClient({
   const parentProject: string = "";
   const parentLoaiHinh: string = "";
   const indent = type === "g1" ? 0 : type === "g2" ? widthOf("duAn") : type === "g3" ? widthOf("duAn") + widthOf("loaiHinh") : widthOf("duAn") + widthOf("loaiHinh") + widthOf("hangMuc");
+  const projDates = projectDatesForGroup(groupTasks, type);
     const textCls =
       type === "g1"
         ? "text-[13px] font-semibold text-slate-700"
@@ -1759,9 +1782,12 @@ export function ManageClient({
       return { groupKey: key, workGroupId, projectGroupCode: d === "—" ? "" : d, constructionTypeCode: l === "—" ? "" : l, hangMuc: h === "—" ? "" : h };
     }
 
+    const batDauLeft = colLeft("batDau");
+    const ketThucLeft = colLeft("ketThuc");
+
     return (
       <tr key={`tree-${key}`} className={cn(bg, borderCls)}>
-        <td colSpan={totalColsCount} className="p-0">
+        <td colSpan={totalColsCount} className="relative p-0">
           <div className={cn("sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center gap-2 px-2 py-1.5", bg)}>
             {/* Checkbox chọn tất cả trong nhóm */}
             {canManage ? (
@@ -1821,6 +1847,28 @@ export function ManageClient({
               </button>
             ) : null}
           </div>
+          {/* Ngày dự án — căn thẳng với cột Bắt đầu / Kết thúc */}
+          {projDates && (
+            <>
+              {projDates.startDate && (
+                <span
+                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-medium text-slate-500"
+                  style={{ left: batDauLeft + 10 }}
+                >
+                  {fmtDate(projDates.startDate)}
+                </span>
+              )}
+              {projDates.packagingDate && (
+                <span
+                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-medium text-slate-500"
+                  style={{ left: ketThucLeft + 10 }}
+                  title="Đóng gói"
+                >
+                  {fmtDate(projDates.packagingDate)}
+                </span>
+              )}
+            </>
+          )}
         </td>
       </tr>
     );
