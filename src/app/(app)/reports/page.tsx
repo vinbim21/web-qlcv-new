@@ -9,6 +9,16 @@ function iso(d: Date | null): string {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
+function normKey(v?: string | null): string {
+  return (v ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0111/g, "d")
+    .replace(/\u0110/g, "D")
+    .trim()
+    .toLowerCase();
+}
+
 export default async function ReportsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
@@ -73,11 +83,17 @@ export default async function ReportsPage() {
 
   const hoursByTask = new Map(hoursAgg.map((h) => [h.taskId as string, Number(h._sum.hours ?? 0)]));
   const catalogByWorkGroupAndValue = new Map<string, typeof catalogItems>();
+  const catalogByWorkGroupAndNormValue = new Map<string, typeof catalogItems>();
   for (const item of catalogItems) {
     const key = `${item.workGroupId}|${item.value}`;
     const list = catalogByWorkGroupAndValue.get(key);
     if (list) list.push(item);
     else catalogByWorkGroupAndValue.set(key, [item]);
+
+    const norm = `${item.workGroupId}|${normKey(item.value)}`;
+    const normList = catalogByWorkGroupAndNormValue.get(norm);
+    if (normList) normList.push(item);
+    else catalogByWorkGroupAndNormValue.set(norm, [item]);
   }
 
   const rows: TaskRow[] = tasks.map((t) => ({
@@ -107,8 +123,21 @@ export default async function ReportsPage() {
   for (const row of rows) {
     const task = taskById.get(row.id);
     if (!task || task.project) continue;
-    const catalogMatches = task.level3 ? (catalogByWorkGroupAndValue.get(`${task.workGroupId}|${task.level3}`) ?? []) : [];
-    const catalog = catalogMatches.find((c) => !task.level2 || c.parent?.value === task.level2) ?? catalogMatches[0] ?? null;
+    const exactMatches = task.level3 ? (catalogByWorkGroupAndValue.get(`${task.workGroupId}|${task.level3}`) ?? []) : [];
+    const normMatches = task.level3 ? (catalogByWorkGroupAndNormValue.get(`${task.workGroupId}|${normKey(task.level3)}`) ?? []) : [];
+    const seen = new Set<string>();
+    const catalogMatches = [...exactMatches, ...normMatches].filter((c) => {
+      const key = `${c.workGroupId}|${c.value}|${c.parent?.value ?? ""}|${c.projectGroup?.code ?? ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const catalog =
+      catalogMatches.find((c) => c.projectGroup && (!task.level2 || normKey(c.parent?.value) === normKey(task.level2))) ??
+      catalogMatches.find((c) => c.projectGroup) ??
+      catalogMatches.find((c) => !task.level2 || normKey(c.parent?.value) === normKey(task.level2)) ??
+      catalogMatches[0] ??
+      null;
     if (catalog?.projectGroup) row.duAn = catalog.projectGroup.code || catalog.projectGroup.name;
     if (!row.loaiHinh) row.loaiHinh = catalog?.parent?.value ?? task.level2 ?? "";
     if (!row.hangMuc) row.hangMuc = catalog?.value ?? task.level3 ?? "";
