@@ -53,8 +53,8 @@ export async function saveBimProject(input: {
     if (!name) throw new Error("Nhập tên dự án (Level 3)");
     const scale = input.scale?.trim() || null;
 
-    const dup = await prisma.project.findUnique({
-      where: { code_name: { code, name } },
+    const dup = await prisma.project.findFirst({
+      where: { code, name, deletedAt: null },
       select: { id: true },
     });
     if (dup && dup.id !== input.id) throw new Error(`Dự án "${code} — ${name}" đã tồn tại`);
@@ -117,6 +117,7 @@ export async function saveCatalogProject(input: {
   id?: string;
   groupId: string;
   name: string;
+  blockSystem?: string | null;
   constructionTypeId?: string | null;
   scale?: string | null;
 }) {
@@ -125,6 +126,7 @@ export async function saveCatalogProject(input: {
     const name = input.name.trim();
     if (!input.groupId) throw new Error("Chọn dự án");
     if (!name) throw new Error("Nhập tên hạng mục");
+    const blockSystem = input.blockSystem?.trim() || null;
     const scale = input.scale?.trim() || null;
     const constructionTypeId = input.constructionTypeId || null;
 
@@ -135,23 +137,35 @@ export async function saveCatalogProject(input: {
     if (!group) throw new Error("Dự án không tồn tại");
     const code = group.code;
 
-    const dup = await prisma.project.findUnique({
-      where: { code_name: { code, name } },
+    const dup = await prisma.project.findFirst({
+      where: {
+        code,
+        name,
+        constructionTypeId,
+        blockSystem,
+        deletedAt: null,
+        ...(input.id ? { NOT: { id: input.id } } : {}),
+      },
       select: { id: true },
     });
-    if (dup && dup.id !== input.id) throw new Error(`Hạng mục "${name}" đã tồn tại trong dự án này`);
+    if (dup) throw new Error(`Hạng mục "${name}" đã tồn tại với cùng Dự án, Loại hình và Khối/Hệ thống`);
 
     if (input.id) {
       await prisma.project.update({
         where: { id: input.id },
-        data: { groupId: input.groupId, code, name, scale, constructionTypeId },
+        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId },
+      });
+      await prisma.task.updateMany({
+        where: { projectId: input.id, deletedAt: null },
+        data: { level3: name },
       });
     } else {
       await prisma.project.create({
-        data: { groupId: input.groupId, code, name, scale, constructionTypeId },
+        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId },
       });
     }
     revalidatePath("/admin/catalog", "layout");
+    revalidatePath("/tasks");
     revalidatePath("/manage");
     revalidatePath("/assign");
   });
@@ -160,7 +174,7 @@ export async function saveCatalogProject(input: {
 export async function batchSaveCatalogProjects(input: {
   groupId: string;
   constructionTypeId: string | null;
-  items: { name: string; scale: string | null }[];
+  items: { name: string; blockSystem?: string | null; scale: string | null }[];
 }) {
   return runAction(async () => {
     await requireRole("ADMIN");
@@ -176,18 +190,25 @@ export async function batchSaveCatalogProjects(input: {
     const code = group.code;
     const constructionTypeId = input.constructionTypeId || null;
 
+    const seen = new Set<string>();
     for (const item of validItems) {
       const scale = item.scale?.trim() || null;
-      const dup = await prisma.project.findUnique({
-        where: { code_name: { code, name: item.name } },
+      const blockSystem = item.blockSystem?.trim() || null;
+      const duplicateKey = [code, constructionTypeId ?? "", item.name, blockSystem ?? ""].join("\u0000");
+      if (seen.has(duplicateKey)) throw new Error(`Hạng mục "${item.name}" bị trùng trong danh sách nhập`);
+      seen.add(duplicateKey);
+
+      const dup = await prisma.project.findFirst({
+        where: { code, name: item.name, constructionTypeId, blockSystem, deletedAt: null },
         select: { id: true },
       });
-      if (dup) throw new Error(`Hạng mục "${item.name}" đã tồn tại trong dự án này`);
+      if (dup) throw new Error(`Hạng mục "${item.name}" đã tồn tại với cùng Dự án, Loại hình và Khối/Hệ thống`);
       await prisma.project.create({
-        data: { groupId: input.groupId, code, name: item.name, scale, constructionTypeId },
+        data: { groupId: input.groupId, code, name: item.name, blockSystem, scale, constructionTypeId },
       });
     }
     revalidatePath("/admin/catalog", "layout");
+    revalidatePath("/tasks");
     revalidatePath("/manage");
     revalidatePath("/assign");
   });
@@ -201,6 +222,7 @@ export async function deleteProject(id: string) {
     await prisma.project.update({ where: { id }, data: { deletedAt: new Date() } });
     revalidatePath("/admin/projects");
     revalidatePath("/admin/catalog", "layout");
+    revalidatePath("/tasks");
     revalidatePath("/manage");
     revalidatePath("/assign");
   });
@@ -224,6 +246,7 @@ export async function createProjectGroupReturnId(input: {
       data: { code, name, order: 0, workGroupId: input.workGroupId ?? null },
     });
     revalidatePath("/admin/catalog", "layout");
+    revalidatePath("/tasks");
     revalidatePath("/manage");
     revalidatePath("/assign");
     return { id: created.id };
@@ -233,7 +256,7 @@ export async function createProjectGroupReturnId(input: {
 // Batch update Dự án / Loại hình / Hạng mục cho nhiều hạng mục (Tab Dự án)
 export async function batchUpdateCatalogProjects(
   ids: string[],
-  patch: { groupId?: string; constructionTypeId?: string | null; name?: string },
+  patch: { groupId?: string; constructionTypeId?: string | null; name?: string; blockSystem?: string | null },
 ) {
   return runAction(async () => {
     await requireRole("ADMIN");
@@ -253,9 +276,18 @@ export async function batchUpdateCatalogProjects(
       if (patch.groupId !== undefined) { data.groupId = patch.groupId; data.code = newCode; }
       if (patch.constructionTypeId !== undefined) data.constructionTypeId = patch.constructionTypeId || null;
       if (patch.name !== undefined && patch.name.trim()) data.name = patch.name.trim();
-      if (Object.keys(data).length) await prisma.project.update({ where: { id }, data });
+      if (patch.blockSystem !== undefined) data.blockSystem = patch.blockSystem?.trim() || null;
+      if (Object.keys(data).length) {
+        await prisma.project.update({ where: { id }, data });
+        const taskData: { level3?: string } = {};
+        if (patch.name !== undefined && patch.name.trim()) taskData.level3 = patch.name.trim();
+        if (Object.keys(taskData).length) {
+          await prisma.task.updateMany({ where: { projectId: id, deletedAt: null }, data: taskData });
+        }
+      }
     }
     revalidatePath("/admin/catalog", "layout");
+    revalidatePath("/tasks");
     revalidatePath("/manage");
     revalidatePath("/assign");
   });

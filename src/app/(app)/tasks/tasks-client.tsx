@@ -74,6 +74,7 @@ export type TaskRow = {
   workGroupName: string;
   projectId: string | null;
   projectName: string | null;
+  blockSystem: string | null;
   groupCode: string | null;
   groupName: string | null;
   loaiHinhCode: string | null;
@@ -161,6 +162,9 @@ function effOf(t: TaskRow): string {
 function duAnText(t: TaskRow): string {
   return t.groupCode ?? (t.projectName ?? "");
 }
+function blockSystemText(t: TaskRow): string {
+  return t.blockSystem?.trim() ?? "";
+}
 
 // ---------- pill mềm trạng thái (đồng bộ /manage) ----------
 const STATUS_SOFT: Record<string, { dot: string; pill: string }> = {
@@ -211,7 +215,7 @@ function colText(t: TaskRow, key: SortKey): string {
     case "loaiHinh":
       return t.loaiHinhCode ?? (t.projectId ? "" : (t.level2 ?? ""));
     case "hangMuc":
-      return t.level3 ?? "";
+      return t.projectName ?? t.level3 ?? "";
     case "congViec":
       return t.name;
     case "giaiDoan":
@@ -981,12 +985,12 @@ export function TasksClient({
     setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
   }
 
-  // ---- Tree grouping: Dự án → Loại hình → Hạng mục ----
+  // ---- Tree grouping: Dự án → Loại hình → Hạng mục → Khối/Hệ thống (nếu có) ----
   type TreeNode =
-    | { type: "g1" | "g2" | "g3"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }
+    | { type: "g1" | "g2" | "g3" | "g4"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }
     | { type: "task"; task: TaskRow };
 
-  // Mặc định: g1 (dự án) + g2 (loại hình) mở, chỉ thu g3 (hạng mục)
+  // Mặc định: g1 (dự án) + g2 (loại hình) mở, thu g3 (hạng mục) và g4 (khối/hệ thống nếu có)
   const effectiveTreeCollapsed = React.useMemo(() => {
     if (treeCollapsed) return treeCollapsed;
     const keys = new Set<string>();
@@ -994,7 +998,9 @@ export function TasksClient({
       const dk = colText(t, "duAn") || "—";
       const lk = colText(t, "loaiHinh") || "—";
       const hk = colText(t, "hangMuc") || "—";
+      const bk = blockSystemText(t);
       keys.add(`h:${dk}|${lk}|${hk}`);
+      if (bk) keys.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
     return keys;
   }, [treeCollapsed, sorted]);
@@ -1028,7 +1034,20 @@ export function TasksClient({
           const d3 = `h:${dk}|${lk}|${hk}`;
           nodes.push({ type: "g3", key: d3, label: hk, count: hTasks.length, overdue: hTasks.filter(isOverdue).length, tasks: hTasks });
           if (effectiveTreeCollapsed.has(d3)) continue;
-          for (const t of hTasks) nodes.push({ type: "task", task: t });
+          const withBlock = hTasks.filter((t) => blockSystemText(t));
+          const withoutBlock = hTasks.filter((t) => !blockSystemText(t));
+          const byBlock = new Map<string, TaskRow[]>();
+          for (const t of withBlock) {
+            const k = blockSystemText(t);
+            (byBlock.get(k) ?? (byBlock.set(k, []), byBlock.get(k)!)).push(t);
+          }
+          for (const [bk, bTasks] of byBlock) {
+            const d4 = `b:${dk}|${lk}|${hk}|${bk}`;
+            nodes.push({ type: "g4", key: d4, label: bk, count: bTasks.length, overdue: bTasks.filter(isOverdue).length, tasks: bTasks });
+            if (effectiveTreeCollapsed.has(d4)) continue;
+            for (const t of bTasks) nodes.push({ type: "task", task: t });
+          }
+          for (const t of withoutBlock) nodes.push({ type: "task", task: t });
         }
       }
     }
@@ -1036,32 +1055,36 @@ export function TasksClient({
   }, [sorted, effectiveTreeCollapsed]);
 
   const allTreeKeys = React.useMemo(() => {
-    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>();
+    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>(), b = new Set<string>();
     for (const t of sorted) {
       const dk = colText(t, "duAn") || "—";
       const lk = colText(t, "loaiHinh") || "—";
       const hk = colText(t, "hangMuc") || "—";
+      const bk = blockSystemText(t);
       d.add(`d:${dk}`);
       l.add(`l:${dk}|${lk}`);
       h.add(`h:${dk}|${lk}|${hk}`);
+      if (bk) b.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
-    return { d: [...d], l: [...l], h: [...h] };
+    return { d: [...d], l: [...l], h: [...h], b: [...b] };
   }, [sorted]);
 
   // Khi có checkbox được chọn: chỉ tác động lên các nhóm chứa task đó.
   const selectedGroupKeys = React.useMemo(() => {
     if (selected.size === 0) return null;
-    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>();
+    const d = new Set<string>(), l = new Set<string>(), h = new Set<string>(), b = new Set<string>();
     for (const t of sorted) {
       if (!selected.has(t.id)) continue;
       const dk = colText(t, "duAn") || "—";
       const lk = colText(t, "loaiHinh") || "—";
       const hk = colText(t, "hangMuc") || "—";
+      const bk = blockSystemText(t);
       d.add(`d:${dk}`);
       l.add(`l:${dk}|${lk}`);
       h.add(`h:${dk}|${lk}|${hk}`);
+      if (bk) b.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
-    return { d: [...d], l: [...l], h: [...h] };
+    return { d: [...d], l: [...l], h: [...h], b: [...b] };
   }, [selected, sorted]);
 
   function toggleTreeNode(key: string) {
@@ -1073,7 +1096,7 @@ export function TasksClient({
     });
   }
 
-  // Expand từng cấp: d → l → h (chỉ nhóm có selection nếu đang chọn)
+  // Expand từng cấp: d → l → h → b (chỉ nhóm có selection nếu đang chọn)
   function expandOneLevel() {
     const keys = selectedGroupKeys ?? allTreeKeys;
     setTreeCollapsed((prev) => {
@@ -1082,19 +1105,23 @@ export function TasksClient({
         keys.d.forEach((k) => n.delete(k));
       } else if (keys.l.some((k) => n.has(k))) {
         keys.l.forEach((k) => n.delete(k));
-      } else {
+      } else if (keys.h.some((k) => n.has(k))) {
         keys.h.forEach((k) => n.delete(k));
+      } else {
+        keys.b.forEach((k) => n.delete(k));
       }
       return n;
     });
   }
 
-  // Collapse từng cấp: h → l → d (chỉ nhóm có selection nếu đang chọn)
+  // Collapse từng cấp: b → h → l → d (chỉ nhóm có selection nếu đang chọn)
   function collapseOneLevel() {
     const keys = selectedGroupKeys ?? allTreeKeys;
     setTreeCollapsed((prev) => {
       const n = new Set(prev ?? effectiveTreeCollapsed);
-      if (keys.h.some((k) => !n.has(k))) {
+      if (keys.b.some((k) => !n.has(k))) {
+        keys.b.forEach((k) => n.add(k));
+      } else if (keys.h.some((k) => !n.has(k))) {
         keys.h.forEach((k) => n.add(k));
       } else if (keys.l.some((k) => !n.has(k))) {
         keys.l.forEach((k) => n.add(k));
@@ -1545,8 +1572,8 @@ export function TasksClient({
     return [mainRow];
   }
 
-  // Dòng tiêu đề nhóm trong tree view (3 cấp, indent khác nhau)
-  function treeGroupRow(node: { type: "g1" | "g2" | "g3"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
+  // Dòng tiêu đề nhóm trong tree view (Dự án → Loại hình → Hạng mục → Khối/Hệ thống)
+  function treeGroupRow(node: { type: "g1" | "g2" | "g3" | "g4"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
     const { type, key, label, count, overdue, tasks: groupTasks } = node;
     const isCollapsed = effectiveTreeCollapsed.has(key);
     const Chevron = isCollapsed ? ChevronRight : ChevronDown;
@@ -1560,7 +1587,8 @@ export function TasksClient({
     const borderCls = type === "g1" ? "border-t border-slate-200" : type === "g2" ? "border-t border-slate-200" : "border-t border-slate-100";
     const duAnW = cols.find((c) => c.key === "duAn")!.w;
     const loaiHinhW = cols.find((c) => c.key === "loaiHinh")!.w;
-    const indent = type === "g1" ? 0 : type === "g2" ? duAnW : duAnW + loaiHinhW;
+    const hangMucW = cols.find((c) => c.key === "hangMuc")!.w;
+    const indent = type === "g1" ? 0 : type === "g2" ? duAnW : type === "g3" ? duAnW + loaiHinhW : duAnW + loaiHinhW + hangMucW;
     const allSel = groupTasks.length > 0 && groupTasks.every((t) => selected.has(t.id));
     const someSel = !allSel && groupTasks.some((t) => selected.has(t.id));
     return (

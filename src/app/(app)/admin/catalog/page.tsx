@@ -63,6 +63,7 @@ export default async function CatalogPage() {
         groupId: p.groupId,
         code: p.code,
         name: p.name,
+        blockSystem: p.blockSystem,
         scale: p.scale,
         constructionTypeId: p.constructionTypeId,
         taskCount: p._count.tasks,

@@ -53,6 +53,7 @@ export async function getTaskLookups() {
       name: p.name,
       code: p.code,
       l3: p.name,
+      blockSystem: p.blockSystem ?? "",
       groupId: p.group?.id ?? "",
       groupCode: p.group?.code ?? "",
       groupName: p.group?.name ?? "",

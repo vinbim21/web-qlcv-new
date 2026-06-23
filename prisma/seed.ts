@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, TaskStatus, TaskPriority, ProjectStatus } from "@prisma/client";
+import { Prisma, PrismaClient, UserRole, TaskStatus, TaskPriority, ProjectStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -183,7 +183,24 @@ async function main() {
   });
 
   // -- Project (Hạng mục) --
-  const proj1 = await prisma.project.upsert({
+  async function upsertSeedProject(args: {
+    where: { code_name: { code: string; name: string } };
+    update: Prisma.ProjectUncheckedUpdateInput;
+    create: Prisma.ProjectUncheckedCreateInput;
+  }) {
+    const existing = await prisma.project.findFirst({
+      where: {
+        code: args.where.code_name.code,
+        name: args.where.code_name.name,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existing) return prisma.project.update({ where: { id: existing.id }, data: args.update });
+    return prisma.project.create({ data: args.create });
+  }
+
+  const proj1 = await upsertSeedProject({
     where: { code_name: { code: "VH.SAPPHIRE.01", name: "Tòa S1 – Chung cư cao tầng" } },
     update: {},
     create: {
@@ -196,7 +213,7 @@ async function main() {
       endDate: new Date("2026-12-31"),
     },
   });
-  const proj2 = await prisma.project.upsert({
+  const proj2 = await upsertSeedProject({
     where: { code_name: { code: "VH.SAPPHIRE.01", name: "Tòa S2 – Biệt thự liền kề" } },
     update: {},
     create: {
@@ -209,7 +226,7 @@ async function main() {
       endDate: new Date("2026-06-30"),
     },
   });
-  const proj3 = await prisma.project.upsert({
+  const proj3 = await upsertSeedProject({
     where: { code_name: { code: "VH.OCEAN.02", name: "Khu đô thị Ocean Park 3 – Hạ tầng" } },
     update: {},
     create: {
@@ -222,7 +239,7 @@ async function main() {
       endDate: new Date("2026-09-30"),
     },
   });
-  const proj4 = await prisma.project.upsert({
+  const proj4 = await upsertSeedProject({
     where: { code_name: { code: "VH.SMASTER.03", name: "Vincom Smart City – TTTM" } },
     update: {},
     create: {
@@ -235,7 +252,7 @@ async function main() {
       endDate: new Date("2027-12-31"),
     },
   });
-  const proj5 = await prisma.project.upsert({
+  const proj5 = await upsertSeedProject({
     where: { code_name: { code: "VH.SMASTER.03", name: "Vincom Smart City – Nhà máy điện" } },
     update: {},
     create: {
