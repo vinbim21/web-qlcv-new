@@ -83,6 +83,10 @@ export default async function TasksPage() {
         startApproved: !!t.startApprovedAt,
         pendingPlannedEnd: iso(t.pendingPlannedEnd),
         endChangeRequesterId: t.endChangeRequesterId ?? null,
+        endChangeNote: t.endChangeNote ?? null,
+        deleteRequestedAt: t.deleteRequestedAt ? t.deleteRequestedAt.toISOString() : null,
+        deleteRequesterId: t.deleteRequesterId ?? null,
+        deleteRequestNote: t.deleteRequestNote ?? null,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
       }))}

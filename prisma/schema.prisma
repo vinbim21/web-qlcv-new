@@ -47,6 +47,7 @@ enum NotificationType {
   TASK_DEADLINE_SOON // Sắp đến hạn (sinh lười khi đọc)
   TASK_APPROVAL_REQUESTED // Có việc (NV tự tạo) chờ bạn duyệt
   TASK_DEADLINE_CHANGE_REQUESTED // NV đề xuất dời hạn, chờ quản lý duyệt
+  TASK_DELETE_REQUESTED // NV đề xuất xóa việc, chờ quản lý duyệt
 }
 
 // ---------- Danh mục (lookup) ----------
@@ -194,6 +195,7 @@ model User {
   approvedTasks        Task[]  @relation("TaskApprover")
   tasksToApprove       Task[]  @relation("TaskStartApprover")
   endChangeRequests    Task[]  @relation("TaskEndChangeRequester")
+  deleteRequests       Task[]  @relation("TaskDeleteRequester")
   timeSheets    TimeSheetEntry[]
   notifications Notification[]   @relation("NotifRecipient")
 
@@ -247,6 +249,12 @@ model Task {
   // Yêu cầu đổi ngày kết thúc (do người được giao gửi, cần quản lý duyệt).
   pendingPlannedEnd    DateTime?
   endChangeRequesterId String?   @db.VarChar(30)
+  endChangeNote        String?   // Lý do đề xuất dời hạn
+
+  // Yêu cầu xóa việc (đã được duyệt khởi tạo, cần quản lý duyệt xóa).
+  deleteRequestedAt    DateTime?
+  deleteRequesterId    String?   @db.VarChar(30)
+  deleteRequestNote    String?   // Lý do đề xuất xóa
 
   order     Int       @default(0)
   createdAt DateTime  @default(now())
@@ -262,6 +270,7 @@ model Task {
   approvedBy           User?  @relation("TaskApprover", fields: [approvedById], references: [id])
   approver             User?  @relation("TaskStartApprover", fields: [approverId], references: [id])
   endChangeRequester   User?  @relation("TaskEndChangeRequester", fields: [endChangeRequesterId], references: [id])
+  deleteRequester      User?  @relation("TaskDeleteRequester", fields: [deleteRequesterId], references: [id])
   assignees     TaskAssignee[]
   timeSheets    TimeSheetEntry[]
   notifications Notification[]
