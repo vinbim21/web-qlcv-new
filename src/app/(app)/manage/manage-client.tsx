@@ -75,6 +75,7 @@ import {
   setTaskStartApproval,
   updateTaskStatus,
 } from "@/server/actions/tasks";
+import { saveCatalogProject } from "@/server/actions/projects";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 
 
@@ -446,6 +447,7 @@ export function ManageClient({
   canManage,
   canAssign,
   tasks,
+  constructionTypes,
   workGroups,
   disciplines,
   phases,
@@ -460,6 +462,7 @@ export function ManageClient({
   canAssign: boolean;
   isAdmin: boolean;
   tasks: TaskRow[];
+  constructionTypes: { id: string; code: string; name: string }[];
   workGroups: WgOpt[];
   disciplines: DisciplineOpt[];
   phases: Opt[];
@@ -535,6 +538,36 @@ export function ManageClient({
     constructionTypeCode: string;
     hangMuc: string;
   } | null>(null);
+  // Dialog thêm Hạng mục từ cấp Dự án (g1) hoặc Loại hình (g2)
+  const [addHangMucCtx, setAddHangMucCtx] = React.useState<{
+    groupId: string;
+    groupCode: string;
+    constructionTypeId: string | null;
+    constructionTypeCode: string | null;
+    lockCt: boolean; // true = CT cố định (g2), false = CT chọn từ dropdown (g1)
+  } | null>(null);
+  const [addHmName, setAddHmName] = React.useState("");
+  const [addHmCtId, setAddHmCtId] = React.useState("");
+  const [addHmSaving, setAddHmSaving] = React.useState(false);
+
+  async function submitAddHangMuc() {
+    if (!addHangMucCtx || !addHmName.trim()) return;
+    if (!addHangMucCtx.groupId) { toast.error("Không tìm thấy ID dự án"); return; }
+    setAddHmSaving(true);
+    const res = await saveCatalogProject({
+      groupId: addHangMucCtx.groupId,
+      name: addHmName.trim(),
+      constructionTypeId: addHangMucCtx.lockCt ? addHangMucCtx.constructionTypeId : (addHmCtId || null),
+    });
+    setAddHmSaving(false);
+    if (res.ok) {
+      toast.success("Đã thêm hạng mục — đồng bộ Khai báo thông tin");
+      setAddHangMucCtx(null);
+      router.refresh();
+    } else {
+      toast.error(res.error);
+    }
+  }
   const [dragCol, setDragCol] = React.useState<string | null>(null);
   const [expandedCols, setExpandedCols] = React.useState<Set<string>>(() => new Set());
 
@@ -839,39 +872,85 @@ export function ManageClient({
       keys.add(`h:${dk}|${lk}|${hk}`);
       if (bk) keys.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
+    // Collapse g3 groups from catalog (kể cả nhóm chưa có task)
+    for (const p of projects) {
+      if (activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg) continue;
+      const dk = p.groupCode || "—";
+      const lk = p.constructionTypeCode || "—";
+      const hk = p.name || "—";
+      keys.add(`h:${dk}|${lk}|${hk}`);
+    }
     return keys;
-  }, [treeCollapsed, sorted]);
+  }, [treeCollapsed, sorted, projects, activeWg]);
+
+  // Catalog seed: group → loaiHinh → [hạng mục] (từ projects prop, đã gồm tất cả hạng mục kể cả chưa có task)
+  // Chỉ lấy projects thuộc activeWg (workGroupId của ProjectGroup = null → chung, hoặc = activeWg)
+  const catalogSeed = React.useMemo(() => {
+    // g1: Map<dk, Map<lk, Set<hk>>> — thứ tự catalog
+    const seed = new Map<string, Map<string, Set<string>>>();
+    for (const p of projects) {
+      if (activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg) continue;
+      const dk = p.groupCode || "—";
+      const lk = p.constructionTypeCode || "—";
+      const hk = p.name || "—";
+      if (!seed.has(dk)) seed.set(dk, new Map());
+      const byLoai = seed.get(dk)!;
+      if (!byLoai.has(lk)) byLoai.set(lk, new Set());
+      byLoai.get(lk)!.add(hk);
+    }
+    return seed;
+  }, [projects, activeWg]);
 
   const treeNodes = React.useMemo((): TreeNode[] => {
     const nodes: TreeNode[] = [];
     const ins = insertCtx; // capture để dùng trong closure
+
+    // Pre-seed byDuAn từ catalog (giữ thứ tự catalog, task sẽ điền vào sau)
     const byDuAn = new Map<string, TaskRow[]>();
+    for (const dk of catalogSeed.keys()) {
+      byDuAn.set(dk, []);
+    }
     for (const t of sorted) {
       const k = colText(t, "duAn") || "—";
       (byDuAn.get(k) ?? (byDuAn.set(k, []), byDuAn.get(k)!)).push(t);
     }
+
     for (const [dk, dTasks] of byDuAn) {
       const d1 = `d:${dk}`;
-      nodes.push({ type: "g1", key: d1, label: dk, count: dTasks.length, overdue: dTasks.filter(isOverdue).length, tasks: dTasks });
-      if (ins?.groupKey === d1) nodes.push({ type: "insert", ctx: ins });
-      if (effectiveTreeCollapsed.has(d1)) continue;
 
+      // Build byLoai trước để biết số lượng loại hình (dùng làm count cho g1)
+      const catalogLoai = catalogSeed.get(dk);
       const byLoai = new Map<string, TaskRow[]>();
+      if (catalogLoai) {
+        for (const lk of catalogLoai.keys()) byLoai.set(lk, []);
+      }
       for (const t of dTasks) {
         const k = colText(t, "loaiHinh") || "—";
         (byLoai.get(k) ?? (byLoai.set(k, []), byLoai.get(k)!)).push(t);
       }
+
+      nodes.push({ type: "g1", key: d1, label: dk, count: byLoai.size, overdue: dTasks.filter(isOverdue).length, tasks: dTasks });
+      if (ins?.groupKey === d1) nodes.push({ type: "insert", ctx: ins });
+      if (effectiveTreeCollapsed.has(d1)) continue;
+
       for (const [lk, lTasks] of byLoai) {
         const d2 = `l:${dk}|${lk}`;
-        nodes.push({ type: "g2", key: d2, label: lk, count: lTasks.length, overdue: lTasks.filter(isOverdue).length, tasks: lTasks });
-        if (ins?.groupKey === d2) nodes.push({ type: "insert", ctx: ins });
-        if (effectiveTreeCollapsed.has(d2)) continue;
 
+        // Build byHang trước để biết số lượng hạng mục (dùng làm count cho g2)
+        const catalogHang = catalogLoai?.get(lk);
         const byHang = new Map<string, TaskRow[]>();
+        if (catalogHang) {
+          for (const hk of catalogHang) byHang.set(hk, []);
+        }
         for (const t of lTasks) {
           const k = colText(t, "hangMuc") || "—";
           (byHang.get(k) ?? (byHang.set(k, []), byHang.get(k)!)).push(t);
         }
+
+        nodes.push({ type: "g2", key: d2, label: lk, count: byHang.size, overdue: lTasks.filter(isOverdue).length, tasks: lTasks });
+        if (ins?.groupKey === d2) nodes.push({ type: "insert", ctx: ins });
+        if (effectiveTreeCollapsed.has(d2)) continue;
+
         for (const [hk, hTasks] of byHang) {
           const d3 = `h:${dk}|${lk}|${hk}`;
           nodes.push({ type: "g3", key: d3, label: hk, count: hTasks.length, overdue: hTasks.filter(isOverdue).length, tasks: hTasks });
@@ -896,7 +975,7 @@ export function ManageClient({
       }
     }
     return nodes;
-  }, [sorted, effectiveTreeCollapsed, insertCtx]);
+  }, [sorted, effectiveTreeCollapsed, insertCtx, catalogSeed]);
 
   // Tất cả keys theo từng cấp (dùng cho expand/collapse từng cấp).
   const allTreeKeys = React.useMemo(() => {
@@ -1879,15 +1958,67 @@ export function ManageClient({
               <Chevron className="size-3.5 shrink-0 text-slate-400" />
               <span className="whitespace-nowrap">{label}</span>
               <span className="whitespace-nowrap font-normal text-slate-400 text-xs">
-                ({count} việc{overdue ? ` · ${overdue} quá hạn` : ""})
+                {type === "g1"
+                  ? `(${count} loại hình)`
+                  : type === "g2"
+                    ? `(${count} hạng mục)`
+                    : `(${count} việc)`}
               </span>
             </button>
-            {/* Nút insert dòng mới */}
+            {/* Nút thêm tùy cấp */}
             {canManage && type === "g3" ? (
               <button
                 type="button"
-                title="Thêm công việc vào nhóm này"
+                title="Thêm công việc vào hạng mục này"
                 onClick={() => setInsertCtx(parseInsertCtx())}
+                className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+              >
+                <Plus className="size-3.5" />
+              </button>
+            ) : canManage && type === "g2" ? (
+              <button
+                type="button"
+                title="Thêm hạng mục vào loại hình này"
+                onClick={() => {
+                  const content = key.slice(2);
+                  const i1 = content.indexOf("|");
+                  const dk = content.slice(0, i1);
+                  const lk = content.slice(i1 + 1);
+                  const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
+                  const ctProj = projects.find(
+                    (p) => p.groupCode === (dk === "—" ? "" : dk) && p.constructionTypeCode === (lk === "—" ? "" : lk),
+                  );
+                  setAddHangMucCtx({
+                    groupId: proj?.groupId ?? "",
+                    groupCode: dk === "—" ? "" : dk,
+                    constructionTypeId: ctProj?.constructionTypeId || null,
+                    constructionTypeCode: lk === "—" ? null : lk,
+                    lockCt: true,
+                  });
+                  setAddHmName("");
+                  setAddHmCtId(ctProj?.constructionTypeId ?? "");
+                }}
+                className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+              >
+                <Plus className="size-3.5" />
+              </button>
+            ) : canManage && type === "g1" ? (
+              <button
+                type="button"
+                title="Thêm hạng mục vào dự án này"
+                onClick={() => {
+                  const dk = key.slice(2);
+                  const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
+                  setAddHangMucCtx({
+                    groupId: proj?.groupId ?? "",
+                    groupCode: dk === "—" ? "" : dk,
+                    constructionTypeId: null,
+                    constructionTypeCode: null,
+                    lockCt: false,
+                  });
+                  setAddHmName("");
+                  setAddHmCtId("");
+                }}
                 className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
               >
                 <Plus className="size-3.5" />
@@ -2439,6 +2570,68 @@ export function ManageClient({
             <X className="size-4" />
           </Button>
         </div>
+      ) : null}
+
+      {/* Dialog thêm Hạng mục (từ nút + ở cấp Dự án hoặc Loại hình trong tree view) */}
+      {addHangMucCtx ? (
+        <Modal
+          open
+          onClose={() => setAddHangMucCtx(null)}
+          title={`Thêm hạng mục — ${addHangMucCtx.groupCode || "Dự án"}`}
+          className="max-w-sm"
+        >
+          <div className="space-y-4">
+            {addHangMucCtx.lockCt ? (
+              <div>
+                <p className="mb-1 text-xs font-medium text-slate-500">Loại hình</p>
+                <p className="text-sm text-slate-700">{addHangMucCtx.constructionTypeCode || "— Không phân loại —"}</p>
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="add-hm-ct" className="mb-1 block text-xs font-medium text-slate-500">
+                  Loại hình
+                </label>
+                <Select
+                  id="add-hm-ct"
+                  value={addHmCtId}
+                  onChange={(e) => setAddHmCtId(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="">— Không phân loại —</option>
+                  {constructionTypes.map((ct) => (
+                    <option key={ct.id} value={ct.id}>
+                      {ct.code} — {ct.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
+            <div>
+              <label htmlFor="add-hm-name" className="mb-1 block text-xs font-medium text-slate-500">
+                Tên hạng mục *
+              </label>
+              <Input
+                id="add-hm-name"
+                autoFocus
+                value={addHmName}
+                onChange={(e) => setAddHmName(e.target.value)}
+                placeholder="Nhập tên hạng mục..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void submitAddHangMuc();
+                  if (e.key === "Escape") setAddHangMucCtx(null);
+                }}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setAddHangMucCtx(null)}>
+                Hủy
+              </Button>
+              <Button onClick={() => void submitAddHangMuc()} disabled={!addHmName.trim() || addHmSaving}>
+                {addHmSaving ? "Đang lưu..." : "Thêm hạng mục"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       ) : null}
 
       {/* Modal giao lại người hàng loạt */}

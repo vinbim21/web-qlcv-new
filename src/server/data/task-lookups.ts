@@ -57,6 +57,7 @@ export async function getTaskLookups() {
       groupId: p.group?.id ?? "",
       groupCode: p.group?.code ?? "",
       groupName: p.group?.name ?? "",
+      groupWorkGroupId: p.group?.workGroupId ?? null,
       constructionTypeId: p.constructionTypeId ?? "",
       constructionTypeCode: p.constructionType?.code ?? "",
       startDate: p.startDate ? p.startDate.toISOString().slice(0, 10) : "",

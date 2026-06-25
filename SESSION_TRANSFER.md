@@ -1,4 +1,4 @@
-# SESSION_TRANSFER.md — Bàn giao Session 2026-06-23
+# SESSION_TRANSFER.md — Bàn giao Session 2026-06-25
 
 > Đọc file này cuối cùng. Mô tả trạng thái hiện tại và việc cần làm tiếp theo.
 
@@ -8,42 +8,71 @@
 
 - **Server:** Đang chạy tại http://localhost:3000 (production build)
 - **Git branch:** `vunt38`
-- **Uncommitted changes:** Không (đã commit hết)
-- **DB:** Local Docker, schema đã push (có tất cả fields mới của session này)
+- **Uncommitted changes:** Có (session 2026-06-25 — chưa commit)
+- **DB:** Local Docker, schema không đổi
 
 ---
 
-## Commits trong session 2026-06-23
+## Thay đổi trong session 2026-06-25
 
-### Commit `a40ac3b`
-`feat: packagingDate hạng mục, grouped project view, sticky header, result-cell popup`
+### `/manage` — Tab "Dự án" (tree view)
 
-### Commit `a60b475`
-`feat: bulk Đổi Bắt đầu/Đóng gói + Nhân bản hạng mục`
+**File thay đổi:**
+- `src/app/(app)/manage/page.tsx`
+- `src/app/(app)/manage/manage-client.tsx`
 
-### Commit mới nhất (session này)
-`feat: xóa task với luồng duyệt, filter chờ xóa, date format, duyệt xóa bulk`
-- Schema: `deleteRequestedAt`, `deleteRequesterId`, `deleteRequestNote`, `endChangeNote`, `TASK_DELETE_REQUESTED`
-- `tasks.ts`: `deleteTask`, `requestDeleteTask`, `approveDeleteTask`, `rejectDeleteTask`, `requestEndDateChange` (+ note)
-- `/tasks`: bar Xóa, Dialog xóa/đề xuất, badge Clock chờ duyệt xóa, tên người duyệt trong dialog
-- `/manage`: badge xin xóa trong dòng, bulk "Duyệt xóa" trong bar, filter CHUA_GIAO + kpiBase + period bypass cho deleteRequestedAt, date format dd/mm/yyyy
+**Nội dung:**
+
+1. **Thống kê mới trong group row:**
+   - g1 (Dự án): hiện `(N loại hình · M quá hạn)` thay vì `(N việc)`
+   - g2 (Loại hình): hiện `(N hạng mục · M quá hạn)` thay vì `(N việc)`
+   - g3 (Hạng mục): giữ nguyên `(N việc · M quá hạn)`
+
+2. **Nút "+" thêm Hạng mục từ tree:**
+   - g1 (Dự án): "+" → dialog chọn Loại hình + nhập tên Hạng mục → `saveCatalogProject`
+   - g2 (Loại hình): "+" → dialog nhập tên Hạng mục (Loại hình cố định) → `saveCatalogProject`
+   - g3 (Hạng mục): "+" thêm công việc (như cũ)
+   - Tạo xong tự đồng bộ Khai báo thông tin (dùng chung `revalidatePath`)
+
+3. **Props mới cho ManageClient:**
+   - `constructionTypes: { id, code, name }[]` — dùng trong dropdown dialog
+
+4. **Import mới:** `saveCatalogProject` từ `@/server/actions/projects`
 
 ---
 
-## Việc cần làm tiếp theo
+## Thay đổi trong session 2026-06-25 (tiếp theo)
 
-### Ngắn hạn
-1. **Test kỹ** luồng xóa task:
-   - User xóa task chưa duyệt → xóa ngay
-   - User xóa task đã duyệt → dialog hiện tên người duyệt → gửi đề xuất → manager thấy badge trong dòng + nút ✓/✗
-   - Manager chọn nhiều task chờ xóa → bulk "Duyệt xóa" trong bar
-   - Filter "Chưa giao/Chưa duyệt" bắt được task chờ xóa dù ngoài period
-2. **Test thông báo sắp đến hạn**: tạo task với `plannedEnd` = ngày mai → đăng nhập assignee → chờ 45s → kiểm tra chuông
+### Thống kê group row đơn giản
+- g1: `(N loại hình)` — bỏ "· N quá hạn"
+- g2: `(N hạng mục)` — bỏ "· N quá hạn"
+- g3: `(N việc)` — bỏ "· N quá hạn"
 
-### Dài hạn
-3. Fix "Cad" & "CAD" trùng trong CatalogItem PT Level 2
-4. Deploy Supabase + Vercel
-5. Import "Xuất IFC" vào CatalogItem PT
+### Hiển thị group kể cả 0 việc
+- Thêm `groupWorkGroupId: string | null` vào `ProjectOpt` (assign-client.tsx) và `task-lookups.ts`
+- `catalogSeed` useMemo trong manage-client: build từ `projects` prop (đã có tất cả hạng mục), lọc theo `activeWg`
+  - `activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg` → skip
+  - null groupWorkGroupId = shared → luôn show
+- Pre-seed `byDuAn`, `byLoai`, `byHang` trước khi fill task → g1/g2/g3 với 0 task vẫn xuất hiện
+- `effectiveTreeCollapsed` cũng collapse g3 từ catalog (hạng mục 0 việc luôn collapsed ban đầu)
+
+---
+
+### Xóa hạng mục kể cả có công việc (Khai báo thông tin)
+
+**Vấn đề cũ:** `deleteProject` server action throw error khi hạng mục còn task → client hiện `blockMsg` (chỉ có nút "Đóng"), không thể xóa.
+
+**Fix:**
+- `src/server/actions/projects.ts` → `deleteProject`: bỏ check taskCount, thay bằng `prisma.task.updateMany({ data: { projectId: null } })` trước khi soft-delete project. Task vẫn tồn tại, chỉ mất liên kết dự án.
+- `src/app/(app)/admin/catalog/catalog-client.tsx`: đổi `blockMsg` → `warnMsg` ở 4 chỗ xóa hạng mục (2 chỗ single delete, 2 chỗ bulk delete). Bây giờ dialog hiển thị cảnh báo "X công việc sẽ mất liên kết dự án" nhưng vẫn có nút Xóa.
+
+---
+
+## Việc cần làm tiếp theo (ưu tiên)
+
+1. **Cũ còn:** Fix "Cad" & "CAD" trùng trong CatalogItem PT Level 2
+2. **Cũ còn:** Deploy Supabase + Vercel
+3. **Cũ còn:** Import "Xuất IFC" vào CatalogItem PT
 
 ---
 
@@ -51,9 +80,9 @@
 
 ```
 1. Đọc PROJECT_CONTEXT.md (mục tiêu, tech stack, build workflow)
-2. Đọc ARCHITECTURE.md (cấu trúc code, patterns, luồng xóa task)
+2. Đọc ARCHITECTURE.md (cấu trúc code, patterns)
 3. Đọc MEMORY.md (quyết định đã chốt)
 4. Đọc SESSION_TRANSFER.md này (trạng thái hiện tại)
-5. Kiểm tra git status để biết uncommitted changes
+5. Kiểm tra git status
 6. Kill port 3000 nếu cần → npm run build → npm start
 ```
