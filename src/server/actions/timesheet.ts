@@ -64,15 +64,20 @@ export async function saveTimesheetEntry(input: unknown) {
     // Đổi trạng thái công việc theo thao tác ghi giờ — chỉ khi user là người được giao
     // (hoặc Quản trị/Cấp 1) để tránh sửa status việc không phải của mình.
     if (task && (task.isAssignee || canManage(user.role))) {
+      const taskPatch: Record<string, unknown> = {};
       if (data.markComplete) {
-        // Tích "Hoàn thành" → đặt xong + mốc thực tế (đồng bộ cột "Hạn" ở /tasks).
-        await prisma.task.update({
-          where: { id: task.id },
-          data: { status: "HOAN_THANH", progressPercent: 100, actualEnd: date },
-        });
+        taskPatch.status = "HOAN_THANH";
+        taskPatch.progressPercent = 100;
+        taskPatch.actualEnd = date;
       } else if (task.status === "CHUA_LAM") {
-        // Ghi giờ mà việc còn "Chưa làm" → tự chuyển "Đang thực hiện".
-        await prisma.task.update({ where: { id: task.id }, data: { status: "DANG_LAM" } });
+        taskPatch.status = "DANG_LAM";
+      }
+      // Ghi đường dẫn kết quả nếu user cung cấp (kể cả chuỗi rỗng → xóa).
+      if (data.result !== undefined) {
+        taskPatch.result = data.result.trim() || null;
+      }
+      if (Object.keys(taskPatch).length > 0) {
+        await prisma.task.update({ where: { id: task.id }, data: taskPatch });
       }
     }
 

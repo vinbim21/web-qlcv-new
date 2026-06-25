@@ -33,7 +33,7 @@ export function Modal({ open, onClose, title, description, children, className }
   if (!mounted || !open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 py-8">
       <button
         type="button"
         aria-label="Đóng"

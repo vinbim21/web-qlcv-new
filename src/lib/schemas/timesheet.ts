@@ -15,5 +15,8 @@ export const timesheetEntrySchema = z.object({
   note: z.string().optional().nullable(),
   // Tích "Hoàn thành" trong popup → đặt công việc gắn kèm sang HOAN_THANH khi lưu.
   markComplete: z.boolean().optional().default(false),
+  // Đường dẫn kết quả (link file hoặc URL) — tùy chọn, ghi kèm vào task.result khi lưu.
+  // Dùng \n làm dấu phân cách nếu có 2 link.
+  result: z.string().optional(),
 });
 export type TimesheetEntryInput = z.infer<typeof timesheetEntrySchema>;

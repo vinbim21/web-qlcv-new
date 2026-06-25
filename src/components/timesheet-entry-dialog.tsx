@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { joinLinks } from "@/components/result-cell";
 import { saveTimesheetEntry } from "@/server/actions/timesheet";
 
 export type TimesheetEntry = {
@@ -37,6 +39,7 @@ type LockedTask = {
   groupCode?: string | null;
   loaiHinhCode?: string | null;
   level3?: string | null;
+  result?: string | null;
 };
 
 export function TimesheetEntryDialog({
@@ -60,6 +63,18 @@ export function TimesheetEntryDialog({
   const [filterGroup, setFilterGroup] = React.useState<string>(entry?.taskGroupCode ?? "");
   const [filterLoaiHinh, setFilterLoaiHinh] = React.useState<string>(entry?.taskLoaiHinhCode ?? "");
   const [filterLevel3, setFilterLevel3] = React.useState<string>(entry?.taskLevel3 ?? "");
+
+  // Kết quả — pre-fill từ lockedTask.result nếu có (tách \n thành 2 input)
+  const initLinks = React.useMemo(() => {
+    const src = lockedTask?.result ?? null;
+    if (!src) return ["", ""] as [string, string];
+    const parts = src.split("\n").map((s) => s.trim()).filter(Boolean);
+    return [parts[0] ?? "", parts[1] ?? ""] as [string, string];
+  }, [lockedTask?.result]);
+
+  const [link1, setLink1] = React.useState(initLinks[0]);
+  const [link2, setLink2] = React.useState(initLinks[1]);
+  const [showLink2, setShowLink2] = React.useState(!!initLinks[1]);
 
   const allTasks = tasks ?? [];
 
@@ -127,6 +142,7 @@ export function TimesheetEntryDialog({
     setPending(true);
     const fd = new FormData(e.currentTarget);
     const markComplete = complete && !!taskId;
+    const resultValue = joinLinks(link1, showLink2 ? link2 : "");
     const res = await saveTimesheetEntry({
       id: entry?.id,
       taskId: taskId || null,
@@ -134,6 +150,8 @@ export function TimesheetEntryDialog({
       hours: Number(fd.get("hours") || 0),
       note: (fd.get("note") as string) || null,
       markComplete,
+      // Chỉ gửi result khi có task được chọn
+      ...(taskId ? { result: resultValue ?? undefined } : {}),
     });
     setPending(false);
     if (res.ok) {
@@ -141,6 +159,9 @@ export function TimesheetEntryDialog({
       onClose();
     } else toast.error(res.error);
   }
+
+  // Hiển thị section kết quả khi có task (lockedTask hoặc chọn từ dropdown)
+  const hasTask = !!(lockedTask?.id || taskId);
 
   return (
     <Modal open onClose={onClose} title={entry ? "Sửa nhật ký" : "Thêm nhật ký"}>
@@ -234,6 +255,55 @@ export function TimesheetEntryDialog({
           <Label htmlFor="note">Nội dung công việc</Label>
           <Textarea id="note" name="note" defaultValue={entry?.note ?? ""} />
         </div>
+
+        {/* Kết quả — chỉ hiển thị khi có task */}
+        {hasTask ? (
+          <div className="space-y-1.5">
+            <Label>Kết quả (tùy chọn)</Label>
+            <div className="space-y-1.5">
+              {/* Link 1 */}
+              <div className="flex items-center gap-1.5">
+                <Input
+                  value={link1}
+                  onChange={(e) => setLink1(e.target.value)}
+                  placeholder="Dán URL hoặc đường dẫn file…"
+                  className="h-8 text-xs"
+                />
+                {!showLink2 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowLink2(true)}
+                    title="Thêm đường dẫn thứ 2"
+                    className="shrink-0 rounded border border-slate-200 p-1.5 text-slate-400 hover:text-blue-500 hover:border-blue-300"
+                  >
+                    <Plus className="size-3.5" />
+                  </button>
+                )}
+              </div>
+              {/* Link 2 */}
+              {showLink2 && (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={link2}
+                    onChange={(e) => setLink2(e.target.value)}
+                    placeholder="Đường dẫn thứ 2 (tùy chọn)…"
+                    className="h-8 text-xs"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setShowLink2(false); setLink2(""); }}
+                    title="Xóa đường dẫn thứ 2"
+                    className="shrink-0 rounded border border-slate-200 p-1.5 text-slate-400 hover:text-red-500 hover:border-red-300"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
         {taskId ? (
           <label className="flex items-center gap-2 text-sm">
             <input
