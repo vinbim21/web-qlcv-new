@@ -754,6 +754,14 @@ export function ManageClient({
     [base, activeWg],
   );
 
+  // Khi có filter đang bật → chỉ hiện group có task khớp, không pre-seed group 0-task từ catalog.
+  const hasActiveFilter = Boolean(
+    f.userId || f.phong || f.dateFrom || f.dateTo ||
+    deferredSearch.trim() ||
+    quick ||
+    activeCols.length > 0
+  );
+
   // ---- Sắp xếp ---- (mặc định theo phân cấp Dự án → … để đọc như cây)
   const [sort, setSort] = useLocalStorage<{ key: SortKey; dir: "asc" | "desc" }>("manage:sort", {
     key: "duAn",
@@ -906,9 +914,12 @@ export function ManageClient({
     const ins = insertCtx; // capture để dùng trong closure
 
     // Pre-seed byDuAn từ catalog (giữ thứ tự catalog, task sẽ điền vào sau)
+    // Bỏ qua khi có filter đang bật — chỉ show group có task khớp filter
     const byDuAn = new Map<string, TaskRow[]>();
-    for (const dk of catalogSeed.keys()) {
-      byDuAn.set(dk, []);
+    if (!hasActiveFilter) {
+      for (const dk of catalogSeed.keys()) {
+        byDuAn.set(dk, []);
+      }
     }
     for (const t of sorted) {
       const k = colText(t, "duAn") || "—";
@@ -919,7 +930,7 @@ export function ManageClient({
       const d1 = `d:${dk}`;
 
       // Build byLoai trước để biết số lượng loại hình (dùng làm count cho g1)
-      const catalogLoai = catalogSeed.get(dk);
+      const catalogLoai = !hasActiveFilter ? catalogSeed.get(dk) : undefined;
       const byLoai = new Map<string, TaskRow[]>();
       if (catalogLoai) {
         for (const lk of catalogLoai.keys()) byLoai.set(lk, []);
@@ -975,7 +986,7 @@ export function ManageClient({
       }
     }
     return nodes;
-  }, [sorted, effectiveTreeCollapsed, insertCtx, catalogSeed]);
+  }, [sorted, effectiveTreeCollapsed, insertCtx, catalogSeed, hasActiveFilter]);
 
   // Tất cả keys theo từng cấp (dùng cho expand/collapse từng cấp).
   const allTreeKeys = React.useMemo(() => {
@@ -1647,6 +1658,7 @@ export function ManageClient({
           cols={cols}
           projects={projects}
           disciplines={disciplines}
+          phases={phases}
           users={users}
           catalog={catalog}
           onCancel={() => setEditing(null)}
@@ -2740,6 +2752,7 @@ function InlineTaskEditRow({
   cols,
   projects,
   disciplines,
+  phases,
   users,
   catalog,
   onCancel,
@@ -2750,6 +2763,7 @@ function InlineTaskEditRow({
   cols: ColDef[];
   projects: ProjectOpt[];
   disciplines: DisciplineOpt[];
+  phases: Opt[];
   users: { id: string; fullName: string }[];
   catalog: Catalog;
   onCancel: () => void;
@@ -2761,6 +2775,7 @@ function InlineTaskEditRow({
   const [hangMuc, setHangMuc] = React.useState(task.level3 ?? "");
   const [level5, setLevel5] = React.useState(task.level5 ?? task.name ?? "");
   const [disciplineId, setDisciplineId] = React.useState(task.disciplineId ?? "");
+  const [phaseId, setPhaseId] = React.useState(task.phaseId ?? "");
   const [assigneeIds, setAssigneeIds] = React.useState<string[]>(task.assigneeIds);
   const [priority, setPriority] = React.useState(task.priority);
   const [status, setStatus] = React.useState(task.status);
@@ -2792,7 +2807,7 @@ function InlineTaskEditRow({
       workGroupId: task.workGroupId,
       projectId: projectId || null,
       disciplineId: disciplineId || null,
-      phaseId: task.phaseId || null,
+      phaseId: phaseId || null,
       sumId: task.sumId ?? null,
       level2: ctCode || null,
       level3: hangMuc || null,
@@ -2871,8 +2886,11 @@ function InlineTaskEditRow({
         }
         if (col.key === "giaiDoan") {
           return (
-            <td key={col.key} className={cn(cellCls, "text-xs text-slate-500")}>
-              {task.phaseName || none}
+            <td key={col.key} className={cellCls}>
+              <Select className="h-8 w-full text-xs" value={phaseId} onChange={(e) => setPhaseId(e.target.value)}>
+                <option value="">{none}</option>
+                {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
             </td>
           );
         }

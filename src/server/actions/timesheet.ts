@@ -68,7 +68,7 @@ export async function saveTimesheetEntry(input: unknown) {
         // Tích "Hoàn thành" → đặt xong + mốc thực tế (đồng bộ cột "Hạn" ở /tasks).
         await prisma.task.update({
           where: { id: task.id },
-          data: { status: "HOAN_THANH", progressPercent: 100, actualEnd: new Date() },
+          data: { status: "HOAN_THANH", progressPercent: 100, actualEnd: date },
         });
       } else if (task.status === "CHUA_LAM") {
         // Ghi giờ mà việc còn "Chưa làm" → tự chuyển "Đang thực hiện".
