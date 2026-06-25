@@ -226,8 +226,8 @@ export async function batchSaveCatalogProjects(input: {
 export async function deleteProject(id: string) {
   return runAction(async () => {
     await requireRole("ADMIN");
-    const taskCount = await prisma.task.count({ where: { projectId: id, deletedAt: null } });
-    if (taskCount > 0) throw new Error("Dự án còn công việc, không thể xóa");
+    // Null out projectId trên task đang liên kết (tách liên kết, không xóa task)
+    await prisma.task.updateMany({ where: { projectId: id, deletedAt: null }, data: { projectId: null } });
     await prisma.project.update({ where: { id }, data: { deletedAt: new Date() } });
     revalidatePath("/admin/projects");
     revalidatePath("/admin/catalog", "layout");

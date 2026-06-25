@@ -1,6 +1,6 @@
 # PROJECT_CONTEXT.md — Web QLCV (BIM)
 
-> Cập nhật: 2026-06-23. Đọc file này đầu tiên khi bắt đầu session mới.
+> Cập nhật: 2026-06-25. Đọc file này đầu tiên khi bắt đầu session mới.
 
 ---
 

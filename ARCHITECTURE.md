@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — Kiến trúc code Web QLCV
 
-> Cập nhật: 2026-06-23
+> Cập nhật: 2026-06-25
 
 ---
 
@@ -116,7 +116,7 @@ model Project {
   blockSystem       String?     // Khối/Hệ thống (VD: "HA", "I9A")
   constructionTypeId String?    // Loại hình (FK -> ConstructionType)
   startDate         DateTime?   // Ngày bắt đầu
-  packagingDate     DateTime?   // Ngày đóng gói/bàn giao  ← mới 2026-06-23
+  packagingDate     DateTime?   // Ngày đóng gói/bàn giao
   endDate           DateTime?
   scale             String?     // Quy mô m² sàn
 }
@@ -156,9 +156,21 @@ model Project {
 - Table body: `flex-1 overflow-auto` — scroll bên trong card
 - `<th>` cells: `sticky top-0 z-20` — ghim trong scroll container
 
-### /tasks (tasks-client.tsx) & /manage (manage-client.tsx)
+### /manage (manage-client.tsx)
 
-**Tree grouping 4 cấp:** g1=WorkGroup → g2=Phase → g3=Project(Hạng mục) → g4=BlockSystem
+**Tree grouping 4 cấp:** g1=Dự án (ProjectGroup) → g2=Loại hình (ConstructionType) → g3=Hạng mục (Project.name) → g4=Khối/Hệ thống (blockSystem)
+
+**Thống kê trong group row (view Dự án):**
+- g1 (Dự án): `(N loại hình · M quá hạn)` — đếm distinct loại hình
+- g2 (Loại hình): `(N hạng mục · M quá hạn)` — đếm distinct hạng mục
+- g3 (Hạng mục): `(N việc · M quá hạn)` — giữ nguyên
+- g4 (Khối): `(N việc · M quá hạn)` — giữ nguyên
+
+**Nút "+" trong tree view:**
+- g1 (Dự án): mở dialog chọn Loại hình + nhập Hạng mục → `saveCatalogProject`
+- g2 (Loại hình): mở dialog nhập Hạng mục (CT cố định) → `saveCatalogProject`
+- g3 (Hạng mục): thêm công việc inline (TaskRowEditor)
+- Dialog nhận `constructionTypes` prop từ page.tsx
 
 **Tại g3 row (Hạng mục):** Hiển thị `projectStartDate` + `projectPackagingDate` căn thẳng với cột Bắt đầu/Kết thúc bằng `absolute` positioning tính `left` pixel theo `colLeft()`.
 
@@ -172,6 +184,10 @@ model Project {
 **Badge "Chờ duyệt xóa"** hiện trong cột Clock khi task có `deleteRequestedAt`:
 - Assignee: badge + nút × hủy
 - Manager: badge + nút ✓ duyệt / ✗ từ chối
+
+### /tasks (tasks-client.tsx)
+
+Tương tự /manage nhưng member view. Cùng tree grouping.
 
 ---
 
@@ -243,3 +259,7 @@ const hours = Number(entry.hours);  // KHÔNG dùng entry.hours trực tiếp
 | prisma generate | Kill port 3000 trước (DLL lock) |
 | DB URL | DATABASE_URL port 6543 (pooling) + DIRECT_URL port 5432 |
 | `Decimal` Prisma | Luôn `Number(x)` khi serialize ra JSON |
+
+## Vấn đề chưa giải quyết
+
+- **Group 0 việc trong /manage tree:** Hiện tại tree view chỉ hiển thị groups có task. Nếu Khai báo thông tin đã có Dự án/Loại hình/Hạng mục nhưng chưa có task, tree sẽ không show. Cần thiết kế thêm: query ProjectGroup/Project độc lập với task và merge vào treeNodes.

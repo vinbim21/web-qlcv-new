@@ -495,7 +495,7 @@ export function CatalogClient({
         }} className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
           <Pencil className="size-4" />
         </button>
-        <button type="button" title="Xóa" onClick={() => setConfirm({ name: p.name, blockMsg: p.taskCount > 0 ? `Hạng mục đang có ${p.taskCount} công việc.` : undefined, run: () => deleteProject(p.id) })}
+        <button type="button" title="Xóa" onClick={() => setConfirm({ name: p.name, warnMsg: p.taskCount > 0 ? `Hạng mục đang có ${p.taskCount} công việc — các công việc sẽ mất liên kết dự án.` : undefined, run: () => deleteProject(p.id) })}
           className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500">
           <Trash2 className="size-4" />
         </button>
@@ -528,8 +528,10 @@ export function CatalogClient({
                   const blocked = selected.filter((p) => p.taskCount > 0);
                   setConfirm({
                     name: `${groupedSelectedIds.size} hạng mục đã chọn`,
-                    blockMsg: blocked.length ? `${blocked.length} hạng mục đang có công việc.` : undefined,
-                    warnMsg: `Sẽ xóa ${groupedSelectedIds.size} hạng mục đã chọn.`,
+                    warnMsg: [
+                      `Sẽ xóa ${groupedSelectedIds.size} hạng mục đã chọn.`,
+                      blocked.length ? `${blocked.length} hạng mục đang có công việc — các công việc đó sẽ mất liên kết dự án.` : "",
+                    ].filter(Boolean).join(" "),
                     run: async () => {
                       for (const id of [...groupedSelectedIds]) {
                         const res = await deleteProject(id);
@@ -837,10 +839,10 @@ export function CatalogClient({
                 const blocked = selected.filter((p) => p.taskCount > 0);
                 setConfirm({
                   name: `${ids.length} hạng mục đã chọn`,
-                  blockMsg: blocked.length
-                    ? `${blocked.length} hạng mục đang có công việc. Hãy gỡ/chuyển các công việc trước khi xóa.`
-                    : undefined,
-                  warnMsg: `Sẽ xóa ${ids.length} hạng mục đã chọn.`,
+                  warnMsg: [
+                    `Sẽ xóa ${ids.length} hạng mục đã chọn.`,
+                    blocked.length ? `${blocked.length} hạng mục đang có công việc — các công việc đó sẽ mất liên kết dự án.` : "",
+                  ].filter(Boolean).join(" "),
                   run: async () => {
                     for (const id of ids) {
                       const res = await deleteProject(id);
@@ -879,7 +881,7 @@ export function CatalogClient({
       }}
       onDelete={(r) => {
         const p = r as unknown as ProjectRow;
-        setConfirm({ name: p.name, blockMsg: p.taskCount > 0 ? `Hạng mục đang có ${p.taskCount} công việc. Hãy gỡ/chuyển các công việc trước khi xóa.` : undefined, run: () => deleteProject(p.id) });
+        setConfirm({ name: p.name, warnMsg: p.taskCount > 0 ? `Hạng mục đang có ${p.taskCount} công việc — các công việc sẽ mất liên kết dự án.` : undefined, run: () => deleteProject(p.id) });
       }}
       columns={[
         { key: "group", label: "Dự án", thClass: "w-60", filter: "multi",
