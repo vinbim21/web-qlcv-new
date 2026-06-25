@@ -8,63 +8,52 @@
 
 - **Server:** Đang chạy tại http://localhost:3000 (production build)
 - **Git branch:** `vunt38`
-- **Uncommitted changes:** Có (session 2026-06-25 — chưa commit)
+- **Uncommitted changes:** Không (đã commit session 2026-06-25)
 - **DB:** Local Docker, schema không đổi
 
 ---
 
-## Thay đổi trong session 2026-06-25
+## Thay đổi đã commit trong session 2026-06-25
 
 ### `/manage` — Tab "Dự án" (tree view)
 
-**File thay đổi:**
-- `src/app/(app)/manage/page.tsx`
-- `src/app/(app)/manage/manage-client.tsx`
+1. **Thống kê group row đơn giản** — bỏ "· N quá hạn", chỉ hiện số lượng
+2. **Hiển thị group kể cả 0 việc** — pre-seed từ `catalogSeed` (projects prop)
+3. **Ẩn group 0 việc khi có filter** — `hasActiveFilter` → bỏ catalog seed
+4. **Nút "+" thêm Hạng mục** từ tree (g1/g2 level)
 
-**Nội dung:**
+### Timesheet
+5. **Đánh dấu hoàn thành dùng ngày đã chọn** — dùng `date` thay vì `new Date()`
 
-1. **Thống kê mới trong group row:**
-   - g1 (Dự án): hiện `(N loại hình · M quá hạn)` thay vì `(N việc)`
-   - g2 (Loại hình): hiện `(N hạng mục · M quá hạn)` thay vì `(N việc)`
-   - g3 (Hạng mục): giữ nguyên `(N việc · M quá hạn)`
+### `/manage` inline edit
+6. **Thêm cột Giai đoạn** vào `InlineTaskEditRow`
 
-2. **Nút "+" thêm Hạng mục từ tree:**
-   - g1 (Dự án): "+" → dialog chọn Loại hình + nhập tên Hạng mục → `saveCatalogProject`
-   - g2 (Loại hình): "+" → dialog nhập tên Hạng mục (Loại hình cố định) → `saveCatalogProject`
-   - g3 (Hạng mục): "+" thêm công việc (như cũ)
-   - Tạo xong tự đồng bộ Khai báo thông tin (dùng chung `revalidatePath`)
-
-3. **Props mới cho ManageClient:**
-   - `constructionTypes: { id, code, name }[]` — dùng trong dropdown dialog
-
-4. **Import mới:** `saveCatalogProject` từ `@/server/actions/projects`
+### Catalog
+7. **Xóa hạng mục kể cả có task** — unlink `projectId` thay vì block
 
 ---
 
-## Thay đổi trong session 2026-06-25 (tiếp theo)
+## Thay đổi thêm trong session 2026-06-25 (sau handover đầu)
 
-### Thống kê group row đơn giản
-- g1: `(N loại hình)` — bỏ "· N quá hạn"
-- g2: `(N hạng mục)` — bỏ "· N quá hạn"
-- g3: `(N việc)` — bỏ "· N quá hạn"
+### Dialog ghi giờ — nhập link kết quả (items 7)
+- `result` field trong timesheet schema + server action
+- `result-cell.tsx`: 2 link (Link1·Link2), file path mở thư mục
+- `timesheet-entry-dialog.tsx`: section Kết quả + nút + link2
+- `tasks-client.tsx`: truyền `result` vào `lockedTask`
 
-### Hiển thị group kể cả 0 việc
-- Thêm `groupWorkGroupId: string | null` vào `ProjectOpt` (assign-client.tsx) và `task-lookups.ts`
-- `catalogSeed` useMemo trong manage-client: build từ `projects` prop (đã có tất cả hạng mục), lọc theo `activeWg`
-  - `activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg` → skip
-  - null groupWorkGroupId = shared → luôn show
-- Pre-seed `byDuAn`, `byLoai`, `byHang` trước khi fill task → g1/g2/g3 với 0 task vẫn xuất hiện
-- `effectiveTreeCollapsed` cũng collapse g3 từ catalog (hạng mục 0 việc luôn collapsed ban đầu)
+### /manage filter structural cols (item 8)
+- `hasActiveFilter` chỉ true cho non-structural filters
+- Catalog seed vẫn dùng khi filter Dự án/Loại hình/Hạng mục, nhưng lọc theo giá trị
 
----
+### /manage inline edit Tên đầu việc (item 9)
+- Đổi `<input>+<datalist>` → `SearchableCombobox`
 
-### Xóa hạng mục kể cả có công việc (Khai báo thông tin)
+### Modal scroll fix (item 10)
+- Bỏ `sm:items-center` → `px-4 py-8`, luôn items-start
 
-**Vấn đề cũ:** `deleteProject` server action throw error khi hạng mục còn task → client hiện `blockMsg` (chỉ có nút "Đóng"), không thể xóa.
-
-**Fix:**
-- `src/server/actions/projects.ts` → `deleteProject`: bỏ check taskCount, thay bằng `prisma.task.updateMany({ data: { projectId: null } })` trước khi soft-delete project. Task vẫn tồn tại, chỉ mất liên kết dự án.
-- `src/app/(app)/admin/catalog/catalog-client.tsx`: đổi `blockMsg` → `warnMsg` ở 4 chỗ xóa hạng mục (2 chỗ single delete, 2 chỗ bulk delete). Bây giờ dialog hiển thị cảnh báo "X công việc sẽ mất liên kết dự án" nhưng vẫn có nút Xóa.
+### Khai báo thông tin Level 1 (item 11)
+- Thêm cột "Level 1 — Tên dự án" vào trang catalog chi tiết non-BIM
+- Grid 3 cột → 4 cột
 
 ---
 
@@ -73,6 +62,7 @@
 1. **Cũ còn:** Fix "Cad" & "CAD" trùng trong CatalogItem PT Level 2
 2. **Cũ còn:** Deploy Supabase + Vercel
 3. **Cũ còn:** Import "Xuất IFC" vào CatalogItem PT
+4. **Mới:** Level 1 trong catalog hiện chỉ là UI — cân nhắc tích hợp vào task form (gợi ý L1 khi tạo việc)
 
 ---
 

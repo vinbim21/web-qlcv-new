@@ -2085,6 +2085,7 @@ export function TasksClient({
             groupCode: logging.groupCode,
             loaiHinhCode: logging.loaiHinhCode,
             level3: logging.level3,
+            result: logging.result,
           }}
           defaultDate={dayjs().format("YYYY-MM-DD")}
           onClose={() => {

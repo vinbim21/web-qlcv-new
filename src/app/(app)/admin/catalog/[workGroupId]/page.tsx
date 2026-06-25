@@ -38,6 +38,7 @@ export default async function CatalogDetailPage({
       workGroupCode={wg.code}
       workGroupAbbr={wg.abbr}
       workGroupOrder={wg.order}
+      level1={byLevel(1)}
       level2={byLevel(2)}
       level3={byLevel(3)}
       level5={byLevel(5)}
