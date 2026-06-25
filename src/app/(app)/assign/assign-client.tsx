@@ -18,6 +18,7 @@ export type ProjectOpt = Opt & {
   groupId: string;
   groupCode: string;
   groupName: string;
+  groupWorkGroupId: string | null;
   constructionTypeId: string;
   constructionTypeCode: string;
 };

@@ -32,7 +32,7 @@ export default async function ManagePage({
     to: pick("to"),
   };
 
-  const [tasks, lookups, catalogL3] = await Promise.all([
+  const [tasks, lookups, catalogL3, constructionTypes] = await Promise.all([
     prisma.task.findMany({
       where: { deletedAt: null },
       include: {
@@ -54,6 +54,7 @@ export default async function ManagePage({
       where: { level: 3, projectGroupId: { not: null } },
       select: { workGroupId: true, value: true, projectGroup: { select: { code: true, name: true } } },
     }),
+    prisma.constructionType.findMany({ orderBy: { order: "asc" } }),
   ]);
   const catalogPgMap = new Map(
     catalogL3.map((c) => [`${c.workGroupId}::${c.value}`, c.projectGroup]),
@@ -116,6 +117,7 @@ export default async function ManagePage({
         assigneeNames: t.assignees.map((a) => a.user.fullName),
       }))}
       isAdmin={session.user.role === "ADMIN"}
+      constructionTypes={constructionTypes.map((ct) => ({ id: ct.id, code: ct.code, name: ct.name }))}
       workGroups={lookups.workGroups}
       disciplines={lookups.disciplines}
       phases={lookups.phases}
