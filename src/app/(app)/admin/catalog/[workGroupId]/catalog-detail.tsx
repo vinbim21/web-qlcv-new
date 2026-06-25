@@ -29,6 +29,7 @@ export function CatalogDetail({
   workGroupCode,
   workGroupAbbr,
   workGroupOrder,
+  level1,
   level2,
   level3,
   level5,
@@ -40,6 +41,7 @@ export function CatalogDetail({
   workGroupCode: string;
   workGroupAbbr?: string | null;
   workGroupOrder: number;
+  level1: Item[];
   level2: Item[];
   level3: Item[];
   level5: Item[];
@@ -65,7 +67,7 @@ export function CatalogDetail({
             Viết tắt: <span className="font-mono">{workGroupAbbr || "—"}</span>
             {isBim
               ? " · Khai báo Dự án (Level 2 = mã, Level 3 = tên, Quy mô CT) + Level 5 — Đầu việc"
-              : " · Danh mục Level 2 / Level 3 / Level 5 (nguồn gợi ý khi tạo công việc)"}
+              : " · Danh mục Level 1 / Level 2 / Level 3 / Level 5 (nguồn gợi ý khi tạo công việc)"}
           </p>
         </div>
       </div>
@@ -78,7 +80,8 @@ export function CatalogDetail({
           <LevelColumn title="Level 5 — Đầu việc" workGroupId={workGroupId} level={5} items={level5} />
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-4">
+          <LevelColumn title="Level 1 — Tên dự án" workGroupId={workGroupId} level={1} items={level1} />
           <LevelColumn title="Level 2 — Loại hình" workGroupId={workGroupId} level={2} items={level2} />
           <LevelColumn title="Level 3 — Hạng mục" workGroupId={workGroupId} level={3} items={level3} />
           <LevelColumn title="Level 5 — Đầu việc" workGroupId={workGroupId} level={5} items={level5} />

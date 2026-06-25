@@ -754,12 +754,14 @@ export function ManageClient({
     [base, activeWg],
   );
 
-  // Khi có filter đang bật → chỉ hiện group có task khớp, không pre-seed group 0-task từ catalog.
+  // Cột cấu trúc: khi filter những cột này vẫn giữ pre-seed catalog (chỉ lọc trong seed).
+  // Các filter khác (người, phòng, ngày, tìm, quick, tình trạng...) mới ẩn group 0-task.
+  const STRUCTURAL_FILTER_KEYS = new Set<string>(["duAn", "loaiHinh", "hangMuc"]);
   const hasActiveFilter = Boolean(
     f.userId || f.phong || f.dateFrom || f.dateTo ||
     deferredSearch.trim() ||
     quick ||
-    activeCols.length > 0
+    activeCols.some(c => !STRUCTURAL_FILTER_KEYS.has(c.key))
   );
 
   // ---- Sắp xếp ---- (mặc định theo phân cấp Dự án → … để đọc như cây)
@@ -913,11 +915,20 @@ export function ManageClient({
     const nodes: TreeNode[] = [];
     const ins = insertCtx; // capture để dùng trong closure
 
+    // Trích structural filter values để lọc catalog seed (chỉ lọc theo cột cấu trúc, không ẩn hoàn toàn)
+    const cfDuAn = (colFilters["duAn"] as string[] | undefined);
+    const cfLoai = (colFilters["loaiHinh"] as string[] | undefined);
+    const cfHang = (colFilters["hangMuc"] as string[] | undefined);
+    const filterDuAn = cfDuAn?.length ? cfDuAn : null;
+    const filterLoai = cfLoai?.length ? cfLoai : null;
+    const filterHang = cfHang?.length ? cfHang : null;
+
     // Pre-seed byDuAn từ catalog (giữ thứ tự catalog, task sẽ điền vào sau)
-    // Bỏ qua khi có filter đang bật — chỉ show group có task khớp filter
+    // Bỏ qua khi có filter NON-structural đang bật — chỉ show group có task khớp filter
     const byDuAn = new Map<string, TaskRow[]>();
     if (!hasActiveFilter) {
       for (const dk of catalogSeed.keys()) {
+        if (filterDuAn && !filterDuAn.includes(dk)) continue; // lọc theo filter Dự án
         byDuAn.set(dk, []);
       }
     }
@@ -933,7 +944,10 @@ export function ManageClient({
       const catalogLoai = !hasActiveFilter ? catalogSeed.get(dk) : undefined;
       const byLoai = new Map<string, TaskRow[]>();
       if (catalogLoai) {
-        for (const lk of catalogLoai.keys()) byLoai.set(lk, []);
+        for (const lk of catalogLoai.keys()) {
+          if (filterLoai && !filterLoai.includes(lk)) continue; // lọc theo filter Loại hình
+          byLoai.set(lk, []);
+        }
       }
       for (const t of dTasks) {
         const k = colText(t, "loaiHinh") || "—";
@@ -951,7 +965,10 @@ export function ManageClient({
         const catalogHang = catalogLoai?.get(lk);
         const byHang = new Map<string, TaskRow[]>();
         if (catalogHang) {
-          for (const hk of catalogHang) byHang.set(hk, []);
+          for (const hk of catalogHang) {
+            if (filterHang && !filterHang.includes(hk)) continue; // lọc theo filter Hạng mục
+            byHang.set(hk, []);
+          }
         }
         for (const t of lTasks) {
           const k = colText(t, "hangMuc") || "—";
@@ -986,7 +1003,7 @@ export function ManageClient({
       }
     }
     return nodes;
-  }, [sorted, effectiveTreeCollapsed, insertCtx, catalogSeed, hasActiveFilter]);
+  }, [sorted, effectiveTreeCollapsed, insertCtx, catalogSeed, hasActiveFilter, colFilters]);
 
   // Tất cả keys theo từng cấp (dùng cho expand/collapse từng cấp).
   const allTreeKeys = React.useMemo(() => {
@@ -2863,20 +2880,15 @@ function InlineTaskEditRow({
         if (col.key === "congViec") {
           return (
             <td key={col.key} className={cellCls}>
-              <input
+              <SearchableCombobox
+                creatable
                 autoFocus
-                className={inputCls}
+                placeholder="Nhập hoặc chọn tên đầu việc..."
                 value={level5}
-                list={`edit-level5-${task.id}`}
-                onChange={(e) => setLevel5(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); void save(); }
-                  if (e.key === "Escape") onCancel();
-                }}
+                options={level5Opts}
+                className="h-8 text-xs"
+                onChange={setLevel5}
               />
-              <datalist id={`edit-level5-${task.id}`}>
-                {level5Opts.map((name) => <option key={name} value={name} />)}
-              </datalist>
               <div className="mt-1.5 flex items-center gap-1.5">
                 <Button size="sm" onClick={() => void save()} disabled={pending}>{pending ? "Dang luu..." : "Luu"}</Button>
                 <Button size="sm" variant="outline" onClick={onCancel}>Huy</Button>
