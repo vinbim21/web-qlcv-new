@@ -775,7 +775,7 @@ export function TasksClient({
   const [search, setSearch] = React.useState("");
   const deferredSearch = React.useDeferredValue(search);
   const [activeWg, setActiveWg] = useLocalStorage("tasks:activeWg", "");
-  const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM">("tasks:quick", "");
+  const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM" | "CHO_DUYET">("tasks:quick", "");
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
   const [timePeriod, setTimePeriod] = useLocalStorage<PeriodType>("tasks:timePeriod", "week");
@@ -927,12 +927,14 @@ export function TasksClient({
     let overdue = 0;
     let soon = 0;
     let doing = 0;
+    let pendingApproval = 0;
     for (const t of baseRows) {
       if (isOverdue(t)) overdue++;
       else if (isDueSoon(t)) soon++;
       if (["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) doing++;
+      if (isPendingApproval(t)) pendingApproval++;
     }
-    return { overdue, soon, doing };
+    return { overdue, soon, doing, pendingApproval };
   }, [baseRows]);
 
   // Đếm tab nhóm — trên nền tìm + lọc cột + quick (KHÔNG gồm tab).
@@ -945,6 +947,7 @@ export function TasksClient({
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
+      if (quick === "CHO_DUYET" && !isPendingApproval(t)) return false;
       return true;
     });
   }, [tasks, deferredSearch, haystacks, cols, colFilters, quick, periodBounds]);
@@ -1775,13 +1778,14 @@ export function TasksClient({
         )}
       </div>
 
-      {/* KPI — 3 thẻ bấm lọc nhanh */}
-      <div className="grid grid-cols-3 gap-2.5">
+      {/* KPI — 4 thẻ bấm lọc nhanh */}
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
         {(
           [
             { key: "DANG_LAM", n: kpi.doing, label: "Đang làm", Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
             { key: "SAP_HAN", n: kpi.soon, label: "Sắp đến hạn (≤3 ngày)", Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
             { key: "QUA_HAN", n: kpi.overdue, label: "Quá hạn", Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
+            { key: "CHO_DUYET", n: kpi.pendingApproval, label: "Chờ duyệt khởi tạo", Icon: ShieldCheck, tone: "border-violet-200 bg-violet-50 text-violet-700" },
           ] as const
         ).map(({ key, n, label, Icon, tone }) => (
           <button
