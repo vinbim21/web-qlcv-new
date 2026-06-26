@@ -884,7 +884,7 @@ export function ManageClient({
     }
     // Collapse g3 groups from catalog (kể cả nhóm chưa có task)
     for (const p of projects) {
-      if (activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg) continue;
+      if (activeWg && p.groupWorkGroupId !== activeWg) continue;
       const dk = p.groupCode || "—";
       const lk = p.constructionTypeCode || "—";
       const hk = p.name || "—";
@@ -894,12 +894,11 @@ export function ManageClient({
   }, [treeCollapsed, sorted, projects, activeWg]);
 
   // Catalog seed: group → loaiHinh → [hạng mục] (từ projects prop, đã gồm tất cả hạng mục kể cả chưa có task)
-  // Chỉ lấy projects thuộc activeWg (workGroupId của ProjectGroup = null → chung, hoặc = activeWg)
+  // Không lọc theo activeWg: tab workgroup chỉ ảnh hưởng task hiển thị bên trong hạng mục, không ẩn hạng mục.
   const catalogSeed = React.useMemo(() => {
     // g1: Map<dk, Map<lk, Set<hk>>> — thứ tự catalog
     const seed = new Map<string, Map<string, Set<string>>>();
     for (const p of projects) {
-      if (activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg) continue;
       const dk = p.groupCode || "—";
       const lk = p.constructionTypeCode || "—";
       const hk = p.name || "—";
@@ -909,7 +908,7 @@ export function ManageClient({
       byLoai.get(lk)!.add(hk);
     }
     return seed;
-  }, [projects, activeWg]);
+  }, [projects]);
 
   const treeNodes = React.useMemo((): TreeNode[] => {
     const nodes: TreeNode[] = [];
@@ -1008,6 +1007,15 @@ export function ManageClient({
   // Tất cả keys theo từng cấp (dùng cho expand/collapse từng cấp).
   const allTreeKeys = React.useMemo(() => {
     const d = new Set<string>(), l = new Set<string>(), h = new Set<string>(), b = new Set<string>();
+    for (const [dk, byLoai] of catalogSeed) {
+      d.add(`d:${dk}`);
+      for (const [lk, hangSet] of byLoai) {
+        l.add(`l:${dk}|${lk}`);
+        for (const hk of hangSet) {
+          h.add(`h:${dk}|${lk}|${hk}`);
+        }
+      }
+    }
     for (const t of sorted) {
       const dk = colText(t, "duAn") || "—";
       const lk = colText(t, "loaiHinh") || "—";
@@ -1019,7 +1027,7 @@ export function ManageClient({
       if (bk) b.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
     return { d: [...d], l: [...l], h: [...h], b: [...b] };
-  }, [sorted]);
+  }, [catalogSeed, sorted]);
 
   const selectedTreeKeys = React.useMemo(() => {
     const d = new Set<string>(), l = new Set<string>(), h = new Set<string>(), b = new Set<string>();
