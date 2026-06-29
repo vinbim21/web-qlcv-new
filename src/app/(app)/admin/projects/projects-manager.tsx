@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -178,11 +179,11 @@ function ProjectDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="startDate">Bắt đầu</Label>
-            <Input id="startDate" name="startDate" type="date" defaultValue={item?.startDate} />
+            <DateInput id="startDate" name="startDate" defaultValue={item?.startDate} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="endDate">Kết thúc</Label>
-            <Input id="endDate" name="endDate" type="date" defaultValue={item?.endDate} />
+            <DateInput id="endDate" name="endDate" defaultValue={item?.endDate} />
           </div>
         </div>
         <div className="space-y-1.5">

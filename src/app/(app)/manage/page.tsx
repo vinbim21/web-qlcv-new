@@ -115,6 +115,7 @@ export default async function ManagePage({
         approverName: t.approver?.fullName ?? null,
         startApproved: !!t.startApprovedAt,
         pendingPlannedEnd: t.pendingPlannedEnd ? iso(t.pendingPlannedEnd) : null,
+        endChangeRequesterId: t.endChangeRequesterId ?? null,
         endChangeRequesterName: t.endChangeRequester?.fullName ?? null,
         endChangeNote: t.endChangeNote ?? null,
         deleteRequestedAt: t.deleteRequestedAt ? t.deleteRequestedAt.toISOString() : null,

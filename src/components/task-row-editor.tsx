@@ -8,6 +8,7 @@ import type { ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -349,10 +350,10 @@ export function TaskRowEditor({
         </Field>
 
         <Field label="Ngày bắt đầu">
-          <Input type="date" value={f.plannedStart} onChange={(e) => set({ plannedStart: e.target.value })} />
+          <DateInput value={f.plannedStart} onChange={(e) => set({ plannedStart: e.target.value })} />
         </Field>
         <Field label="Ngày kết thúc">
-          <Input type="date" value={f.plannedEnd} onChange={(e) => set({ plannedEnd: e.target.value })} />
+          <DateInput value={f.plannedEnd} onChange={(e) => set({ plannedEnd: e.target.value })} />
         </Field>
       </div>
 
