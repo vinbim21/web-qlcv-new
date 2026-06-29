@@ -75,7 +75,7 @@ export async function deletePhase(id: string) {
 
 // ---------- Giá trị danh mục Level 2/3/5 (sheet Data) ----------
 
-const VALID_LEVELS = [2, 3, 5];
+const VALID_LEVELS = [1, 2, 3, 5];
 
 export async function addCatalogValue(workGroupId: string, level: number, value: string, parentId?: string | null) {
   return runAction(async () => {

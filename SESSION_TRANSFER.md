@@ -1,4 +1,4 @@
-# SESSION_TRANSFER.md — Bàn giao Session 2026-06-26
+# SESSION_TRANSFER.md — Bàn giao Session 2026-06-29
 
 > Đọc file này cuối cùng. Mô tả trạng thái hiện tại và việc cần làm tiếp theo.
 
@@ -8,26 +8,56 @@
 
 - **Server:** Đang chạy tại http://localhost:3000 (production build)
 - **Git branch:** `vunt38`
-- **Uncommitted changes:** Không (đã commit session 2026-06-26)
+- **Uncommitted changes:** Có (chưa commit session 2026-06-29)
 - **DB:** Local Docker, schema không đổi
 
 ---
 
-## Thay đổi đã commit trong session 2026-06-26
+## Thay đổi đã làm trong session 2026-06-29
 
-### `/manage` — Tree view "Dự án"
+### 1. Tạm dừng task — User (Assignee) cũng được phép
 
-1. **Fix: Hạng mục 0 việc hiển thị đúng khi lọc tab Nhóm công việc**
-   - Bỏ filter `groupWorkGroupId !== activeWg` khỏi `catalogSeed`
-   - Trước: chọn tab nhóm (vd "Khai báo 3D") → catalog seed chỉ lấy hạng mục của ProjectGroup có `workGroupId` đó → ẩn toàn bộ hạng mục không có task
-   - Sau: catalog seed luôn lấy toàn bộ hạng mục từ projects prop; workgroup tab chỉ lọc task bên trong hạng mục, không ẩn hạng mục
+**Files:** `src/server/actions/tasks.ts`, `src/app/(app)/tasks/tasks-client.tsx`
 
-### `/tasks` — Công việc của tôi
+- `setTaskPaused`: bỏ chặn cứng "Chỉ Quản trị/Cấp 1", thay bằng check `t.assignees.length > 0`
+- `tasks-client.tsx`: thêm handler `onTogglePause(t, paused)`, pass `canPause` và `onTogglePause` vào `StatusCell`
+- `canPause = canManage || t.assigneeIds.includes(currentUserId)` — assignee thấy nút Pause/Play ở cột Trạng thái
 
-2. **Thêm KPI card "Chờ duyệt khởi tạo"**
-   - Bấm card để lọc nhanh toàn bộ task đang chờ manager duyệt khởi tạo (`approverId != null && !startApproved`)
-   - Grid KPI đổi từ `grid-cols-3` → `grid-cols-2 md:grid-cols-4`
-   - Card màu tím (`violet`) để phân biệt với 3 card hiện có
+### 2. Admin thêm Level 1 cho các nhóm không phải BIM
+
+**File:** `src/server/actions/catalog.ts`
+
+- `VALID_LEVELS` đổi từ `[2, 3, 5]` → `[1, 2, 3, 5]`
+- Admin giờ thêm/sửa/xóa Level 1 (Tên dự án) được cho: Đào tạo, Xây dựng HTTC, Quản lý phần mềm, Công việc khác
+
+### 3. KPI card "Chờ duyệt" — gộp 3 loại pending
+
+**File:** `src/app/(app)/tasks/tasks-client.tsx`
+
+- Thêm helper `isAnyPending(t)`:
+  - `isPendingApproval(t)` (chờ duyệt khởi tạo)
+  - `!!t.pendingPlannedEnd` (đề xuất đổi ngày kết thúc)
+  - `!!t.deleteRequestedAt` (chờ duyệt xóa)
+- KPI card đổi tên "Chờ duyệt khởi tạo" → **"Chờ duyệt"**
+- Quick filter `CHO_DUYET` dùng `isAnyPending` thay `isPendingApproval`
+
+### 4. L1 filter (Tên dự án) trong /manage và /tasks
+
+**Files thay đổi:**
+- `src/server/data/task-lookups.ts` — thêm `l1[]` và `l2ByL1: Record<string, string[]>` vào catalog
+- `src/app/(app)/admin/catalog/[workGroupId]/page.tsx` — `byLevel()` trả về cả `parentId`
+- `src/app/(app)/admin/catalog/[workGroupId]/catalog-detail.tsx`:
+  - `Item` type thêm `parentId?: string | null`
+  - `LevelColumn` nhận thêm prop `level1Items?: Item[]`
+  - Khi `level === 2` và có L1 items: dropdown **"Thuộc dự án"** trên input thêm mới
+  - L2 items hiển thị tên L1 cha nhỏ bên dưới; khi sửa có dropdown đổi L1 cha
+- `src/app/(app)/tasks/tasks-client.tsx` — `Catalog` type + `activeL1` state + `passL1()` + pills UI
+- `src/app/(app)/manage/manage-client.tsx` — tương tự tasks-client
+
+**Cách hoạt động:**
+1. Admin vào Khai báo thông tin → chọn nhóm → cột Level 2 → chọn L1 cha → thêm L2
+2. Trong /manage và /tasks: chọn tab nhóm có L1 → hiện pills "Dự án: [Tất cả] [HTTC] ..."
+3. Click pill → filter `task.level2 ∈ l2ByL1[activeL1]`
 
 ---
 
@@ -36,7 +66,7 @@
 1. **Cũ còn:** Fix "Cad" & "CAD" trùng trong CatalogItem PT Level 2
 2. **Cũ còn:** Deploy Supabase + Vercel
 3. **Cũ còn:** Import "Xuất IFC" vào CatalogItem PT
-4. **Cũ còn:** Level 1 trong catalog hiện chỉ là UI — cân nhắc tích hợp vào task form (gợi ý L1 khi tạo việc)
+4. **Cũ còn:** Level 1 catalog chưa tích hợp vào task form (gợi ý L1 khi tạo việc)
 
 ---
 

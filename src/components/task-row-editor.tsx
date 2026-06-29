@@ -33,7 +33,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </div>
   );
 }
-
 /**
  * Sửa/Thêm 1 công việc theo phong cách lưới Giao việc (cùng các ô combobox),
  * nhưng cho đúng 1 item. Dùng riêng cho tab Quản lý công việc (/manage).
@@ -87,7 +86,38 @@ export function TaskRowEditor({
 
   const wg = workGroups.find((w) => w.id === wgId);
   const isB3 = wg?.code === "3";
-  const sug = catalog[wgId] ?? { l2: [], l3: [], l5: [] };
+  // Nhóm hiện L1 catalog Dự án: XD(1) DT(2) PT(5) PM(6) CK(7).
+  // QL(3)/TT(4) dùng Project cascade (bảng Project riêng).
+  const isProjectBased = wg?.code === "3" || wg?.code === "4";
+  const sug = catalog[wgId] ?? { l1: [], l2: [], l3: [], l5: [], l2ByL1: {}, l3ByL2: {} };
+  const ptProjectGroups = sug.projectGroups ?? [];
+  const ptProjectGroupLabel = React.useCallback((g: { code: string; name: string }) => `${g.code} — ${g.name}`, []);
+  const ptProjectGroupLabelById = React.useMemo(
+    () => new Map(ptProjectGroups.map((g) => [g.id, g.code])),
+    [ptProjectGroups, ptProjectGroupLabel],
+  );
+  const ptProjectGroupIdByLabel = React.useMemo(
+    () => new Map(ptProjectGroups.map((g) => [g.code, g.id])),
+    [ptProjectGroups, ptProjectGroupLabel],
+  );
+  // L1 cascade (Dự án) cho non-project-based groups — chỉ lọc L2, không lưu DB.
+  const [activeL1, setActiveL1] = React.useState(() => {
+    if (task?.level3 && wg?.code === "5") return catalog[wgId]?.projectGroupByL3?.[task.level3]?.id ?? "";
+    if (!task?.level2 || isProjectBased) return "";
+    for (const [l1, l2s] of Object.entries(catalog[wgId]?.l2ByL1 ?? {})) {
+      if (l2s.includes(task.level2)) return l1;
+    }
+    return "";
+  });
+  const isBT = wg?.code === "5"; // BIM Tools: level3 = Dự án BIM Tools
+  const l2Opts = !isProjectBased && !isBT && activeL1 && sug.l2ByL1[activeL1]?.length ? sug.l2ByL1[activeL1] : sug.l2;
+  // PT: cascade L2→L3 (Loại hình → Dự án BIM Tools)
+  const l3Opts = React.useMemo(() => {
+    if (!isBT) return sug.l3;
+    const byProject = activeL1 ? (sug.l3ByProjectGroup?.[activeL1] ?? []) : sug.l3;
+    const byType = f.level2 && sug.l3ByL2[f.level2]?.length ? sug.l3ByL2[f.level2] : [];
+    return byType.length ? byProject.filter((v) => byType.includes(v)) : byProject;
+  }, [activeL1, f.level2, isBT, sug]);
 
   // Cascade state cho isB3: Dự án (ProjectGroup) → Loại hình (ConstructionType) → Hạng mục
   const initProject = task?.projectId ? projects.find((p) => p.id === task.projectId) : null;
@@ -129,6 +159,7 @@ export function TaskRowEditor({
       disciplineId: f.disciplineId || null,
       phaseId: isB3 ? f.phaseId || null : null,
       sumId: task?.sumId ?? null,
+      level1: !isProjectBased && !isBT ? activeL1 || null : null,
       level2: isB3 ? ctCode || null : f.level2 || null,
       level3: f.level3 || null,
       level5: f.level5 || null,
@@ -217,11 +248,51 @@ export function TaskRowEditor({
           </>
         ) : (
           <>
-            <Field label="Hạng mục (L2)">
-              <SearchableCombobox value={f.level2} onChange={(v) => set({ level2: v })} options={sug.l2} />
+            {!isProjectBased && (
+              <Field label="Dự án">
+                <SearchableCombobox
+                  creatable={false}
+                  placeholder="— Chưa chọn —"
+                  value={isBT ? (ptProjectGroupLabelById.get(activeL1) ?? activeL1) : activeL1}
+                  options={["— Chưa chọn —", ...sug.l1]}
+                  onChange={(v) => {
+                    const nv = v === "— Chưa chọn —" ? "" : v;
+                    setActiveL1(nv);
+                    if (isBT) {
+                      const byProject = nv ? (sug.l3ByProjectGroup?.[nv] ?? []) : sug.l3;
+                      if (byProject.length > 0 && !byProject.includes(f.level3)) {
+                        set({ level3: "" });
+                      }
+                      return;
+                    }
+                    // Chỉ reset L2 nếu L1 có link L2 và L2 hiện tại không thuộc L1 mới.
+                    const linked = nv ? (sug.l2ByL1[nv] ?? []) : [];
+                    if (linked.length > 0 && !linked.includes(f.level2)) {
+                      set({ level2: "" });
+                    }
+                  }}
+                />
+              </Field>
+            )}
+            <Field label={isBT ? "Loại hình" : "Hạng mục (L2)"}>
+              <SearchableCombobox
+                value={f.level2}
+                onChange={(v) => {
+                  // PT: đổi Loại hình → reset Dự án nếu không còn thuộc nhóm mới
+                  if (isBT) {
+                    const byProject = activeL1 ? (sug.l3ByProjectGroup?.[activeL1] ?? []) : sug.l3;
+                    const byType = v && sug.l3ByL2[v]?.length ? sug.l3ByL2[v] : [];
+                    const newL3Opts = byType.length ? byProject.filter((x) => byType.includes(x)) : byProject;
+                    set({ level2: v, level3: newL3Opts.includes(f.level3) ? f.level3 : "" });
+                  } else {
+                    set({ level2: v });
+                  }
+                }}
+                options={l2Opts}
+              />
             </Field>
-            <Field label="Chi tiết (L3)">
-              <SearchableCombobox value={f.level3} onChange={(v) => set({ level3: v })} options={sug.l3} />
+            <Field label={isBT ? "Dự án BIM Tools" : "Chi tiết (L3)"}>
+              <SearchableCombobox value={f.level3} onChange={(v) => set({ level3: v })} options={l3Opts} />
             </Field>
           </>
         )}

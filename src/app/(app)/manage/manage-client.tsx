@@ -95,7 +95,18 @@ type DisciplineOpt = Opt & { code?: string | null };
 // Nhóm công việc kèm mã + tiền tố Id (abbr) + bộ đếm (lastSeq) cho editor.
 type WgOpt = Opt & { code?: string; abbr?: string | null; lastSeq?: number };
 type UserOpt = { id: string; fullName: string };
-type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[]; l3ByL2: Record<string, string[]> }>;
+type CatalogProjectGroup = { id: string; code: string; name: string };
+type Catalog = Record<string, {
+  l1: string[];
+  l2: string[];
+  l3: string[];
+  l5: string[];
+  l2ByL1: Record<string, string[]>;
+  l3ByL2: Record<string, string[]>;
+  projectGroups?: CatalogProjectGroup[];
+  l3ByProjectGroup?: Record<string, string[]>;
+  projectGroupByL3?: Record<string, CatalogProjectGroup>;
+}>;
 
 export type TaskRow = {
   id: string;
@@ -487,6 +498,8 @@ export function ManageClient({
     dateTo: initial?.to ?? "",
   });
   const [activeWg, setActiveWg] = useLocalStorage("manage:activeWg", initial?.group ?? ""); // "" = Tất cả (tab Bảng)
+  const [activeL1, setActiveL1] = React.useState("");
+  React.useEffect(() => { setActiveL1(""); }, [activeWg]);
   const fromReport = Boolean(
     initial && (initial.user || initial.group || initial.phong || initial.from || initial.to),
   );
@@ -690,6 +703,14 @@ export function ManageClient({
 
   const activeCols = cols.filter((c) => colActive(c, colFilters[c.key]));
 
+  // Helper: lọc L1
+  function passL1(t: TaskRow): boolean {
+    if (!activeL1 || !activeWg || t.workGroupId !== activeWg) return true;
+    const allowed = catalog[activeWg]?.l2ByL1[activeL1];
+    if (!allowed?.length) return true;
+    return allowed.includes(t.level2 ?? "");
+  }
+
   // Nền KPI: deep-link + tìm + filter cột (KHÔNG gồm quick & tab) → số KPI ổn định khi bấm.
   const kpiBase = React.useMemo(() => {
     const q = norm(deferredSearch.trim());
@@ -702,12 +723,14 @@ export function ManageClient({
         if (f.dateFrom && t.plannedEnd < f.dateFrom) return false;
         if (f.dateTo && t.plannedEnd > f.dateTo) return false;
       }
+      if (!passL1(t)) return false;
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
       if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t) && !t.deleteRequestedAt) return false;
       return true;
     });
-  }, [tasks, f.userId, f.phong, f.dateFrom, f.dateTo, deferredSearch, haystacks, cols, colFilters, periodBounds]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, activeL1, activeWg, catalog, f.userId, f.phong, f.dateFrom, f.dateTo, deferredSearch, haystacks, cols, colFilters, periodBounds]);
 
   const kpi = React.useMemo(() => {
     // KPI bám theo tab nhóm (+ tìm kiếm + lọc cột) nhưng KHÔNG bám quick:
@@ -754,10 +777,14 @@ export function ManageClient({
     return m;
   }, [base]);
 
-  const filtered = React.useMemo(
-    () => (activeWg ? base.filter((t) => t.workGroupId === activeWg) : base),
-    [base, activeWg],
-  );
+  const filtered = React.useMemo(() => {
+    let r = activeWg ? base.filter((t) => t.workGroupId === activeWg) : base;
+    if (activeL1 && activeWg) {
+      const allowed = catalog[activeWg]?.l2ByL1[activeL1];
+      if (allowed?.length) r = r.filter((t) => allowed.includes(t.level2 ?? ""));
+    }
+    return r;
+  }, [base, activeWg, activeL1, catalog]);
 
   // Cột cấu trúc: khi filter những cột này vẫn giữ pre-seed catalog (chỉ lọc trong seed).
   // Các filter khác (người, phòng, ngày, tìm, quick, tình trạng...) mới ẩn group 0-task.
@@ -1336,6 +1363,7 @@ export function ManageClient({
     setColFilters({});
     setSearch("");
     setActiveWg("");
+    setActiveL1("");
     setQuick("");
     clearSel();
     if (window.location.search) router.replace("/manage", { scroll: false });
@@ -2365,6 +2393,36 @@ export function ManageClient({
         ))}
       </div>
 
+      {/* L1 filter pills — chỉ hiện khi workgroup đang chọn có Level 1 trong catalog */}
+      {activeWg && (catalog[activeWg]?.l1?.length ?? 0) > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5 py-1.5">
+          <span className="text-xs text-muted-foreground">Dự án:</span>
+          <button
+            type="button"
+            onClick={() => setActiveL1("")}
+            className={cn(
+              "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+              !activeL1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
+            )}
+          >
+            Tất cả
+          </button>
+          {catalog[activeWg]!.l1.map((l1) => (
+            <button
+              key={l1}
+              type="button"
+              onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}
+              className={cn(
+                "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                activeL1 === l1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
+              )}
+            >
+              {l1}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {/* Dải thông báo khi vào từ link Báo cáo */}
       {fromReport ? (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
@@ -2836,24 +2894,41 @@ function InlineTaskEditRow({
   const [status, setStatus] = React.useState(task.status);
   const [plannedStart, setPlannedStart] = React.useState(task.plannedStart);
   const [plannedEnd, setPlannedEnd] = React.useState(task.plannedEnd);
+  const taskCatalog = catalog[task.workGroupId] ?? { l1: [], l2: [], l3: [], l5: [], l2ByL1: {}, l3ByL2: {} };
+  const isProjectBasedTask = !!task.projectId || (taskCatalog.projectGroups?.length ?? 0) > 0;
+  const initialL1 = React.useMemo(() => {
+    if (isProjectBasedTask || !task.level2) return "";
+    for (const [l1, l2s] of Object.entries(taskCatalog.l2ByL1 ?? {})) {
+      if (l2s.includes(task.level2)) return l1;
+    }
+    return "";
+  }, [isProjectBasedTask, task.level2, taskCatalog]);
+  const [level1, setLevel1] = React.useState(initialL1);
 
   const pgCodes = React.useMemo(
     () => [...new Set(projects.map((p) => p.groupCode).filter(Boolean))].sort(),
     [projects],
   );
   const ctCodes = React.useMemo(() => {
+    if (!isProjectBasedTask) {
+      return level1 && taskCatalog.l2ByL1[level1]?.length ? taskCatalog.l2ByL1[level1] : taskCatalog.l2;
+    }
     const pool = pgCode ? projects.filter((p) => p.groupCode === pgCode) : projects;
     return [...new Set(pool.map((p) => p.constructionTypeCode).filter(Boolean))];
-  }, [projects, pgCode]);
+  }, [isProjectBasedTask, level1, taskCatalog, projects, pgCode]);
   const hangMucOpts = React.useMemo(() => {
+    if (!isProjectBasedTask) {
+      return ctCode && taskCatalog.l3ByL2[ctCode]?.length ? taskCatalog.l3ByL2[ctCode] : taskCatalog.l3;
+    }
     const pool = pgCode ? projects.filter((p) => p.groupCode === pgCode) : projects;
     return [...new Set(pool.filter((p) => !ctCode || p.constructionTypeCode === ctCode).map((p) => p.name))];
-  }, [projects, pgCode, ctCode]);
-  const level5Opts = React.useMemo(() => catalog[task.workGroupId]?.l5 ?? [], [catalog, task.workGroupId]);
+  }, [isProjectBasedTask, taskCatalog, projects, pgCode, ctCode]);
+  const level5Opts = React.useMemo(() => taskCatalog.l5 ?? [], [taskCatalog]);
   const projectId = React.useMemo(() => {
+    if (!isProjectBasedTask) return "";
     if (!pgCode || !ctCode || !hangMuc) return "";
     return projects.find((p) => p.groupCode === pgCode && p.constructionTypeCode === ctCode && p.name === hangMuc)?.id ?? "";
-  }, [projects, pgCode, ctCode, hangMuc]);
+  }, [isProjectBasedTask, projects, pgCode, ctCode, hangMuc]);
 
   async function save() {
     setPending(true);
@@ -2864,6 +2939,7 @@ function InlineTaskEditRow({
       disciplineId: disciplineId || null,
       phaseId: phaseId || null,
       sumId: task.sumId ?? null,
+      level1: isProjectBasedTask ? null : level1 || null,
       level2: ctCode || null,
       level3: hangMuc || null,
       level5: level5.trim() || null,
@@ -2897,7 +2973,11 @@ function InlineTaskEditRow({
         if (col.key === "duAn") {
           return (
             <td key={col.key} className={cellCls}>
-              <SearchableCombobox creatable={false} placeholder={none} value={pgCode} options={[none, ...pgCodes]} className="h-8 text-xs" onChange={(v) => { setPgCode(v === none ? "" : v); setCtCode(""); setHangMuc(""); }} />
+              {isProjectBasedTask ? (
+                <SearchableCombobox creatable={false} placeholder={none} value={pgCode} options={[none, ...pgCodes]} className="h-8 text-xs" onChange={(v) => { setPgCode(v === none ? "" : v); setCtCode(""); setHangMuc(""); }} />
+              ) : (
+                <SearchableCombobox creatable={false} placeholder={none} value={level1} options={[none, ...taskCatalog.l1]} className="h-8 text-xs" onChange={(v) => { const nv = v === none ? "" : v; setLevel1(nv); const linked = nv ? (taskCatalog.l2ByL1[nv] ?? []) : []; if (linked.length > 0 && !linked.includes(ctCode)) { setCtCode(""); setHangMuc(""); } }} />
+              )}
             </td>
           );
         }

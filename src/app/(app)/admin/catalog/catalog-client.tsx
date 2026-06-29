@@ -83,9 +83,15 @@ import {
   saveProjectGroup,
 } from "@/server/actions/projects";
 import { LevelColumn } from "./[workGroupId]/catalog-detail";
+import { CatalogG6Graph } from "@/components/catalog-g6-graph";
 import type { Result } from "@/server/actions/_helpers";
 
 const norm = removeVietnameseTones;
+function fmtProjectDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const [y, m, d] = value.split("-");
+  return y && m && d ? `${d}/${m}/${y}` : value;
+}
 
 // ---------- Kiểu dữ liệu hàng ----------
 type WorkGroupRow = { id: string; code: string; abbr: string | null; name: string; order: number; taskCount: number };
@@ -148,7 +154,7 @@ export function CatalogClient({
   const router = useRouter();
   const [tab, setTab] = React.useState<TabId>("groups");
   const [manageProjectsScope, setManageProjectsScope] = React.useState<string | null>(null);
-  const [projectsViewMode, setProjectsViewMode] = React.useState<"table" | "grouped">("table");
+  const [projectsViewMode, setProjectsViewMode] = React.useState<"table" | "grouped" | "g6">("table");
   const [groupedCollapsed, setGroupedCollapsed] = React.useState<Set<string>>(new Set());
   const [groupedCtCollapsed, setGroupedCtCollapsed] = React.useState<Set<string>>(new Set());
   const [groupedHmCollapsed, setGroupedHmCollapsed] = React.useState<Set<string>>(new Set());
@@ -677,8 +683,8 @@ export function CatalogClient({
                                     </button>
                                   </td>
                                   <td className="px-3 py-2" />
-                                  <td className="px-3 py-2 tabular-nums text-xs font-medium text-slate-600">{hmDateSource.startDate ?? <span className="text-slate-300">—</span>}</td>
-                                  <td className="px-3 py-2 tabular-nums text-xs font-medium text-slate-600">{hmDateSource.packagingDate ?? <span className="text-slate-300">—</span>}</td>
+                                  <td className="px-3 py-2 tabular-nums text-xs font-medium text-slate-600">{hmDateSource.startDate ? fmtProjectDate(hmDateSource.startDate) : <span className="text-slate-300">—</span>}</td>
+                                  <td className="px-3 py-2 tabular-nums text-xs font-medium text-slate-600">{hmDateSource.packagingDate ? fmtProjectDate(hmDateSource.packagingDate) : <span className="text-slate-300">—</span>}</td>
                                   <td className="px-3 py-2 text-right tabular-nums text-slate-600">{singleNoBlockItem?.scale ?? <span className="text-slate-300">—</span>}</td>
                                   <td className="px-3 py-2">{singleNoBlockItem ? rowActions(singleNoBlockItem) : null}</td>
                                 </tr>
@@ -777,14 +783,14 @@ export function CatalogClient({
 
   const projectsView = () => (
     <>
-      {/* Toggle Bảng / Dự án + Collapse/Expand All */}
+      {/* Toggle Bảng / Dự án / AntV G6 + Collapse/Expand All */}
       <div className="sticky top-[6.5rem] z-[25] -mx-4 mb-3 flex items-center gap-2 bg-background px-4 pb-2 pt-1 lg:-mx-6 lg:px-6">
-        {(["table", "grouped"] as const).map(m => (
+        {(["table", "grouped", "g6"] as const).map(m => (
           <button key={m} type="button" onClick={() => setProjectsViewMode(m)}
             className={cn("rounded-md px-3 py-1.5 text-sm font-medium transition",
               projectsViewMode === m ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200 hover:bg-slate-50"
             )}>
-            {m === "table" ? "Bảng" : "Dự án"}
+            {m === "table" ? "Bảng" : m === "grouped" ? "Dự án" : "AntV G6"}
           </button>
         ))}
         {projectsViewMode === "grouped" && (
@@ -812,7 +818,13 @@ export function CatalogClient({
           </>
         )}
       </div>
-      {projectsViewMode === "grouped" ? groupedProjectsView() :
+      {projectsViewMode === "g6" ? (
+        <CatalogG6Graph
+          projectGroups={generalProjectGroups}
+          projects={generalProjects}
+          constructionTypes={constructionTypes}
+        />
+      ) : projectsViewMode === "grouped" ? groupedProjectsView() :
     <FilterTable
       title="Dự án · Hạng mục"
       rows={generalProjects as unknown as Row[]}
@@ -893,10 +905,10 @@ export function CatalogClient({
         { key: "name", label: "Hạng mục", thClass: "w-72", filter: "text", text: (r) => String(r.name ?? ""), cell: (r) => <strong className="font-medium text-slate-800">{String(r.name)}</strong> },
         { key: "blockSystem", label: "Khối/Hệ thống", thClass: "w-44", filter: "text", text: (r) => String(r.blockSystem ?? ""),
           cell: (r) => r.blockSystem ? <span className="text-slate-700">{String(r.blockSystem)}</span> : <Dash /> },
-        { key: "startDate", label: "Bắt đầu", thClass: "w-32", filter: "text", text: (r) => String(r.startDate ?? ""),
-          cell: (r) => r.startDate ? <span className="tabular-nums text-slate-600">{String(r.startDate)}</span> : <Dash /> },
-        { key: "packagingDate", label: "Đóng gói", thClass: "w-32", filter: "text", text: (r) => String(r.packagingDate ?? ""),
-          cell: (r) => r.packagingDate ? <span className="tabular-nums text-slate-600">{String(r.packagingDate)}</span> : <Dash /> },
+        { key: "startDate", label: "Bắt đầu", thClass: "w-32", filter: "text", text: (r) => fmtProjectDate(r.startDate as string | null),
+          cell: (r) => r.startDate ? <span className="tabular-nums text-slate-600">{fmtProjectDate(r.startDate as string)}</span> : <Dash /> },
+        { key: "packagingDate", label: "Đóng gói", thClass: "w-32", filter: "text", text: (r) => fmtProjectDate(r.packagingDate as string | null),
+          cell: (r) => r.packagingDate ? <span className="tabular-nums text-slate-600">{fmtProjectDate(r.packagingDate as string)}</span> : <Dash /> },
         { key: "scale", label: "Quy mô (m² sàn)", thClass: "w-44", align: "right", filter: "text", text: (r) => String(r.scale ?? ""),
           cell: (r) => r.scale ? <span className="font-medium tabular-nums text-slate-700">{String(r.scale)}</span> : <Dash /> },
       ]}
