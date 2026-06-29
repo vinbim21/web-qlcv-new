@@ -884,7 +884,7 @@ export function ManageClient({
     }
     // Collapse g3 groups from catalog (kể cả nhóm chưa có task)
     for (const p of projects) {
-      if (activeWg && p.groupWorkGroupId !== activeWg) continue;
+      if (activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg) continue;
       const dk = p.groupCode || "—";
       const lk = p.constructionTypeCode || "—";
       const hk = p.name || "—";
@@ -894,11 +894,12 @@ export function ManageClient({
   }, [treeCollapsed, sorted, projects, activeWg]);
 
   // Catalog seed: group → loaiHinh → [hạng mục] (từ projects prop, đã gồm tất cả hạng mục kể cả chưa có task)
-  // Không lọc theo activeWg: tab workgroup chỉ ảnh hưởng task hiển thị bên trong hạng mục, không ẩn hạng mục.
+  // Lọc theo activeWg chỉ khi groupWorkGroupId đã được gán — null = chung, hiện trên mọi tab.
   const catalogSeed = React.useMemo(() => {
     // g1: Map<dk, Map<lk, Set<hk>>> — thứ tự catalog
     const seed = new Map<string, Map<string, Set<string>>>();
     for (const p of projects) {
+      if (activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg) continue;
       const dk = p.groupCode || "—";
       const lk = p.constructionTypeCode || "—";
       const hk = p.name || "—";
@@ -908,7 +909,7 @@ export function ManageClient({
       byLoai.get(lk)!.add(hk);
     }
     return seed;
-  }, [projects]);
+  }, [projects, activeWg]);
 
   const treeNodes = React.useMemo((): TreeNode[] => {
     const nodes: TreeNode[] = [];
