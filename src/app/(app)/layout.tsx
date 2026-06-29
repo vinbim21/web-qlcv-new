@@ -59,7 +59,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Breadcrumbs />
           </div>
           <div className="flex items-center gap-2">
-            <NotificationBell />
+            {/* <NotificationBell /> */}{/* tạm tắt — query DB mỗi 45s gây lag khi nhiều user */}
             <ThemeToggle />
             <Separator orientation="vertical" className="h-6" />
             <Badge variant="secondary" className="hidden sm:inline-flex">
