@@ -871,6 +871,16 @@ export function ManageClient({
     | { type: "insert"; ctx: NonNullable<typeof insertCtx> };
 
   // Mặc định: g1 (dự án) + g2 (loại hình) mở, chỉ thu g3 (hạng mục)
+  // Nhóm dùng cấu trúc Dự án → Hạng mục (catalog tab 2): QL + TT.
+  // Các nhóm khác (XD, DT, BT...) không dùng cấu trúc này → không pre-seed.
+  const PROJECT_BASED_ABBRS = new Set(["QL", "TT"]);
+  const activeWgAbbr = React.useMemo(
+    () => workGroups.find((w) => w.id === activeWg)?.abbr ?? null,
+    [workGroups, activeWg],
+  );
+  const useProjectSeed = !activeWg || PROJECT_BASED_ABBRS.has(activeWgAbbr ?? "");
+
+  // Collapse g3 groups from catalog — chỉ khi "Tất cả" hoặc nhóm dùng Dự án (QL/TT)
   const effectiveTreeCollapsed = React.useMemo(() => {
     if (treeCollapsed) return treeCollapsed;
     const keys = new Set<string>();
@@ -882,8 +892,7 @@ export function ManageClient({
       keys.add(`h:${dk}|${lk}|${hk}`);
       if (bk) keys.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
-    // Collapse g3 groups from catalog — chỉ khi tab "Tất cả" (activeWg="")
-    if (!activeWg) {
+    if (useProjectSeed) {
       for (const p of projects) {
         const dk = p.groupCode || "—";
         const lk = p.constructionTypeCode || "—";
@@ -892,14 +901,14 @@ export function ManageClient({
       }
     }
     return keys;
-  }, [treeCollapsed, sorted, projects, activeWg]);
+  }, [treeCollapsed, sorted, projects, useProjectSeed]);
 
   // Catalog seed: group → loaiHinh → [hạng mục] (từ projects prop, đã gồm tất cả hạng mục kể cả chưa có task)
-  // Chỉ pre-seed khi tab "Tất cả" — tab workgroup cụ thể chỉ show nhóm có task thực sự của nhóm đó.
+  // Pre-seed khi "Tất cả" hoặc nhóm dùng Dự án (QL/TT) — nhóm khác chỉ show task thực tế.
   const catalogSeed = React.useMemo(() => {
     // g1: Map<dk, Map<lk, Set<hk>>> — thứ tự catalog
     const seed = new Map<string, Map<string, Set<string>>>();
-    if (activeWg) return seed; // tab workgroup: không pre-seed, tránh hiện nhóm lạ
+    if (!useProjectSeed) return seed;
     for (const p of projects) {
       const dk = p.groupCode || "—";
       const lk = p.constructionTypeCode || "—";
@@ -910,7 +919,7 @@ export function ManageClient({
       byLoai.get(lk)!.add(hk);
     }
     return seed;
-  }, [projects, activeWg]);
+  }, [projects, useProjectSeed]);
 
   const treeNodes = React.useMemo((): TreeNode[] => {
     const nodes: TreeNode[] = [];
