@@ -882,24 +882,25 @@ export function ManageClient({
       keys.add(`h:${dk}|${lk}|${hk}`);
       if (bk) keys.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
-    // Collapse g3 groups from catalog (kể cả nhóm chưa có task)
-    for (const p of projects) {
-      if (activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg) continue;
-      const dk = p.groupCode || "—";
-      const lk = p.constructionTypeCode || "—";
-      const hk = p.name || "—";
-      keys.add(`h:${dk}|${lk}|${hk}`);
+    // Collapse g3 groups from catalog — chỉ khi tab "Tất cả" (activeWg="")
+    if (!activeWg) {
+      for (const p of projects) {
+        const dk = p.groupCode || "—";
+        const lk = p.constructionTypeCode || "—";
+        const hk = p.name || "—";
+        keys.add(`h:${dk}|${lk}|${hk}`);
+      }
     }
     return keys;
   }, [treeCollapsed, sorted, projects, activeWg]);
 
   // Catalog seed: group → loaiHinh → [hạng mục] (từ projects prop, đã gồm tất cả hạng mục kể cả chưa có task)
-  // Lọc theo activeWg chỉ khi groupWorkGroupId đã được gán — null = chung, hiện trên mọi tab.
+  // Chỉ pre-seed khi tab "Tất cả" — tab workgroup cụ thể chỉ show nhóm có task thực sự của nhóm đó.
   const catalogSeed = React.useMemo(() => {
     // g1: Map<dk, Map<lk, Set<hk>>> — thứ tự catalog
     const seed = new Map<string, Map<string, Set<string>>>();
+    if (activeWg) return seed; // tab workgroup: không pre-seed, tránh hiện nhóm lạ
     for (const p of projects) {
-      if (activeWg && p.groupWorkGroupId && p.groupWorkGroupId !== activeWg) continue;
       const dk = p.groupCode || "—";
       const lk = p.constructionTypeCode || "—";
       const hk = p.name || "—";
