@@ -612,6 +612,18 @@ export function ManageClient({
   }, [colWidths]);
   const draggingRef = React.useRef(false);
   const resizeStartRef = React.useRef<{ x: number; w: number; key: string } | null>(null);
+  const tableRef = React.useRef<HTMLTableElement>(null);
+  const [tableScaleX, setTableScaleX] = React.useState(1);
+  React.useEffect(() => {
+    const el = tableRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setTableScaleX(el.offsetWidth / totalMinW);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   React.useEffect(() => {
     try {
       const raw = window.localStorage.getItem(MANAGE_WIDTH_KEY);
@@ -1954,15 +1966,15 @@ export function ManageClient({
     return { startDate: t.projectStartDate, packagingDate: t.projectPackagingDate };
   }
 
-  // Pixel left của cột key trong bảng (tính từ cạnh trái table, bao gồm cả sel col).
+  // Pixel left của cột key trong bảng (tính từ cạnh trái table, scaled theo chiều rộng thực).
   function colLeft(key: string): number {
     const selW = canManage ? MANAGE_SEL_PX : 0;
     let x = selW;
     for (const c of cols) {
-      if (c.key === key) return x;
+      if (c.key === key) return Math.round(x * tableScaleX);
       x += widthOf(c.key);
     }
-    return x;
+    return Math.round(x * tableScaleX);
   }
 
   // Dòng tiêu đề nhóm trong tree view Bảng (3 cấp với indent khác nhau).
@@ -2328,21 +2340,20 @@ export function ManageClient({
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {(
           [
-            { key: "DANG_LAM", label: "Đang làm", n: kpi.doing, Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
-            { key: "HOAN_THANH", label: "Hoàn thành", n: kpi.done, Icon: CheckCircle2, tone: "border-green-200 bg-green-50 text-green-700" },
-            { key: "SAP_HAN", label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon, Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
-            { key: "QUA_HAN", label: "Quá hạn", n: kpi.overdue, Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
-            { key: "CHUA_GIAO", label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX, tone: "border-slate-200 bg-slate-50 text-slate-700" },
+            { key: "DANG_LAM",   label: "Đang làm",              n: kpi.doing,               Icon: Activity,     tone: "border-blue-200   bg-blue-50   text-blue-700",   activeTone: "border-blue-400   bg-blue-200   text-black" },
+            { key: "HOAN_THANH", label: "Hoàn thành",            n: kpi.done,                Icon: CheckCircle2, tone: "border-green-200  bg-green-50  text-green-700",  activeTone: "border-green-400  bg-green-200  text-black" },
+            { key: "SAP_HAN",    label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon,               Icon: Clock,        tone: "border-amber-200  bg-amber-50  text-amber-700",  activeTone: "border-amber-400  bg-amber-200  text-black" },
+            { key: "QUA_HAN",    label: "Quá hạn",               n: kpi.overdue,             Icon: AlertTriangle, tone: "border-red-200   bg-red-50    text-red-700",    activeTone: "border-red-400    bg-red-200    text-black" },
+            { key: "CHUA_GIAO",  label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX,        tone: "border-violet-200 bg-violet-50 text-violet-700", activeTone: "border-violet-400 bg-violet-200 text-black" },
           ] as const
-        ).map(({ key, label, n, Icon, tone }) => (
+        ).map(({ key, label, n, Icon, tone, activeTone }) => (
           <button
             key={key}
             type="button"
             onClick={() => setQuick((q) => (q === key ? "" : key))}
             className={cn(
               "flex items-center gap-3 rounded-lg border p-3 text-left transition",
-              tone,
-              quick === key ? "ring-2 ring-green-500 ring-offset-1" : "hover:brightness-95",
+              quick === key ? activeTone : [tone, "hover:brightness-95"],
             )}
           >
             <Icon className="size-5 shrink-0" />
@@ -2525,6 +2536,7 @@ export function ManageClient({
           {/* border-separate + border-spacing-0 + <colgroup>: bề rộng cột khớp tuyệt đối với leftOf
               (cộng dồn colWidths) → cột ghim không lệch px → không hở khe khi cuộn ngang. */}
           <table
+            ref={tableRef}
             className="text-sm"
             style={{ width: "100%", minWidth: totalMinW, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}
           >

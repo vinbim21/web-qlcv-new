@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Plus, X } from "lucide-react";
+import { SearchableCombobox } from "@/components/searchable-combobox";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -180,35 +181,47 @@ export function TimesheetEntryDialog({
           <div className="space-y-2">
             {groupCodes.length > 0 ? (
               <div className="space-y-1.5">
-                <Label>Dự án</Label>
-                <Select value={filterGroup} onChange={(e) => handleGroupChange(e.target.value)}>
-                  <option value="">— Tất cả —</option>
-                  {groupCodes.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </Select>
+                <div className="flex items-center justify-between">
+                  <Label>Dự án</Label>
+                  {filterGroup && <button type="button" onClick={() => handleGroupChange("")} className="text-xs text-muted-foreground hover:text-foreground">× Xóa</button>}
+                </div>
+                <SearchableCombobox
+                  value={filterGroup}
+                  onChange={handleGroupChange}
+                  options={groupCodes}
+                  placeholder="— Tất cả —"
+                  creatable={false}
+                />
               </div>
             ) : null}
             {loaiHinhCodes.length > 0 ? (
               <div className="space-y-1.5">
-                <Label>Loại hình</Label>
-                <Select value={filterLoaiHinh} onChange={(e) => handleLoaiHinhChange(e.target.value)}>
-                  <option value="">— Tất cả —</option>
-                  {loaiHinhCodes.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </Select>
+                <div className="flex items-center justify-between">
+                  <Label>Loại hình</Label>
+                  {filterLoaiHinh && <button type="button" onClick={() => handleLoaiHinhChange("")} className="text-xs text-muted-foreground hover:text-foreground">× Xóa</button>}
+                </div>
+                <SearchableCombobox
+                  value={filterLoaiHinh}
+                  onChange={handleLoaiHinhChange}
+                  options={loaiHinhCodes}
+                  placeholder="— Tất cả —"
+                  creatable={false}
+                />
               </div>
             ) : null}
             {level3Values.length > 0 ? (
               <div className="space-y-1.5">
-                <Label>Hạng mục</Label>
-                <Select value={filterLevel3} onChange={(e) => handleLevel3Change(e.target.value)}>
-                  <option value="">— Tất cả —</option>
-                  {level3Values.map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
-                </Select>
+                <div className="flex items-center justify-between">
+                  <Label>Hạng mục</Label>
+                  {filterLevel3 && <button type="button" onClick={() => handleLevel3Change("")} className="text-xs text-muted-foreground hover:text-foreground">× Xóa</button>}
+                </div>
+                <SearchableCombobox
+                  value={filterLevel3}
+                  onChange={handleLevel3Change}
+                  options={level3Values}
+                  placeholder="— Tất cả —"
+                  creatable={false}
+                />
               </div>
             ) : null}
             <div className="space-y-1.5">

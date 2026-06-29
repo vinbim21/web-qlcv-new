@@ -4,6 +4,28 @@ Lịch sử cập nhật tính năng theo ngày, mới nhất ở trên.
 
 ---
 
+## 2026-06-29 (phiên 3)
+
+### Quản lý công việc (`/manage`) & Công việc của tôi (`/tasks`)
+
+- **Fix: Ngày dự án bị lệch cột khi đổi tỷ lệ zoom trình duyệt**
+  - Trước: ở 100% zoom ngày thẳng cột, zoom 80-90% thì ngày Bắt đầu/Kết thúc lệch hẳn sang phải
+  - Nguyên nhân: table `width: 100%` khiến cột stretch theo viewport CSS pixel (zoom 80% → viewport rộng hơn ~25%), nhưng `colLeft()` vẫn dùng pixel cứng từ `colWidths[]`
+  - Sau: dùng `ResizeObserver` đo chiều rộng thực của table, tính hệ số scale (`tableScaleX = actualWidth / totalMinW`), nhân vào `colLeft()` → ngày luôn căn đúng cột ở mọi tỷ lệ zoom
+
+### Timesheet (`/timesheet`)
+
+- **Fix: Hiển thị đúng mã Dự án cho nhóm HTTC BIM trong dialog ghi giờ**
+  - Trước: nhóm HTTC BIM (Level 3 gắn `projectGroupId` thay vì `parentId` L2→L1) không tìm được mã dự án
+  - Sau: bổ sung tra cứu `L3 → projectGroup.code` song song với tra cứu L2→L1 catalog
+
+- **Dropdown Dự án / Loại hình / Hạng mục trong dialog ghi giờ có thể tìm kiếm**
+  - Trước: dùng `<select>` thuần HTML, không gõ tìm được
+  - Sau: đổi sang `SearchableCombobox` — gõ để lọc nhanh khi danh sách dài
+  - Thêm nút **× Xóa** cạnh nhãn để reset từng bộ lọc một click
+
+---
+
 ## 2026-06-29 (phiên 2)
 
 ### Giao diện chung — Chọn ngày dd/mm/yyyy

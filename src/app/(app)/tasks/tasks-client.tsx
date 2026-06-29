@@ -1297,6 +1297,19 @@ export function TasksClient({
   const clearSel = () => setSelected(new Set());
   const allVisibleSelected = sorted.length > 0 && sorted.every((t) => selected.has(t.id));
 
+  const tableRef = React.useRef<HTMLTableElement>(null);
+  const [tableScaleX, setTableScaleX] = React.useState(1);
+  React.useEffect(() => {
+    const el = tableRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setTableScaleX(el.offsetWidth / totalW);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Shift+click = chọn dải (anchor → dòng hiện tại); click/Ctrl = bật-tắt 1 dòng.
   const anchorRef = React.useRef<string | null>(null);
   function onCheckClick(e: React.MouseEvent, id: string) {
@@ -1719,14 +1732,14 @@ export function TasksClient({
     return { startDate: t.projectStartDate, packagingDate: t.projectPackagingDate };
   }
 
-  // Pixel left của cột key (tính từ cạnh trái table, bao gồm sel col).
+  // Pixel left của cột key (tính từ cạnh trái table, scaled theo chiều rộng thực).
   function taskColLeft(key: string): number {
     let x = SEL_W;
     for (const c of cols) {
-      if (c.key === key) return x;
+      if (c.key === key) return Math.round(x * tableScaleX);
       x += c.w;
     }
-    return x;
+    return Math.round(x * tableScaleX);
   }
 
   // Dòng tiêu đề nhóm trong tree view (Dự án → Loại hình → Hạng mục → Khối/Hệ thống)
@@ -1863,21 +1876,20 @@ export function TasksClient({
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-5">
         {(
           [
-            { key: "DANG_LAM", n: kpi.doing, label: "Đang làm", Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
-            { key: "HOAN_THANH", n: kpi.done, label: "Hoàn thành", Icon: CheckCircle2, tone: "border-green-200 bg-green-50 text-green-700" },
-            { key: "SAP_HAN", n: kpi.soon, label: "Sắp đến hạn (≤3 ngày)", Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
-            { key: "QUA_HAN", n: kpi.overdue, label: "Quá hạn", Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
-            { key: "CHO_DUYET", n: kpi.pendingApproval, label: "Chờ duyệt", Icon: ShieldCheck, tone: "border-violet-200 bg-violet-50 text-violet-700" },
+            { key: "DANG_LAM",    n: kpi.doing,           label: "Đang làm",            Icon: Activity,     tone: "border-blue-200   bg-blue-50   text-blue-700",   activeTone: "border-blue-400   bg-blue-200   text-black" },
+            { key: "HOAN_THANH", n: kpi.done,             label: "Hoàn thành",           Icon: CheckCircle2, tone: "border-green-200  bg-green-50  text-green-700",  activeTone: "border-green-400  bg-green-200  text-black" },
+            { key: "SAP_HAN",    n: kpi.soon,             label: "Sắp đến hạn (≤3 ngày)", Icon: Clock,       tone: "border-amber-200  bg-amber-50  text-amber-700",  activeTone: "border-amber-400  bg-amber-200  text-black" },
+            { key: "QUA_HAN",    n: kpi.overdue,          label: "Quá hạn",              Icon: AlertTriangle, tone: "border-red-200   bg-red-50    text-red-700",    activeTone: "border-red-400    bg-red-200    text-black" },
+            { key: "CHO_DUYET",  n: kpi.pendingApproval,  label: "Chờ duyệt",            Icon: ShieldCheck,  tone: "border-violet-200 bg-violet-50 text-violet-700", activeTone: "border-violet-400 bg-violet-200 text-black" },
           ] as const
-        ).map(({ key, n, label, Icon, tone }) => (
+        ).map(({ key, n, label, Icon, tone, activeTone }) => (
           <button
             key={key}
             type="button"
             onClick={() => setQuick((q) => (q === key ? "" : key))}
             className={cn(
               "flex items-center gap-3 rounded-lg border p-3 text-left transition",
-              tone,
-              quick === key ? "ring-2 ring-green-500 ring-offset-1" : "hover:brightness-[0.97]",
+              quick === key ? activeTone : [tone, "hover:brightness-[0.97]"],
             )}
           >
             <Icon className="size-5 shrink-0" />
@@ -2037,7 +2049,7 @@ export function TasksClient({
           ) : null}
         </div>
         <div className="max-h-[calc(100svh-170px)] overflow-auto">
-          <table className="border-separate border-spacing-0 text-sm" style={{ width: "100%", minWidth: totalW, tableLayout: "fixed" }}>
+          <table ref={tableRef} className="border-separate border-spacing-0 text-sm" style={{ width: "100%", minWidth: totalW, tableLayout: "fixed" }}>
             <colgroup>
               <col style={{ width: SEL_W }} />
               {cols.map((c) => (
