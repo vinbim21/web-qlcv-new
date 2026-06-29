@@ -70,6 +70,23 @@ async function ensureCatalog(workGroupId: string, level: number, value?: string 
   });
 }
 
+async function ensureLevel2Parent(workGroupId: string, level1?: string | null, level2?: string | null) {
+  const l1 = level1?.trim();
+  const l2 = level2?.trim();
+  if (!l1 || !l2) return;
+  const parent = await prisma.catalogItem.upsert({
+    where: { workGroupId_level_value: { workGroupId, level: 1, value: l1 } },
+    update: {},
+    create: { workGroupId, level: 1, value: l1 },
+    select: { id: true },
+  });
+  await prisma.catalogItem.upsert({
+    where: { workGroupId_level_value: { workGroupId, level: 2, value: l2 } },
+    update: { parentId: parent.id },
+    create: { workGroupId, level: 2, value: l2, parentId: parent.id },
+  });
+}
+
 // Người duyệt (nếu có) phải là ADMIN / Cấp 1 / Cấp 2.
 async function validateApprovers(approverIds: string[]) {
   if (approverIds.length === 0) return;
@@ -323,8 +340,9 @@ export async function saveTask(input: unknown) {
       });
     });
 
+    await ensureLevel2Parent(data.workGroupId, data.level1, data.level2);
     await Promise.all([
-      ensureCatalog(data.workGroupId, 2, data.level2),
+      data.level1 ? Promise.resolve() : ensureCatalog(data.workGroupId, 2, data.level2),
       ensureCatalog(data.workGroupId, 3, data.level3),
       ensureCatalog(data.workGroupId, 5, data.level5),
     ]);
@@ -352,9 +370,13 @@ export async function saveTasksBatch(input: unknown) {
     await prisma.$transaction((tx) => createTasksBatchTx(tx, rows, { actorId: user.id }));
 
     // Bổ sung danh mục Level 2/3/5 mới cho từng nhóm.
+    for (const key of new Set(rows.filter((r) => r.level1 && r.level2).map((r) => `${r.workGroupId}\u0000${r.level1}\u0000${r.level2}`))) {
+      const [workGroupId, level1, level2] = key.split("\u0000");
+      await ensureLevel2Parent(workGroupId, level1, level2);
+    }
     await Promise.all(
       rows.flatMap((r) => [
-        ensureCatalog(r.workGroupId, 2, r.level2),
+        r.level1 ? Promise.resolve() : ensureCatalog(r.workGroupId, 2, r.level2),
         ensureCatalog(r.workGroupId, 3, r.level3),
         ensureCatalog(r.workGroupId, 5, r.level5),
       ]),
@@ -402,9 +424,13 @@ export async function saveMyTasks(input: unknown) {
         })),
     );
 
+    for (const key of new Set(rows.filter((r) => r.level1 && r.level2).map((r) => `${r.workGroupId}\u0000${r.level1}\u0000${r.level2}`))) {
+      const [workGroupId, level1, level2] = key.split("\u0000");
+      await ensureLevel2Parent(workGroupId, level1, level2);
+    }
     await Promise.all(
       rows.flatMap((r) => [
-        ensureCatalog(r.workGroupId, 2, r.level2),
+        r.level1 ? Promise.resolve() : ensureCatalog(r.workGroupId, 2, r.level2),
         ensureCatalog(r.workGroupId, 3, r.level3),
         ensureCatalog(r.workGroupId, 5, r.level5),
       ]),
@@ -512,17 +538,17 @@ export async function saveTaskResult(input: unknown) {
   });
 }
 
-/** Tạm dừng / bỏ tạm dừng — CHỈ Quản trị/Cấp 1. Không áp lên việc đã hoàn thành. */
+/** Tạm dừng / bỏ tạm dừng — Quản trị/Cấp 1 hoặc người được giao. Không áp lên việc đã hoàn thành. */
 export async function setTaskPaused(input: unknown) {
   return runAction(async () => {
     const user = await requireUser();
-    if (!canManage(user.role)) throw new Error("Chỉ Quản trị/Cấp 1 được tạm dừng công việc");
     const data = taskPausedSchema.parse(input);
     const t = await prisma.task.findUnique({
       where: { id: data.id },
-      select: { plannedStart: true, actualEnd: true, _count: { select: { assignees: true } } },
+      select: { plannedStart: true, actualEnd: true, _count: { select: { assignees: true } }, assignees: { where: { userId: user.id }, select: { id: true } } },
     });
     if (!t) throw new Error("Không tìm thấy công việc");
+    if (!canManage(user.role) && t.assignees.length === 0) throw new Error("Bạn không được giao công việc này");
     if (data.paused) {
       if (t.actualEnd) throw new Error("Việc đã hoàn thành — bỏ ngày hoàn thành trước khi tạm dừng");
       await prisma.task.update({ where: { id: data.id }, data: { status: "TAM_DUNG" } });

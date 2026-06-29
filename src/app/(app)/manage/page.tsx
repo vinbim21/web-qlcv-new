@@ -59,6 +59,14 @@ export default async function ManagePage({
   const catalogPgMap = new Map(
     catalogL3.map((c) => [`${c.workGroupId}::${c.value}`, c.projectGroup]),
   );
+  const catalogL1ByL2 = new Map<string, string>();
+  for (const [workGroupId, cat] of Object.entries(lookups.catalog)) {
+    for (const [level1, level2s] of Object.entries(cat.l2ByL1 ?? {})) {
+      for (const level2 of level2s) {
+        catalogL1ByL2.set(`${workGroupId}::${level2}`, level1);
+      }
+    }
+  }
 
   return (
     <ManageClient
@@ -79,8 +87,8 @@ export default async function ManagePage({
         blockSystem: t.project?.blockSystem ?? null,
         projectStartDate: t.project?.startDate ? iso(t.project.startDate) : null,
         projectPackagingDate: t.project?.packagingDate ? iso(t.project.packagingDate) : null,
-        groupCode: t.project?.group?.code ?? catalogPgMap.get(`${t.workGroupId}::${t.level3}`)?.code ?? null,
-        groupName: t.project?.group?.name ?? catalogPgMap.get(`${t.workGroupId}::${t.level3}`)?.name ?? null,
+        groupCode: t.project?.group?.code ?? catalogPgMap.get(`${t.workGroupId}::${t.level3}`)?.code ?? catalogL1ByL2.get(`${t.workGroupId}::${t.level2}`) ?? null,
+        groupName: t.project?.group?.name ?? catalogPgMap.get(`${t.workGroupId}::${t.level3}`)?.name ?? catalogL1ByL2.get(`${t.workGroupId}::${t.level2}`) ?? null,
         loaiHinhCode: t.project?.constructionType?.code ?? null,
         disciplineId: t.disciplineId,
         disciplineCode: t.discipline?.code ?? null,

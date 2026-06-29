@@ -20,7 +20,7 @@ import {
 } from "@/server/actions/catalog";
 import { deleteProject, saveBimProject } from "@/server/actions/projects";
 
-type Item = { id: string; value: string };
+type Item = { id: string; value: string; parentId?: string | null };
 type ProjectRow = { id: string; code: string; name: string; scale: string | null };
 
 export function CatalogDetail({
@@ -82,7 +82,7 @@ export function CatalogDetail({
       ) : (
         <div className="grid gap-4 lg:grid-cols-4">
           <LevelColumn title="Level 1 — Tên dự án" workGroupId={workGroupId} level={1} items={level1} />
-          <LevelColumn title="Level 2 — Loại hình" workGroupId={workGroupId} level={2} items={level2} />
+          <LevelColumn title="Level 2 — Loại hình" workGroupId={workGroupId} level={2} items={level2} level1Items={level1.length ? level1 : undefined} />
           <LevelColumn title="Level 3 — Hạng mục" workGroupId={workGroupId} level={3} items={level3} />
           <LevelColumn title="Level 5 — Đầu việc" workGroupId={workGroupId} level={5} items={level5} />
         </div>
@@ -181,18 +181,29 @@ export function LevelColumn({
   workGroupId,
   level,
   items,
+  level1Items,
 }: {
   title: string;
   workGroupId: string;
   level: number;
   items: Item[];
+  level1Items?: Item[];
 }) {
   const router = useRouter();
   const [adding, setAdding] = React.useState("");
+  const [addingParentId, setAddingParentId] = React.useState("");
   const [pending, setPending] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [editId, setEditId] = React.useState<string | null>(null);
   const [editVal, setEditVal] = React.useState("");
+  const [editParentId, setEditParentId] = React.useState("");
+
+  const showParent = level === 2 && !!level1Items?.length;
+  const l1NameById = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const it of (level1Items ?? [])) m.set(it.id, it.value);
+    return m;
+  }, [level1Items]);
 
   const q = removeVietnameseTones(search);
   const shown = search ? items.filter((i) => removeVietnameseTones(i.value).includes(q)) : items;
@@ -201,7 +212,7 @@ export function LevelColumn({
     const v = adding.trim();
     if (!v) return;
     setPending(true);
-    const res = await addCatalogValue(workGroupId, level, v);
+    const res = await addCatalogValue(workGroupId, level, v, addingParentId || null);
     setPending(false);
     if (res.ok) {
       setAdding("");
@@ -210,7 +221,8 @@ export function LevelColumn({
     } else toast.error(res.error);
   }
   async function save(id: string) {
-    const res = await updateCatalogValue(id, editVal);
+    const parentArg = showParent ? (editParentId || null) : undefined;
+    const res = await updateCatalogValue(id, editVal, parentArg);
     if (res.ok) {
       setEditId(null);
       toast.success("Đã lưu");
@@ -234,6 +246,18 @@ export function LevelColumn({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
+        {showParent ? (
+          <select
+            value={addingParentId}
+            onChange={(e) => setAddingParentId(e.target.value)}
+            className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+          >
+            <option value="">— Chưa chọn dự án —</option>
+            {level1Items!.map((it) => (
+              <option key={it.id} value={it.id}>{it.value}</option>
+            ))}
+          </select>
+        ) : null}
         <div className="flex gap-2">
           <Input
             placeholder="Thêm giá trị mới..."
@@ -266,28 +290,50 @@ export function LevelColumn({
               className="flex items-center gap-1 rounded-md border px-2 py-1 text-sm"
             >
               {editId === it.id ? (
-                <>
-                  <Input
-                    value={editVal}
-                    onChange={(e) => setEditVal(e.target.value)}
-                    className="h-7"
-                    autoFocus
-                  />
-                  <button type="button" onClick={() => save(it.id)} title="Lưu">
-                    <Check className="size-4 text-emerald-600" />
-                  </button>
-                  <button type="button" onClick={() => setEditId(null)} title="Hủy">
-                    <X className="size-4 text-muted-foreground" />
-                  </button>
-                </>
+                <div className="flex flex-1 flex-col gap-1">
+                  {showParent ? (
+                    <select
+                      value={editParentId}
+                      onChange={(e) => setEditParentId(e.target.value)}
+                      className="h-7 w-full rounded border border-input bg-background px-1 text-xs"
+                    >
+                      <option value="">— Chưa chọn dự án —</option>
+                      {level1Items!.map((l1) => (
+                        <option key={l1.id} value={l1.id}>{l1.value}</option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <div className="flex gap-1">
+                    <Input
+                      value={editVal}
+                      onChange={(e) => setEditVal(e.target.value)}
+                      className="h-7 flex-1"
+                      autoFocus
+                    />
+                    <button type="button" onClick={() => save(it.id)} title="Lưu">
+                      <Check className="size-4 text-emerald-600" />
+                    </button>
+                    <button type="button" onClick={() => setEditId(null)} title="Hủy">
+                      <X className="size-4 text-muted-foreground" />
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <>
-                  <span className="flex-1 truncate">{it.value}</span>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate">{it.value}</span>
+                    {showParent && it.parentId ? (
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        {l1NameById.get(it.parentId) ?? ""}
+                      </span>
+                    ) : null}
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
                       setEditId(it.id);
                       setEditVal(it.value);
+                      setEditParentId(it.parentId ?? "");
                     }}
                     title="Sửa"
                   >
