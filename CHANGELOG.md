@@ -4,6 +4,74 @@ Lịch sử cập nhật tính năng theo ngày, mới nhất ở trên.
 
 ---
 
+## 2026-06-29 (phiên 3)
+
+### Quản lý công việc (`/manage`) & Công việc của tôi (`/tasks`)
+
+- **Fix: Ngày dự án bị lệch cột khi đổi tỷ lệ zoom trình duyệt**
+  - Trước: ở 100% zoom ngày thẳng cột, zoom 80-90% thì ngày Bắt đầu/Kết thúc lệch hẳn sang phải
+  - Nguyên nhân: table `width: 100%` khiến cột stretch theo viewport CSS pixel (zoom 80% → viewport rộng hơn ~25%), nhưng `colLeft()` vẫn dùng pixel cứng từ `colWidths[]`
+  - Sau: dùng `ResizeObserver` đo chiều rộng thực của table, tính hệ số scale (`tableScaleX = actualWidth / totalMinW`), nhân vào `colLeft()` → ngày luôn căn đúng cột ở mọi tỷ lệ zoom
+
+### Timesheet (`/timesheet`)
+
+- **Fix: Hiển thị đúng mã Dự án cho nhóm HTTC BIM trong dialog ghi giờ**
+  - Trước: nhóm HTTC BIM (Level 3 gắn `projectGroupId` thay vì `parentId` L2→L1) không tìm được mã dự án
+  - Sau: bổ sung tra cứu `L3 → projectGroup.code` song song với tra cứu L2→L1 catalog
+
+- **Dropdown Dự án / Loại hình / Hạng mục trong dialog ghi giờ có thể tìm kiếm**
+  - Trước: dùng `<select>` thuần HTML, không gõ tìm được
+  - Sau: đổi sang `SearchableCombobox` — gõ để lọc nhanh khi danh sách dài
+  - Thêm nút **× Xóa** cạnh nhãn để reset từng bộ lọc một click
+
+---
+
+## 2026-06-29 (phiên 2)
+
+### Giao diện chung — Chọn ngày dd/mm/yyyy
+
+- **Component `DateInput` mới** — thay thế toàn bộ `<input type="date">` trên hệ thống
+  - Hiển thị theo định dạng **dd/mm/yyyy** (không phụ thuộc locale trình duyệt)
+  - Gõ tay: tự chèn dấu `/` khi nhập số, mask tự động
+  - Click **icon lịch** ở góc phải → mở native calendar picker như cũ
+  - Áp dụng cho: `/tasks`, `/manage`, `/assign`, `/timesheet`, `/admin/catalog`, `/admin/projects`, form tạo/sửa công việc, dialog ghi giờ
+
+### Công việc của tôi (`/tasks`) & Quản lý công việc (`/manage`)
+
+- **Filter nhanh "Hoàn thành"** — thẻ KPI mới vị trí thứ 2 (sau "Đang làm")
+  - Bấm thẻ để chỉ hiện task có trạng thái Hoàn thành
+  - Số hiển thị: tổng task đã hoàn thành trong phạm vi lọc hiện tại
+  - Màu xanh lá (`border-green-200 bg-green-50 text-green-700`)
+
+- **Thẻ KPI được chọn hiển thị viền xanh lá**
+  - Trước: viền xám (`ring-slate-400`) khi chọn thẻ lọc nhanh
+  - Sau: viền **xanh lá** (`ring-green-500`) để người dùng nhận ra ngay bộ lọc đang bật
+
+- **Bảng fit toàn chiều rộng** — hết khoảng trắng thừa khi zoom nhỏ
+  - Table dùng `width: 100%` + `minWidth` thay vì width pixel cứng
+  - Cột "Kết quả" (cột cuối) co giãn hấp thụ phần thừa khi màn hình rộng
+  - Vẫn giữ scroll ngang khi thu hẹp xuống dưới độ rộng tối thiểu
+
+### Đề xuất đổi hạn (`/tasks`)
+
+- **Cho phép gửi đề xuất không có ngày mới** (người thực hiện chưa biết tiến độ)
+  - Trước: bắt buộc phải chọn ngày → block người dùng
+  - Sau: assignee có thể để trống ngày → badge hiển thị "Xin dời hạn (chưa có ngày)"
+  - Quản trị/Cấp 1 vẫn bắt buộc chọn ngày khi đổi hạn trực tiếp
+  - Nút "Duyệt ngày mới" chỉ hiện khi đề xuất có ngày cụ thể
+
+### Timesheet (`/timesheet`)
+
+- **Cascade dropdown lọc task đúng cho nhóm không có dự án** (HTTC BIM, Đào tạo, ...)
+  - Trước: chỉ nhóm QL/TT mới có Dự án → Loại hình → Hạng mục; các nhóm khác để trống
+  - Sau: mọi nhóm đều có đủ 3 cấp cascade:
+    - **Dự án** = Level 1 catalog (mã, không lấy tên)
+    - **Loại hình** = Level 2 catalog (mã)
+    - **Hạng mục** = Level 3 catalog (mã)
+  - Entry đã ghi giờ cũng hiển thị đúng 3 mã này thay vì để trống
+
+---
+
 ## 2026-06-29
 
 ### Quản lý công việc (`/manage`) & Công việc của tôi (`/tasks`)

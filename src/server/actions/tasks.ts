@@ -956,16 +956,17 @@ export async function bulkSetPlannedStart(input: unknown) {
   });
 }
 
-/** Gửi yêu cầu đổi ngày kết thúc (nhiều task). Manager → đổi trực tiếp; Assignee → pending chờ duyệt. */
+/** Gửi yêu cầu đổi ngày kết thúc (nhiều task). Manager → đổi trực tiếp; Assignee → pending chờ duyệt.
+ *  plannedEnd có thể để trống (assignee chưa biết ngày mới — chỉ muốn báo manager). */
 export async function requestEndDateChange(input: unknown) {
   return runAction(async () => {
     const user = await requireUser();
-    const { ids, plannedEnd, note } = input as { ids: string[]; plannedEnd: string; note?: string };
-    const d = toDate(plannedEnd);
-    if (!d) throw new Error("Ngày không hợp lệ");
+    const { ids, plannedEnd, note } = input as { ids: string[]; plannedEnd?: string | null; note?: string };
+    const d = plannedEnd ? toDate(plannedEnd) : null;
     const isManager = canManage(user.role);
     if (isManager) {
-      // Quản lý: đổi trực tiếp, xóa pending nếu có
+      // Quản lý: đổi trực tiếp — phải có ngày
+      if (!d) throw new Error("Ngày không hợp lệ");
       const res = await prisma.task.updateMany({
         where: { id: { in: ids }, deletedAt: null },
         data: { plannedEnd: d, pendingPlannedEnd: null, endChangeRequesterId: null, endChangeNote: null },
@@ -978,7 +979,7 @@ export async function requestEndDateChange(input: unknown) {
       revalidateTaskViews();
       return res.count;
     } else {
-      // Assignee: lưu pending, chờ quản lý duyệt
+      // Assignee: lưu pending, chờ quản lý duyệt. Cho phép ngày trống (chưa biết hạn mới).
       const affected = await prisma.task.findMany({
         where: { id: { in: ids }, deletedAt: null, assignees: { some: { userId: user.id } } },
         select: { id: true, name: true },
@@ -989,13 +990,14 @@ export async function requestEndDateChange(input: unknown) {
         data: { pendingPlannedEnd: d, endChangeRequesterId: user.id, endChangeNote: note?.trim() || null },
       });
       const taskName = affected.length === 1 ? affected[0].name : `${affected.length} công việc`;
+      const dateStr = d ? ` → ${plannedEnd}` : " (chưa có ngày)";
       const noteStr = note?.trim() ? ` — ${note.trim()}` : "";
       await notifyManagers({
         actorId: user.id,
         type: "TASK_DEADLINE_CHANGE_REQUESTED",
         taskId: affected.length === 1 ? affected[0].id : null,
         title: "Đề xuất dời hạn",
-        body: `${user.fullName ?? user.email} xin dời hạn: ${taskName} → ${plannedEnd}${noteStr}`,
+        body: `${user.fullName ?? user.email} xin dời hạn: ${taskName}${dateStr}${noteStr}`,
       });
       revalidateTaskViews();
       return affected.length;

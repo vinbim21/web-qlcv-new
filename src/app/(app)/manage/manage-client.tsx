@@ -7,6 +7,7 @@ import {
   ArrowUp,
   Calendar,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -77,6 +78,7 @@ import {
 } from "@/server/actions/tasks";
 import { saveCatalogProject } from "@/server/actions/projects";
 import { SearchableCombobox } from "@/components/searchable-combobox";
+import { DateInput } from "@/components/ui/date-input";
 
 
 // Tinh chỉnh hiển thị bảng (mặc định chốt theo bản thiết kế — chưa làm panel Tweaks).
@@ -146,6 +148,7 @@ export type TaskRow = {
   approverName: string | null;
   startApproved: boolean;
   pendingPlannedEnd: string | null;
+  endChangeRequesterId: string | null;
   endChangeRequesterName: string | null;
   endChangeNote: string | null;
   deleteRequestedAt: string | null;
@@ -163,7 +166,7 @@ function isPendingApproval(t: TaskRow): boolean {
 
 // Có yêu cầu dời hạn đang chờ quản lý duyệt.
 function hasPendingDeadline(t: TaskRow): boolean {
-  return !!t.pendingPlannedEnd;
+  return !!t.pendingPlannedEnd || !!t.endChangeRequesterId;
 }
 
 function isOverdue(t: TaskRow): boolean {
@@ -508,7 +511,7 @@ export function ManageClient({
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
   // Lọc nhanh từ dải KPI.
-  const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM">("manage:quick", "");
+  const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM" | "HOAN_THANH">("manage:quick", "");
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
   const [timePeriod, setTimePeriod] = useLocalStorage<PeriodType>("manage:timePeriod", "week");
@@ -609,6 +612,18 @@ export function ManageClient({
   }, [colWidths]);
   const draggingRef = React.useRef(false);
   const resizeStartRef = React.useRef<{ x: number; w: number; key: string } | null>(null);
+  const tableRef = React.useRef<HTMLTableElement>(null);
+  const [tableScaleX, setTableScaleX] = React.useState(1);
+  React.useEffect(() => {
+    const el = tableRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setTableScaleX(el.offsetWidth / totalMinW);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   React.useEffect(() => {
     try {
       const raw = window.localStorage.getItem(MANAGE_WIDTH_KEY);
@@ -741,6 +756,7 @@ export function ManageClient({
     let unassigned = 0;
     let unassignedOrPending = 0;
     let doing = 0;
+    let done = 0;
     let progSum = 0;
     for (const t of scope) {
       if (isOverdue(t)) overdue++;
@@ -748,6 +764,7 @@ export function ManageClient({
       if (t.assigneeIds.length === 0) unassigned++;
       if (t.assigneeIds.length === 0 || isPendingApproval(t) || hasPendingDeadline(t) || !!t.deleteRequestedAt) unassignedOrPending++;
       if (effOf(t) === "DANG_LAM") doing++;
+      if (effOf(t) === "HOAN_THANH") done++;
       progSum += t.progressPercent;
     }
     return {
@@ -756,6 +773,7 @@ export function ManageClient({
       unassigned,
       unassignedOrPending,
       doing,
+      done,
       avg: scope.length ? Math.round(progSum / scope.length) : 0,
     };
   }, [kpiBase, activeWg]);
@@ -767,6 +785,7 @@ export function ManageClient({
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "CHUA_GIAO" && t.assigneeIds.length !== 0 && !isPendingApproval(t) && !hasPendingDeadline(t) && !t.deleteRequestedAt) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
+      if (quick === "HOAN_THANH" && effOf(t) !== "HOAN_THANH") return false;
       return true;
     });
   }, [kpiBase, quick]);
@@ -1395,7 +1414,7 @@ export function ManageClient({
     await applyBatch(bulkSetApproval({ ids: [...selected], approved }), `Đã ${label}`);
   }
   async function batchApproveDeadline(approve: boolean) {
-    const ids = tasks.filter((t) => selected.has(t.id) && t.pendingPlannedEnd).map((t) => t.id);
+    const ids = tasks.filter((t) => selected.has(t.id) && (t.pendingPlannedEnd || t.endChangeRequesterId)).map((t) => t.id);
     if (ids.length === 0) return;
     if (!confirm(`${approve ? "Duyệt" : "Từ chối"} dời hạn cho ${ids.length} công việc?`)) return;
     for (const id of ids) {
@@ -1671,7 +1690,8 @@ export function ManageClient({
               className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-orange-600"
               title={[t.endChangeRequesterName ? `${t.endChangeRequesterName} xin dời hạn` : "Xin dời hạn", t.endChangeNote].filter(Boolean).join(" — ")}
             >
-              <span className="size-1.5 rounded-full bg-orange-500" /> Xin dời → {fmtDate(t.pendingPlannedEnd ?? "")}
+              <span className="size-1.5 rounded-full bg-orange-500" />
+              {t.pendingPlannedEnd ? `Xin dời → ${fmtDate(t.pendingPlannedEnd)}` : "Xin dời hạn (chưa có ngày)"}
             </span>
           ) : null}
           {t.deleteRequestedAt ? (
@@ -1946,15 +1966,15 @@ export function ManageClient({
     return { startDate: t.projectStartDate, packagingDate: t.projectPackagingDate };
   }
 
-  // Pixel left của cột key trong bảng (tính từ cạnh trái table, bao gồm cả sel col).
+  // Pixel left của cột key trong bảng (tính từ cạnh trái table, scaled theo chiều rộng thực).
   function colLeft(key: string): number {
     const selW = canManage ? MANAGE_SEL_PX : 0;
     let x = selW;
     for (const c of cols) {
-      if (c.key === key) return x;
+      if (c.key === key) return Math.round(x * tableScaleX);
       x += widthOf(c.key);
     }
-    return x;
+    return Math.round(x * tableScaleX);
   }
 
   // Dòng tiêu đề nhóm trong tree view Bảng (3 cấp với indent khác nhau).
@@ -2317,23 +2337,23 @@ export function ManageClient({
       </div>
 
       {/* Dải KPI cảnh báo — bấm để lọc nhanh */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {(
           [
-            { key: "DANG_LAM", label: "Đang làm", n: kpi.doing, Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
-            { key: "SAP_HAN", label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon, Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
-            { key: "QUA_HAN", label: "Quá hạn", n: kpi.overdue, Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
-            { key: "CHUA_GIAO", label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX, tone: "border-slate-200 bg-slate-50 text-slate-700" },
+            { key: "DANG_LAM",   label: "Đang làm",              n: kpi.doing,               Icon: Activity,     tone: "border-blue-200   bg-blue-50   text-blue-700",   activeTone: "border-blue-400   bg-blue-200   text-black" },
+            { key: "HOAN_THANH", label: "Hoàn thành",            n: kpi.done,                Icon: CheckCircle2, tone: "border-green-200  bg-green-50  text-green-700",  activeTone: "border-green-400  bg-green-200  text-black" },
+            { key: "SAP_HAN",    label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon,               Icon: Clock,        tone: "border-amber-200  bg-amber-50  text-amber-700",  activeTone: "border-amber-400  bg-amber-200  text-black" },
+            { key: "QUA_HAN",    label: "Quá hạn",               n: kpi.overdue,             Icon: AlertTriangle, tone: "border-red-200   bg-red-50    text-red-700",    activeTone: "border-red-400    bg-red-200    text-black" },
+            { key: "CHUA_GIAO",  label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX,        tone: "border-violet-200 bg-violet-50 text-violet-700", activeTone: "border-violet-400 bg-violet-200 text-black" },
           ] as const
-        ).map(({ key, label, n, Icon, tone }) => (
+        ).map(({ key, label, n, Icon, tone, activeTone }) => (
           <button
             key={key}
             type="button"
             onClick={() => setQuick((q) => (q === key ? "" : key))}
             className={cn(
               "flex items-center gap-3 rounded-lg border p-3 text-left transition",
-              tone,
-              quick === key ? "ring-2 ring-primary ring-offset-1" : "hover:brightness-95",
+              quick === key ? activeTone : [tone, "hover:brightness-95"],
             )}
           >
             <Icon className="size-5 shrink-0" />
@@ -2516,13 +2536,14 @@ export function ManageClient({
           {/* border-separate + border-spacing-0 + <colgroup>: bề rộng cột khớp tuyệt đối với leftOf
               (cộng dồn colWidths) → cột ghim không lệch px → không hở khe khi cuộn ngang. */}
           <table
+            ref={tableRef}
             className="text-sm"
-            style={{ width: totalMinW, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}
+            style={{ width: "100%", minWidth: totalMinW, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}
           >
             <colgroup>
               {canManage ? <col style={{ width: MANAGE_SEL_PX }} /> : null}
               {cols.map((c) => (
-                <col key={c.key} style={{ width: widthOf(c.key) }} />
+                <col key={c.key} style={c.key === "ketQua" ? undefined : { width: widthOf(c.key) }} />
               ))}
             </colgroup>
             <thead>
@@ -2678,7 +2699,7 @@ export function ManageClient({
               Duyệt xóa
             </Button>
           ) : null}
-          {tasks.some((t) => selected.has(t.id) && t.pendingPlannedEnd) ? (
+          {tasks.some((t) => selected.has(t.id) && (t.pendingPlannedEnd || t.endChangeRequesterId)) ? (
             <>
               <Button size="sm" variant="outline" className="border-orange-300 text-orange-700 hover:bg-orange-50" onClick={() => void batchApproveDeadline(true)}>
                 Duyệt dời hạn
@@ -2806,7 +2827,7 @@ export function ManageClient({
       {deadline ? (
         <Modal open onClose={() => setDeadline(null)} title={`Đổi hạn ${deadline.ids.length} công việc`} className="max-w-sm">
           <div className="space-y-3">
-            <Input type="date" value={deadline.date} onChange={(e) => setDeadline({ ...deadline, date: e.target.value })} />
+            <DateInput value={deadline.date} onChange={(e) => setDeadline({ ...deadline, date: e.target.value })} />
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setDeadline(null)}>
                 Hủy
@@ -3060,10 +3081,10 @@ function InlineTaskEditRow({
           );
         }
         if (col.key === "batDau") {
-          return <td key={col.key} className={cellCls}><input type="date" className={dateCls} value={plannedStart} onChange={(e) => setPlannedStart(e.target.value)} /></td>;
+          return <td key={col.key} className={cellCls}><DateInput className={dateCls} value={plannedStart} onChange={(e) => setPlannedStart(e.target.value)} /></td>;
         }
         if (col.key === "ketThuc") {
-          return <td key={col.key} className={cellCls}><input type="date" className={dateCls} value={plannedEnd} onChange={(e) => setPlannedEnd(e.target.value)} /></td>;
+          return <td key={col.key} className={cellCls}><DateInput className={dateCls} value={plannedEnd} onChange={(e) => setPlannedEnd(e.target.value)} /></td>;
         }
         return <td key={col.key} className={cellCls} />;
       })}
@@ -3580,14 +3601,14 @@ function TreeInsertRow({
         if (col.key === "batDau") {
           return (
             <td key={col.key} className={cellCls}>
-              <input type="date" className={dateCls} value={plannedStart} onChange={(e) => setPlannedStart(e.target.value)} />
+              <DateInput className={dateCls} value={plannedStart} onChange={(e) => setPlannedStart(e.target.value)} />
             </td>
           );
         }
         if (col.key === "ketThuc") {
           return (
             <td key={col.key} className={cellCls}>
-              <input type="date" className={dateCls} value={plannedEnd} onChange={(e) => setPlannedEnd(e.target.value)} />
+              <DateInput className={dateCls} value={plannedEnd} onChange={(e) => setPlannedEnd(e.target.value)} />
             </td>
           );
         }
@@ -3665,12 +3686,12 @@ function TreeInsertRow({
           {/* Ngày */}
           <div className="flex flex-col gap-0.5">
             <span className="text-[10px] font-medium text-slate-500">Ngày BĐ</span>
-            <input type="date" className="h-8 rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
+            <DateInput className="h-8 rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
               value={plannedStart} onChange={(e) => setPlannedStart(e.target.value)} />
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-[10px] font-medium text-slate-500">Ngày KT</span>
-            <input type="date" className="h-8 rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
+            <DateInput className="h-8 rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
               value={plannedEnd} onChange={(e) => setPlannedEnd(e.target.value)} />
           </div>
           {/* Actions */}

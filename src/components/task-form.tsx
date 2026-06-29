@@ -4,6 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -275,11 +276,11 @@ export function TaskForm({
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="plannedStart">Bắt đầu</Label>
-          <Input id="plannedStart" name="plannedStart" type="date" defaultValue={task?.plannedStart} />
+          <DateInput id="plannedStart" name="plannedStart" defaultValue={task?.plannedStart} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="plannedEnd">Kết thúc</Label>
-          <Input id="plannedEnd" name="plannedEnd" type="date" defaultValue={task?.plannedEnd} />
+          <DateInput id="plannedEnd" name="plannedEnd" defaultValue={task?.plannedEnd} />
         </div>
       </div>
 

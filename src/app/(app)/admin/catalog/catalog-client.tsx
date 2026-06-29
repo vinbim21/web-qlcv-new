@@ -52,6 +52,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { DateInput } from "@/components/ui/date-input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { SearchableCombobox } from "@/components/searchable-combobox";
@@ -2143,9 +2144,8 @@ function RecordModal({
                   onChange={(label) => set(f.key, (f.options ?? []).find((o) => o.label === label)?.value ?? "")}
                 />
               ) : f.type === "date" ? (
-                <input
+                <DateInput
                   className={cn(inputCls, "tabular-nums")}
-                  type="date"
                   value={values[f.key] ?? ""}
                   autoFocus={f.autoFocus}
                   onChange={(e) => set(f.key, e.target.value)}
@@ -3650,7 +3650,7 @@ function BulkEditProjectsModal({
         {activeField === "startDate" && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-slate-600">Ngày bắt đầu</label>
-            <input autoFocus type="date" className={inputCls} value={startDate}
+            <DateInput autoFocus className={inputCls} value={startDate}
               onChange={(e) => { setStartDate(e.target.value); setErr(null); }} />
             <p className="text-[11px] text-amber-500">Sẽ đặt ngày bắt đầu cho {ids.length} hạng mục đã chọn. Để trống để xóa ngày.</p>
           </div>
@@ -3659,7 +3659,7 @@ function BulkEditProjectsModal({
         {activeField === "packagingDate" && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-slate-600">Ngày đóng gói / bàn giao</label>
-            <input autoFocus type="date" className={inputCls} value={packagingDate}
+            <DateInput autoFocus className={inputCls} value={packagingDate}
               onChange={(e) => { setPackagingDate(e.target.value); setErr(null); }} />
             <p className="text-[11px] text-amber-500">Sẽ đặt ngày đóng gói cho {ids.length} hạng mục đã chọn. Để trống để xóa ngày.</p>
           </div>
