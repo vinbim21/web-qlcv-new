@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — Kiến trúc code Web QLCV
 
-> Cập nhật: 2026-06-25
+> Cập nhật: 2026-06-29
 
 ---
 
@@ -202,6 +202,7 @@ Tương tự /manage nhưng member view. Cùng tree grouping.
 | `approveDeleteTask(id)` | Manager duyệt → soft delete + notify requester |
 | `rejectDeleteTask(id)` | Manager từ chối / User hủy → clear request |
 | `requestEndDateChange({ids, plannedEnd, note})` | Đề xuất đổi hạn — có trường lý do |
+| `setTaskPaused({id, paused})` | **Manager hoặc Assignee** tạm dừng/tiếp tục task (trước chỉ Manager) |
 
 ### projects.ts
 
@@ -238,6 +239,15 @@ export async function myAction(input: unknown) {
 // src/server/data/task-lookups.ts
 // Dùng chung cho assign/manage/tasks pages
 // Trả về tasks kèm projectStartDate, projectPackagingDate (từ Project đầu tiên cùng groupId+name)
+// catalog type:
+// Record<workGroupId, {
+//   l1: string[];                        // Tên dự án (Level 1, non-BIM workgroups)
+//   l2: string[];                        // Loại hình
+//   l3: string[];                        // Hạng mục
+//   l5: string[];                        // Đầu việc
+//   l2ByL1: Record<l1Name, l2Name[]>;   // L2 con của L1 (dùng cho filter cascading)
+//   l3ByL2: Record<l2Name, l3Name[]>;   // L3 con của L2
+// }>
 ```
 
 ### Decimal từ Prisma
@@ -260,6 +270,28 @@ const hours = Number(entry.hours);  // KHÔNG dùng entry.hours trực tiếp
 | DB URL | DATABASE_URL port 6543 (pooling) + DIRECT_URL port 5432 |
 | `Decimal` Prisma | Luôn `Number(x)` khi serialize ra JSON |
 
+## Tính năng L1 filter (Tên dự án) — 2026-06-29
+
+### Setup trong Khai báo thông tin (catalog-detail.tsx)
+- Non-BIM workgroup có cột **Level 1 — Tên dự án**
+- Cột Level 2: khi workgroup có L1 items → hiện dropdown **"Thuộc dự án"** trước input thêm mới
+- Admin gán L2 → L1 qua `parentId` (được lưu vào `CatalogItem.parentId`)
+- Mỗi L2 item hiển thị tên L1 cha bên dưới (text nhỏ)
+
+### Filter trong /manage và /tasks
+- Khi chọn tab workgroup có L1 items → xuất hiện pills **"Dự án: [Tất cả] [HTTC] ..."**
+- Chọn L1 pill → filter task: `task.level2 ∈ catalog[wg].l2ByL1[activeL1]`
+- Nếu L1 chưa có L2 con nào (chưa gán parentId) → không lọc
+- `activeL1` state reset khi đổi workgroup tab
+- `clearAll`/`clearAllFilters` cũng reset `activeL1`
+
+### KPI card "Chờ duyệt" (tasks-client.tsx)
+- Helper `isAnyPending(t)` = `isPendingApproval(t) || !!t.pendingPlannedEnd || !!t.deleteRequestedAt`
+- KPI card đổi từ "Chờ duyệt khởi tạo" → **"Chờ duyệt"** (gộp cả 3 loại pending)
+
 ## Vấn đề chưa giải quyết
 
-- **Group 0 việc trong /manage tree:** Hiện tại tree view chỉ hiển thị groups có task. Nếu Khai báo thông tin đã có Dự án/Loại hình/Hạng mục nhưng chưa có task, tree sẽ không show. Cần thiết kế thêm: query ProjectGroup/Project độc lập với task và merge vào treeNodes.
+- **Deploy:** Supabase + Vercel chưa deploy
+- **"Cad" & "CAD" trùng** trong CatalogItem PT Level 2
+- **Import "Xuất IFC"** vào CatalogItem PT
+- **Level 1 catalog** hiện chỉ dùng cho filter — chưa tích hợp gợi ý vào task form

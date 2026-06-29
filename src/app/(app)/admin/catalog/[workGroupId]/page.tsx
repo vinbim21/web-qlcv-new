@@ -17,7 +17,7 @@ export default async function CatalogDetailPage({
   });
 
   const byLevel = (lv: number) =>
-    items.filter((i) => i.level === lv).map((i) => ({ id: i.id, value: i.value }));
+    items.filter((i) => i.level === lv).map((i) => ({ id: i.id, value: i.value, parentId: i.parentId ?? null }));
 
   // Nhóm Quản lý BIM (mã "3"): khai báo Dự án theo dòng (Level 2 = mã, Level 3 = tên, Quy mô CT = scale).
   const isBim = wg.code === "3";

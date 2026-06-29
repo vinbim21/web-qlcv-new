@@ -4,6 +4,38 @@ Lịch sử cập nhật tính năng theo ngày, mới nhất ở trên.
 
 ---
 
+## 2026-06-29
+
+### Quản lý công việc (`/manage`) & Công việc của tôi (`/tasks`)
+
+- **Tạm dừng / bỏ tạm dừng — Assignee cũng được phép**
+  - Trước: chỉ Quản trị/Cấp 1 mới thấy nút Pause/Play ở cột Trạng thái
+  - Sau: người được giao việc (assignee) cũng thấy và dùng được nút này
+
+- **Bộ lọc L1 "Dự án" — pills lọc nhanh theo tên dự án**
+  - Khi chọn tab nhóm công việc có Level 1 (vd: Xây dựng HTTC, Đào tạo…) → hàng pills xuất hiện: `Dự án: [Tất cả] [HTTC] [ĐT] …`
+  - Bấm pill để lọc chỉ hiện task thuộc Level 2 con của dự án đó
+  - Pills reset tự động khi đổi nhóm hoặc bấm Xóa bộ lọc
+
+- **KPI "Chờ duyệt" — gộp 3 loại chờ xử lý**
+  - Trước: thẻ chỉ đếm task chờ duyệt khởi tạo
+  - Sau: đếm cả 3 loại: chờ duyệt khởi tạo + đề xuất đổi hạn + đề xuất xóa
+
+- **Fix: Inline edit không lưu được Dự án cho task mới chưa gán dự án**
+  - Trước: task QL/TT chưa có projectId khi mở inline edit → hiển thị dropdown sai (L1 catalog), chọn dự án và save không ăn
+  - Sau: nhận đúng workgroup là project-based → hiển thị đúng dropdown Dự án → Loại hình → Hạng mục → lưu đúng projectId
+
+### Khai báo thông tin (`/admin/catalog`)
+
+- **Thêm / sửa / xóa Level 1 (Tên dự án) cho nhóm non-BIM**
+  - Admin giờ khai báo được Level 1 cho: Đào tạo, Xây dựng HTTC, Quản lý phần mềm, Công việc khác
+  - Cột Level 2 có dropdown **"Thuộc dự án"** để gán L2 → L1 cha (lưu `parentId`)
+  - Mỗi L2 item hiển thị tên L1 cha bên dưới (text nhỏ); khi sửa có dropdown đổi L1 cha
+
+- **Task form / Giao việc** — khi tạo/sửa task thuộc nhóm có L1, chọn L1 trước để lọc danh sách L2 gợi ý
+
+---
+
 ## 2026-06-26
 
 ### Quản lý công việc (`/manage`)

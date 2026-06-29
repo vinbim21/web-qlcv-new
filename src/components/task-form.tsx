@@ -13,7 +13,18 @@ import { saveTask } from "@/server/actions/tasks";
 
 export type Opt = { id: string; name: string; code?: string | null };
 export type UserOpt = { id: string; fullName: string };
-export type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[]; l3ByL2: Record<string, string[]> }>;
+export type CatalogProjectGroup = { id: string; code: string; name: string };
+export type Catalog = Record<string, {
+  l1: string[];
+  l2: string[];
+  l3: string[];
+  l5: string[];
+  l2ByL1: Record<string, string[]>;
+  l3ByL2: Record<string, string[]>;
+  projectGroups?: CatalogProjectGroup[];
+  l3ByProjectGroup?: Record<string, string[]>;
+  projectGroupByL3?: Record<string, CatalogProjectGroup>;
+}>;
 
 export type TaskRow = {
   id: string;
@@ -78,9 +89,21 @@ export function TaskForm({
 }) {
   const [pending, setPending] = React.useState(false);
   const [assigneeIds, setAssigneeIds] = React.useState<string[]>(task?.assigneeIds ?? []);
-  // Nhóm chọn hiện tại → quyết định gợi ý Level 2/3/5.
   const [wgId, setWgId] = React.useState(task?.workGroupId ?? defaultWorkGroupId ?? "");
-  const sug = catalog[wgId] ?? { l2: [], l3: [], l5: [] };
+  const sug = catalog[wgId] ?? { l1: [], l2: [], l3: [], l5: [], l2ByL1: {}, l3ByL2: {} };
+  const wgCode = workGroups.find((w) => w.id === wgId)?.code ?? "";
+  // QL(3)/TT(4) dùng Project cascade. PT(5) dùng L1 catalog như các nhóm khác.
+  const isProjectBased = wgCode === "3" || wgCode === "4";
+  // L1 cascade (Dự án) cho non-project-based groups — không lưu DB, chỉ lọc L2 options.
+  const [activeL1, setActiveL1] = React.useState(() => {
+    const level2 = task?.level2;
+    if (!level2) return "";
+    const wgCat = catalog[task?.workGroupId ?? defaultWorkGroupId ?? ""];
+    for (const [l1, l2s] of Object.entries(wgCat?.l2ByL1 ?? {})) {
+      if (l2s.includes(level2)) return l1;
+    }
+    return "";
+  });
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -93,6 +116,7 @@ export function TaskForm({
       disciplineId: (fd.get("disciplineId") as string) || null,
       phaseId: (fd.get("phaseId") as string) || null,
       sumId: (fd.get("sumId") as string) || null,
+      level1: !isProjectBased && wgCode !== "5" ? activeL1 || null : null,
       level2: (fd.get("level2") as string) || null,
       level3: (fd.get("level3") as string) || null,
       level5: (fd.get("level5") as string) || null,
@@ -115,12 +139,12 @@ export function TaskForm({
     <form onSubmit={onSubmit} className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="workGroupId">Nhóm công việc (L1) *</Label>
+          <Label htmlFor="workGroupId">Nhóm công việc *</Label>
           <Select
             id="workGroupId"
             name="workGroupId"
             value={wgId}
-            onChange={(e) => setWgId(e.target.value)}
+            onChange={(e) => { setWgId(e.target.value); setActiveL1(""); }}
             required
           >
             <option value="">— Chọn —</option>
@@ -131,17 +155,33 @@ export function TaskForm({
             ))}
           </Select>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="projectId">Dự án</Label>
-          <Select id="projectId" name="projectId" defaultValue={task?.projectId ?? ""}>
-            <option value="">— Không —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </div>
+        {!isProjectBased ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="l1filter">Dự án</Label>
+            <Select
+              id="l1filter"
+              value={activeL1}
+              onChange={(e) => { setActiveL1(e.target.value); }}
+            >
+              <option value="">— Chưa chọn —</option>
+              {sug.l1.map((l1) => (
+                <option key={l1} value={l1}>{l1}</option>
+              ))}
+            </Select>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <Label htmlFor="projectId">Dự án</Label>
+            <Select id="projectId" name="projectId" defaultValue={task?.projectId ?? ""}>
+              <option value="">— Không —</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -149,7 +189,7 @@ export function TaskForm({
           <Label htmlFor="level2">Hạng mục (L2)</Label>
           <Input id="level2" name="level2" list="dl-l2" defaultValue={task?.level2 ?? ""} />
           <datalist id="dl-l2">
-            {sug.l2.map((v) => (
+            {(activeL1 && sug.l2ByL1[activeL1]?.length ? sug.l2ByL1[activeL1] : sug.l2).map((v) => (
               <option key={v} value={v} />
             ))}
           </datalist>

@@ -18,7 +18,9 @@ import {
   Flag,
   Info,
   Lock,
+  Pause,
   Pencil,
+  Play,
   Plus,
   RotateCcw,
   Search,
@@ -60,6 +62,7 @@ import {
   requestEndDateChange,
   saveMyTasks,
   setTaskCompletion,
+  setTaskPaused,
   setTaskPlannedStart,
   setTaskStartApproval,
 } from "@/server/actions/tasks";
@@ -68,7 +71,18 @@ import { ResultCell } from "@/components/result-cell";
 
 type Opt = { id: string; name: string };
 type UserOpt = { id: string; fullName: string };
-type Catalog = Record<string, { l2: string[]; l3: string[]; l5: string[]; l3ByL2: Record<string, string[]> }>;
+type CatalogProjectGroup = { id: string; code: string; name: string };
+type Catalog = Record<string, {
+  l1: string[];
+  l2: string[];
+  l3: string[];
+  l5: string[];
+  l2ByL1: Record<string, string[]>;
+  l3ByL2: Record<string, string[]>;
+  projectGroups?: CatalogProjectGroup[];
+  l3ByProjectGroup?: Record<string, string[]>;
+  projectGroupByL3?: Record<string, CatalogProjectGroup>;
+}>;
 
 export type TaskRow = {
   id: string;
@@ -140,6 +154,9 @@ function fmtDate(iso: string): string {
 }
 function isPendingApproval(t: TaskRow): boolean {
   return !!t.approverId && !t.startApproved;
+}
+function isAnyPending(t: TaskRow): boolean {
+  return isPendingApproval(t) || !!t.pendingPlannedEnd || !!t.deleteRequestedAt;
 }
 function isOverdue(t: TaskRow): boolean {
   if (!t.plannedEnd || t.status === "HOAN_THANH") return false;
@@ -610,15 +627,19 @@ function PrioBadge({ p }: { p: string }) {
   );
 }
 
-// Cột Trạng thái — pill mềm + tag Trễ + tag Chờ duyệt (làm nổi việc cần hành động).
+// Cột Trạng thái — pill mềm + tag Trễ + tag Chờ duyệt + nút Tạm dừng/Play.
 function StatusCell({
   t,
   canApproveStart,
+  canPause,
   onApprove,
+  onTogglePause,
 }: {
   t: TaskRow;
   canApproveStart: boolean;
+  canPause: boolean;
   onApprove: () => void;
+  onTogglePause: (paused: boolean) => void;
 }) {
   const eff = effOf(t);
   const s = STATUS_SOFT[eff] ?? STATUS_SOFT.CHUA_LAM;
@@ -646,6 +667,27 @@ function StatusCell({
           >
             <Flag className="size-2.5 shrink-0" /> Trễ {lateDays} ngày
           </span>
+        ) : null}
+        {canPause && eff !== "HOAN_THANH" ? (
+          t.status === "TAM_DUNG" ? (
+            <button
+              type="button"
+              title="Bỏ tạm dừng"
+              onClick={() => onTogglePause(false)}
+              className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <Play className="size-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              title="Tạm dừng"
+              onClick={() => onTogglePause(true)}
+              className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <Pause className="size-3.5" />
+            </button>
+          )
         ) : null}
       </div>
       {pending ? (
@@ -775,6 +817,8 @@ export function TasksClient({
   const [search, setSearch] = React.useState("");
   const deferredSearch = React.useDeferredValue(search);
   const [activeWg, setActiveWg] = useLocalStorage("tasks:activeWg", "");
+  const [activeL1, setActiveL1] = React.useState("");
+  React.useEffect(() => { setActiveL1(""); }, [activeWg]);
   const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM" | "CHO_DUYET">("tasks:quick", "");
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
@@ -857,6 +901,7 @@ export function TasksClient({
     setSearch("");
     setQuick("");
     setActiveWg("");
+    setActiveL1("");
     setTimePeriod("all");
   }
 
@@ -911,17 +956,27 @@ export function TasksClient({
     return m;
   }, [tasks]);
 
+  // Helper: lọc L1 — chỉ áp khi activeL1 đã chọn VÀ wg đó có l2ByL1
+  function passL1(t: TaskRow): boolean {
+    if (!activeL1 || !activeWg || t.workGroupId !== activeWg) return true;
+    const allowed = catalog[activeWg]?.l2ByL1[activeL1];
+    if (!allowed?.length) return true; // L1 chưa có L2 con → không lọc
+    return allowed.includes(t.level2 ?? "");
+  }
+
   // Nền KPI: search + lọc cột + tab (KHÔNG gồm quick) → số KPI ổn định khi bấm.
   const baseRows = React.useMemo(() => {
     const q = norm(deferredSearch.trim());
     return tasks.filter((t) => {
       if (activeWg && t.workGroupId !== activeWg) return false;
+      if (!passL1(t)) return false;
       if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
       if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t)) return false;
       return true;
     });
-  }, [tasks, activeWg, deferredSearch, haystacks, cols, colFilters, periodBounds]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, activeWg, activeL1, catalog, deferredSearch, haystacks, cols, colFilters, periodBounds]);
 
   const kpi = React.useMemo(() => {
     let overdue = 0;
@@ -932,7 +987,7 @@ export function TasksClient({
       if (isOverdue(t)) overdue++;
       else if (isDueSoon(t)) soon++;
       if (["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) doing++;
-      if (isPendingApproval(t)) pendingApproval++;
+      if (isAnyPending(t)) pendingApproval++;
     }
     return { overdue, soon, doing, pendingApproval };
   }, [baseRows]);
@@ -947,7 +1002,7 @@ export function TasksClient({
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
-      if (quick === "CHO_DUYET" && !isPendingApproval(t)) return false;
+      if (quick === "CHO_DUYET" && !isAnyPending(t)) return false;
       return true;
     });
   }, [tasks, deferredSearch, haystacks, cols, colFilters, quick, periodBounds]);
@@ -958,10 +1013,14 @@ export function TasksClient({
     return m;
   }, [quickFiltered]);
 
-  const filtered = React.useMemo(
-    () => (activeWg ? quickFiltered.filter((t) => t.workGroupId === activeWg) : quickFiltered),
-    [quickFiltered, activeWg],
-  );
+  const filtered = React.useMemo(() => {
+    let r = activeWg ? quickFiltered.filter((t) => t.workGroupId === activeWg) : quickFiltered;
+    if (activeL1 && activeWg) {
+      const allowed = catalog[activeWg]?.l2ByL1[activeL1];
+      if (allowed?.length) r = r.filter((t) => allowed.includes(t.level2 ?? ""));
+    }
+    return r;
+  }, [quickFiltered, activeWg, activeL1, catalog]);
 
   function sortVal(t: TaskRow, key: SortKey): string | number {
     switch (key) {
@@ -1193,6 +1252,14 @@ export function TasksClient({
     const res = await setTaskStartApproval({ id: t.id, approved: true });
     if (res.ok) {
       toast.success("Đã duyệt — cho phép nhập thời gian");
+      router.refresh();
+    } else toast.error(res.error);
+  }
+
+  async function onTogglePause(t: TaskRow, paused: boolean) {
+    const res = await setTaskPaused({ id: t.id, paused });
+    if (res.ok) {
+      toast.success(paused ? "Đã tạm dừng công việc" : "Đã tiếp tục công việc");
       router.refresh();
     } else toast.error(res.error);
   }
@@ -1493,7 +1560,13 @@ export function TasksClient({
           if (c.key === "tinhTrang")
             return (
               <td key="tinhTrang" className="px-2.5 py-2.5 align-top">
-                <StatusCell t={t} canApproveStart={canApproveStart} onApprove={() => approveStart(t)} />
+                <StatusCell
+                  t={t}
+                  canApproveStart={canApproveStart}
+                  canPause={canManage || t.assigneeIds.includes(currentUserId)}
+                  onApprove={() => approveStart(t)}
+                  onTogglePause={(paused) => onTogglePause(t, paused)}
+                />
               </td>
             );
           if (c.key === "batDau")
@@ -1785,7 +1858,7 @@ export function TasksClient({
             { key: "DANG_LAM", n: kpi.doing, label: "Đang làm", Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
             { key: "SAP_HAN", n: kpi.soon, label: "Sắp đến hạn (≤3 ngày)", Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
             { key: "QUA_HAN", n: kpi.overdue, label: "Quá hạn", Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
-            { key: "CHO_DUYET", n: kpi.pendingApproval, label: "Chờ duyệt khởi tạo", Icon: ShieldCheck, tone: "border-violet-200 bg-violet-50 text-violet-700" },
+            { key: "CHO_DUYET", n: kpi.pendingApproval, label: "Chờ duyệt", Icon: ShieldCheck, tone: "border-violet-200 bg-violet-50 text-violet-700" },
           ] as const
         ).map(({ key, n, label, Icon, tone }) => (
           <button
@@ -1858,6 +1931,36 @@ export function TasksClient({
           );
         })}
       </div>
+
+      {/* L1 filter pills — chỉ hiện khi workgroup đang chọn có Level 1 trong catalog */}
+      {activeWg && (catalog[activeWg]?.l1?.length ?? 0) > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5 py-1.5">
+          <span className="text-xs text-slate-400">Dự án:</span>
+          <button
+            type="button"
+            onClick={() => setActiveL1("")}
+            className={cn(
+              "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+              !activeL1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+            )}
+          >
+            Tất cả
+          </button>
+          {catalog[activeWg]!.l1.map((l1) => (
+            <button
+              key={l1}
+              type="button"
+              onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}
+              className={cn(
+                "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                activeL1 === l1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+              )}
+            >
+              {l1}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {/* BẢNG */}
       <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
