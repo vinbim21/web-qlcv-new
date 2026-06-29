@@ -8,6 +8,7 @@ import {
   ArrowUp,
   Calendar,
   Check,
+  CheckCircle2,
   ChevronsUpDown,
   ChevronDown,
   ChevronLeft,
@@ -68,6 +69,7 @@ import {
 } from "@/server/actions/tasks";
 import { getTaskWeekEntries } from "@/server/actions/timesheet";
 import { ResultCell } from "@/components/result-cell";
+import { DateInput } from "@/components/ui/date-input";
 
 type Opt = { id: string; name: string };
 type UserOpt = { id: string; fullName: string };
@@ -156,7 +158,7 @@ function isPendingApproval(t: TaskRow): boolean {
   return !!t.approverId && !t.startApproved;
 }
 function isAnyPending(t: TaskRow): boolean {
-  return isPendingApproval(t) || !!t.pendingPlannedEnd || !!t.deleteRequestedAt;
+  return isPendingApproval(t) || !!t.pendingPlannedEnd || !!t.endChangeRequesterId || !!t.deleteRequestedAt;
 }
 function isOverdue(t: TaskRow): boolean {
   if (!t.plannedEnd || t.status === "HOAN_THANH") return false;
@@ -819,7 +821,7 @@ export function TasksClient({
   const [activeWg, setActiveWg] = useLocalStorage("tasks:activeWg", "");
   const [activeL1, setActiveL1] = React.useState("");
   React.useEffect(() => { setActiveL1(""); }, [activeWg]);
-  const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM" | "CHO_DUYET">("tasks:quick", "");
+  const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM" | "HOAN_THANH" | "CHO_DUYET">("tasks:quick", "");
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
   const [timePeriod, setTimePeriod] = useLocalStorage<PeriodType>("tasks:timePeriod", "week");
@@ -982,14 +984,16 @@ export function TasksClient({
     let overdue = 0;
     let soon = 0;
     let doing = 0;
+    let done = 0;
     let pendingApproval = 0;
     for (const t of baseRows) {
       if (isOverdue(t)) overdue++;
       else if (isDueSoon(t)) soon++;
       if (["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) doing++;
+      if (effOf(t) === "HOAN_THANH") done++;
       if (isAnyPending(t)) pendingApproval++;
     }
-    return { overdue, soon, doing, pendingApproval };
+    return { overdue, soon, doing, done, pendingApproval };
   }, [baseRows]);
 
   // Đếm tab nhóm — trên nền tìm + lọc cột + quick (KHÔNG gồm tab).
@@ -1002,6 +1006,7 @@ export function TasksClient({
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
+      if (quick === "HOAN_THANH" && effOf(t) !== "HOAN_THANH") return false;
       if (quick === "CHO_DUYET" && !isAnyPending(t)) return false;
       return true;
     });
@@ -1347,7 +1352,8 @@ export function TasksClient({
     } else toast.error(res.error);
   }
   async function runBulkEndDate() {
-    if (!bulkEndDate?.date) return;
+    if (!bulkEndDate) return;
+    if (canManage && !bulkEndDate.date) return; // Manager phải có ngày
     const res = await requestEndDateChange({ ids: bulkEndDate.ids, plannedEnd: bulkEndDate.date, note: bulkEndDate.note });
     if (res.ok) {
       const msg = canManage
@@ -1579,26 +1585,28 @@ export function TasksClient({
             return (
               <td key="ketThuc" className="px-2.5 py-1 align-top text-xs">
                 <span className={overdue ? "font-medium text-red-600" : "text-slate-600"}>{fmtDate(t.plannedEnd)}</span>
-                {t.pendingPlannedEnd ? (
+                {(t.pendingPlannedEnd || t.endChangeRequesterId) ? (
                   <div className="mt-0.5 flex items-center gap-1">
                     <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
                           title={[t.endChangeRequesterName ? `${t.endChangeRequesterName} xin dời hạn` : "Xin dời hạn", t.endChangeNote].filter(Boolean).join(" — ")}>
-                      → {fmtDate(t.pendingPlannedEnd)}
+                      {t.pendingPlannedEnd ? `→ ${fmtDate(t.pendingPlannedEnd)}` : "Xin dời hạn (chưa có ngày)"}
                     </span>
                     {canManage ? (
                       <>
-                        <button
-                          type="button"
-                          title="Duyệt đổi ngày"
-                          onClick={async () => {
-                            const r = await approveEndDateChange(t.id);
-                            if (r.ok) { toast.success("Đã duyệt đổi ngày kết thúc"); router.refresh(); }
-                            else toast.error(r.error);
-                          }}
-                          className="grid size-4 place-items-center rounded text-emerald-600 hover:bg-emerald-50"
-                        >
-                          <Check className="size-3" />
-                        </button>
+                        {t.pendingPlannedEnd ? (
+                          <button
+                            type="button"
+                            title="Duyệt đổi ngày"
+                            onClick={async () => {
+                              const r = await approveEndDateChange(t.id);
+                              if (r.ok) { toast.success("Đã duyệt đổi ngày kết thúc"); router.refresh(); }
+                              else toast.error(r.error);
+                            }}
+                            className="grid size-4 place-items-center rounded text-emerald-600 hover:bg-emerald-50"
+                          >
+                            <Check className="size-3" />
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           title="Từ chối"
@@ -1851,11 +1859,12 @@ export function TasksClient({
         )}
       </div>
 
-      {/* KPI — 4 thẻ bấm lọc nhanh */}
-      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+      {/* KPI — 5 thẻ bấm lọc nhanh */}
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-5">
         {(
           [
             { key: "DANG_LAM", n: kpi.doing, label: "Đang làm", Icon: Activity, tone: "border-blue-200 bg-blue-50 text-blue-700" },
+            { key: "HOAN_THANH", n: kpi.done, label: "Hoàn thành", Icon: CheckCircle2, tone: "border-green-200 bg-green-50 text-green-700" },
             { key: "SAP_HAN", n: kpi.soon, label: "Sắp đến hạn (≤3 ngày)", Icon: Clock, tone: "border-amber-200 bg-amber-50 text-amber-700" },
             { key: "QUA_HAN", n: kpi.overdue, label: "Quá hạn", Icon: AlertTriangle, tone: "border-red-200 bg-red-50 text-red-700" },
             { key: "CHO_DUYET", n: kpi.pendingApproval, label: "Chờ duyệt", Icon: ShieldCheck, tone: "border-violet-200 bg-violet-50 text-violet-700" },
@@ -1868,7 +1877,7 @@ export function TasksClient({
             className={cn(
               "flex items-center gap-3 rounded-lg border p-3 text-left transition",
               tone,
-              quick === key ? "ring-2 ring-slate-400 ring-offset-1" : "hover:brightness-[0.97]",
+              quick === key ? "ring-2 ring-green-500 ring-offset-1" : "hover:brightness-[0.97]",
             )}
           >
             <Icon className="size-5 shrink-0" />
@@ -2028,11 +2037,12 @@ export function TasksClient({
           ) : null}
         </div>
         <div className="max-h-[calc(100svh-170px)] overflow-auto">
-          <table className="border-separate border-spacing-0 text-sm" style={{ width: totalW, tableLayout: "fixed" }}>
+          <table className="border-separate border-spacing-0 text-sm" style={{ width: "100%", minWidth: totalW, tableLayout: "fixed" }}>
             <colgroup>
               <col style={{ width: SEL_W }} />
               {cols.map((c) => (
-                <col key={c.key} style={{ width: c.w }} />
+                // "ketQua" không có width cố định — hấp thụ phần thừa khi container rộng hơn tổng cột
+                <col key={c.key} style={c.key === "ketQua" ? undefined : { width: c.w }} />
               ))}
               <col style={{ width: GHI_GIO_W }} />
             </colgroup>
@@ -2300,11 +2310,10 @@ export function TasksClient({
           className="max-w-sm"
         >
           <div className="space-y-3">
-            <input
-              type="date"
+            <DateInput
               value={bulkDeadline.date}
               onChange={(e) => setBulkDeadline({ ...bulkDeadline, date: e.target.value })}
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -2353,16 +2362,15 @@ export function TasksClient({
                 Yêu cầu sẽ được gửi cho quản lý duyệt trước khi áp dụng.
               </p>
             )}
-            <input
-              type="date"
+            <DateInput
               value={bulkEndDate.date}
               onChange={(e) => setBulkEndDate({ ...bulkEndDate, date: e.target.value })}
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
             />
             {!canManage && (
               <textarea
                 rows={2}
-                placeholder="Lý do đề xuất (tùy chọn)…"
+                placeholder="Lý do / ghi chú (tùy chọn)…"
                 value={bulkEndDate.note}
                 onChange={(e) => setBulkEndDate({ ...bulkEndDate, note: e.target.value })}
                 className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-slate-400"
@@ -2378,7 +2386,7 @@ export function TasksClient({
               </button>
               <button
                 type="button"
-                disabled={!bulkEndDate.date}
+                disabled={canManage && !bulkEndDate.date}
                 onClick={runBulkEndDate}
                 className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
@@ -2398,11 +2406,10 @@ export function TasksClient({
           className="max-w-sm"
         >
           <div className="space-y-3">
-            <input
-              type="date"
+            <DateInput
               value={bulkStartDate.date}
               onChange={(e) => setBulkStartDate({ ...bulkStartDate, date: e.target.value })}
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -2569,8 +2576,8 @@ function BulkTimesheetDialog({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Ngày</label>
-            <input name="date" type="date" defaultValue={dayjs().format("YYYY-MM-DD")} required
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-400" />
+            <DateInput name="date" defaultValue={dayjs().format("YYYY-MM-DD")} required
+              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-blue-400" />
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Số giờ</label>

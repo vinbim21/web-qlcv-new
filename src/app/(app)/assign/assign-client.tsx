@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, ChevronsUpDown, ClipboardPaste, Copy, Plus, Tra
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Select } from "@/components/ui/select";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { UserMultiSelect } from "@/components/user-multi-select";
@@ -641,7 +642,7 @@ export function AssignClient({
       case "plannedStart":
       case "plannedEnd":
         return (
-          <Input className={CELL} type="date" value={r[col]} onChange={(e) => updateRow(r.key, { [col]: e.target.value })} />
+          <DateInput className={CELL} value={r[col]} onChange={(e) => updateRow(r.key, { [col]: e.target.value })} />
         );
       case "approver":
         return (

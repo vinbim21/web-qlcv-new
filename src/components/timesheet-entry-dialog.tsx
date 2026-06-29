@@ -5,6 +5,7 @@ import { Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -235,7 +236,7 @@ export function TimesheetEntryDialog({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="date">Ngày</Label>
-            <Input id="date" name="date" type="date" defaultValue={entry?.date ?? defaultDate} required />
+            <DateInput id="date" name="date" defaultValue={entry?.date ?? defaultDate} required />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="hours">Số giờ</Label>
