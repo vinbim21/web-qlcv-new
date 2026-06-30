@@ -157,6 +157,7 @@ export function TaskRowEditor({
       id: task?.id,
       workGroupId: wgId,
       projectId: isB3 ? f.projectId || null : null,
+      projectGroupCode: isB3 ? pgCode || null : null,
       disciplineId: f.disciplineId || null,
       phaseId: isB3 ? f.phaseId || null : null,
       sumId: task?.sumId ?? null,
@@ -221,7 +222,7 @@ export function TaskRowEditor({
             </Field>
             <Field label="Loại hình">
               <SearchableCombobox
-                creatable={false}
+                creatable
                 placeholder={NONE}
                 value={ctCode}
                 options={[NONE, ...b3CtCodes]}

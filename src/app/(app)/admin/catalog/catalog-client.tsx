@@ -71,7 +71,7 @@ import {
   saveWorkGroup,
   updateCatalogValue,
 } from "@/server/actions/catalog";
-import { deleteConstructionType, saveConstructionType } from "@/server/actions/construction-types";
+import { deleteConstructionType, saveConstructionType, upsertConstructionTypeReturnId } from "@/server/actions/construction-types";
 import { deleteDiscipline, saveDiscipline } from "@/server/actions/disciplines";
 import {
   batchDuplicateCatalogProjects,
@@ -219,6 +219,14 @@ export function CatalogClient({
     field: "workGroupId" | "value";
   } | null>(null);
   const [bulkDuplicateIds, setBulkDuplicateIds] = React.useState<string[] | null>(null);
+  const [addLoaiHinhCtx, setAddLoaiHinhCtx] = React.useState<ProjectGroupRow | null>(null);
+  const [addHangMucCtx, setAddHangMucCtx] = React.useState<{
+    title: string;
+    defaultHangMuc?: string;
+    groupId: string;
+    constructionTypeId: string | null;
+    hmDateSource?: { startDate?: Date | string | null; packagingDate?: Date | string | null };
+  } | null>(null);
 
   // Modal thêm/sửa + xác nhận xóa (dùng chung).
   const [addItemsScope, setAddItemsScope] = React.useState<string | null>(null);
@@ -570,8 +578,8 @@ export function CatalogClient({
                 </th>
                 <th className="w-[12%] px-3 py-2">Dự án</th>
                 <th className="w-[7%] px-3 py-2">Loại hình</th>
-                <th className="w-[10%] px-3 py-2">Hạng mục</th>
-                <th className="w-[32%] px-3 py-2">Khối/Hệ thống</th>
+                <th className="w-[12%] px-3 py-2">Hạng mục</th>
+                <th className="w-[30%] px-3 py-2">Khối/Hệ thống</th>
                 <th className="w-28 px-3 py-2">Bắt đầu</th>
                 <th className="w-28 px-3 py-2">Đóng gói</th>
                 <th className="w-32 px-3 py-2 text-right">Quy mô</th>
@@ -606,11 +614,16 @@ export function CatalogClient({
                         />
                       </td>
                       <td className="px-3 py-2" colSpan={8}>
-                        <button type="button" onClick={() => toggleGrouped(projectKey)} className="inline-flex items-center gap-2 text-left">
-                          {collapsed ? <ChevronRight className="size-4 text-slate-400" /> : <ChevronDown className="size-4 text-slate-400" />}
-                          <span className="font-mono text-xs font-semibold text-slate-800" title={group.name}>{group.code}</span>
-                          <span className="rounded-full bg-slate-200 px-1.5 text-xs text-slate-500">{items.length}</span>
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => toggleGrouped(projectKey)} className="inline-flex items-center gap-2 text-left">
+                            {collapsed ? <ChevronRight className="size-4 text-slate-400" /> : <ChevronDown className="size-4 text-slate-400" />}
+                            <span className="font-mono text-xs font-semibold text-slate-800" title={group.name}>{group.code}</span>
+                            <span className="text-xs font-normal text-slate-400">({ctMap.size} loại hình)</span>
+                          </button>
+                          <button type="button" title="Thêm loại hình / hạng mục" onClick={() => setAddLoaiHinhCtx(group)} className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                            <Plus className="size-3" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     {!collapsed && [...ctMap.entries()].map(([ctId, ctItems]) => {
@@ -641,15 +654,20 @@ export function CatalogClient({
                             </td>
                             <td className="px-3 py-2" />
                             <td className="px-3 py-2" colSpan={7}>
-                              <button type="button" onClick={() => toggleCt(ctKey)} className="inline-flex items-center gap-1.5 text-left">
-                                {ctCollapsed ? <ChevronRight className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
-                                {ct ? (
-                                  <span className="font-mono text-xs font-semibold text-slate-700" title={ct.name}>{ct.code}</span>
-                                ) : (
-                                  <span className="text-xs font-medium text-slate-400">Chưa có loại hình</span>
-                                )}
-                                <span className="rounded-full bg-slate-200 px-1.5 text-xs text-slate-400">{ctItems.length}</span>
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button type="button" onClick={() => toggleCt(ctKey)} className="inline-flex items-center gap-1.5 text-left">
+                                  {ctCollapsed ? <ChevronRight className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                                  {ct ? (
+                                    <span className="font-mono text-xs font-semibold text-slate-700" title={ct.name}>{ct.code}</span>
+                                  ) : (
+                                    <span className="text-xs font-medium text-slate-400">Chưa có loại hình</span>
+                                  )}
+                                  <span className="text-xs font-normal text-slate-400">({hmMap.size} hạng mục)</span>
+                                </button>
+                                <button type="button" title="Thêm hạng mục" onClick={() => setAddHangMucCtx({ title: `Thêm hạng mục — ${ct?.code ?? "Chưa có loại hình"}`, groupId: group.id, constructionTypeId: ctId !== "__none__" ? ctId : null })} className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                                  <Plus className="size-3" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                           {!ctCollapsed && [...hmMap.entries()].map(([hmName, hmItems]) => {
@@ -677,11 +695,16 @@ export function CatalogClient({
                                   <td className="px-3 py-2" />
                                   <td className="px-3 py-2" />
                                   <td className="px-3 py-2">
-                                    <button type="button" onClick={() => toggleHm(hmKey)} className="inline-flex items-center gap-1.5 text-left">
-                                      {hmCollapsed ? <ChevronRight className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
-                                      <span className="text-xs font-medium text-slate-700">{hmName}</span>
-                                      <span className="rounded-full bg-slate-200 px-1.5 text-xs text-slate-400">{hmItems.length}</span>
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <button type="button" onClick={() => toggleHm(hmKey)} className="inline-flex items-center gap-1.5 text-left">
+                                        {hmCollapsed ? <ChevronRight className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                                        <span className="text-xs font-medium text-slate-700">{hmName}</span>
+                                        <span className="text-xs font-normal text-slate-400">({hmItems.length} khối)</span>
+                                      </button>
+                                      <button type="button" title="Thêm hạng mục / khối" onClick={() => setAddHangMucCtx({ title: `Thêm hạng mục / khối — ${hmName}`, defaultHangMuc: hmName, groupId: group.id, constructionTypeId: ctId !== "__none__" ? ctId : null, hmDateSource })} className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                                        <Plus className="size-3" />
+                                      </button>
+                                    </div>
                                   </td>
                                   <td className="px-3 py-2" />
                                   <td className="px-3 py-2 tabular-nums text-xs font-medium text-slate-600">{hmDateSource.startDate ? fmtProjectDate(hmDateSource.startDate) : <span className="text-slate-300">—</span>}</td>
@@ -1492,6 +1515,25 @@ export function CatalogClient({
               toast.error(res.error);
             }
           }}
+        />
+      ) : null}
+
+      {/* Modal thêm nhiều loại hình vào 1 dự án */}
+      {addLoaiHinhCtx ? (
+        <AddLoaiHinhToGroupModal
+          group={addLoaiHinhCtx}
+          constructionTypes={constructionTypes}
+          onClose={() => setAddLoaiHinhCtx(null)}
+          onSuccess={() => { setAddLoaiHinhCtx(null); router.refresh(); }}
+        />
+      ) : null}
+
+      {/* Modal thêm nhiều hạng mục / khối vào loại hình hoặc hạng mục */}
+      {addHangMucCtx ? (
+        <AddHangMucToCtModal
+          {...addHangMucCtx}
+          onClose={() => setAddHangMucCtx(null)}
+          onSuccess={() => { setAddHangMucCtx(null); router.refresh(); }}
         />
       ) : null}
 
@@ -3910,6 +3952,214 @@ function BulkEditBimtoolsModal({
           <Button type="submit" disabled={pending || creatingPg || creatingL2}>
             <Check className="size-4" /> {pending ? "Đang lưu…" : `Áp dụng cho ${ids.length} dòng`}
           </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ---- Modal thêm nhiều hạng mục (+ khối) vào 1 loại hình hoặc hạng mục ----
+type HangMucRow = { id: number; hangMuc: string; blockSystem: string };
+let _hangMucRowId = 0;
+function makeHangMucRow(hangMuc = ""): HangMucRow { return { id: ++_hangMucRowId, hangMuc, blockSystem: "" }; }
+
+function AddHangMucToCtModal({
+  title,
+  defaultHangMuc,
+  groupId,
+  constructionTypeId,
+  hmDateSource,
+  onClose,
+  onSuccess,
+}: {
+  title: string;
+  defaultHangMuc?: string;
+  groupId: string;
+  constructionTypeId: string | null;
+  hmDateSource?: { startDate?: Date | string | null; packagingDate?: Date | string | null };
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [rows, setRows] = React.useState<HangMucRow[]>([makeHangMucRow(defaultHangMuc ?? "")]);
+  const [pending, setPending] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  function setRow(id: number, patch: Partial<HangMucRow>) {
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const valid = rows.filter((r) => r.hangMuc.trim());
+    if (valid.length === 0) { setErr("Nhập ít nhất 1 hạng mục"); return; }
+    setPending(true);
+    setErr(null);
+    try {
+      for (const r of valid) {
+        const res = await saveCatalogProject({
+          groupId,
+          constructionTypeId,
+          name: r.hangMuc.trim(),
+          blockSystem: r.blockSystem.trim() || null,
+          scale: null,
+          startDate: hmDateSource?.startDate ? (hmDateSource.startDate instanceof Date ? hmDateSource.startDate.toISOString() : hmDateSource.startDate) : null,
+          packagingDate: hmDateSource?.packagingDate ? (hmDateSource.packagingDate instanceof Date ? hmDateSource.packagingDate.toISOString() : hmDateSource.packagingDate) : null,
+        });
+        if (!res.ok) { setErr(res.error); setPending(false); return; }
+      }
+      onSuccess();
+    } catch (e2) {
+      setErr(String(e2));
+      setPending(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={title} className="max-w-xl">
+      <form onSubmit={(e) => void submit(e)} className="space-y-3">
+        <p className="text-xs text-slate-500">Mỗi dòng là 1 Hạng mục + Khối/HT (tùy chọn).</p>
+        <div className="space-y-2">
+          {rows.map((r, i) => (
+            <div key={r.id} className="flex items-center gap-2">
+              <span className="w-5 shrink-0 text-center text-xs text-slate-400">{i + 1}</span>
+              <input
+                className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Tên hạng mục *"
+                value={r.hangMuc}
+                autoFocus={i === 0}
+                onChange={(e) => setRow(r.id, { hangMuc: e.target.value })}
+              />
+              <input
+                className="h-9 w-32 shrink-0 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Khối/HT"
+                value={r.blockSystem}
+                onChange={(e) => setRow(r.id, { blockSystem: e.target.value })}
+              />
+              {rows.length > 1 && (
+                <button type="button" onClick={() => setRows((rs) => rs.filter((x) => x.id !== r.id))}
+                  className="grid size-7 shrink-0 place-items-center rounded text-slate-400 hover:bg-red-50 hover:text-red-500">
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={() => setRows((rs) => [...rs, makeHangMucRow(defaultHangMuc ?? "")])}
+          className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700">
+          <Plus className="size-3" /> Thêm hạng mục
+        </button>
+        {err && <p className="text-sm text-red-500">{err}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted">Hủy</button>
+          <button type="submit" disabled={pending} className="rounded-md bg-slate-800 px-4 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50">
+            {pending ? "Đang lưu..." : "Lưu"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ---- Modal thêm nhiều loại hình (+ hạng mục) vào 1 dự án ----
+type LoaiHinhRow = { id: number; ctCode: string; hangMuc: string; blockSystem: string };
+let _loaiHinhRowId = 0;
+function makeRow(): LoaiHinhRow { return { id: ++_loaiHinhRowId, ctCode: "", hangMuc: "", blockSystem: "" }; }
+
+function AddLoaiHinhToGroupModal({
+  group,
+  constructionTypes,
+  onClose,
+  onSuccess,
+}: {
+  group: ProjectGroupRow;
+  constructionTypes: SimpleRow[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [rows, setRows] = React.useState<LoaiHinhRow[]>([makeRow()]);
+  const [pending, setPending] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  const ctCodes = constructionTypes.map((c) => c.code);
+
+  function setRow(id: number, patch: Partial<LoaiHinhRow>) {
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const valid = rows.filter((r) => r.ctCode.trim() || r.hangMuc.trim());
+    if (valid.length === 0) { setErr("Nhập ít nhất 1 hạng mục"); return; }
+    const missing = valid.find((r) => !r.hangMuc.trim());
+    if (missing) { setErr("Tên hạng mục không được để trống"); return; }
+    setPending(true);
+    setErr(null);
+    try {
+      for (const r of valid) {
+        let ctId: string | null = null;
+        if (r.ctCode.trim()) {
+          const res = await upsertConstructionTypeReturnId(r.ctCode.trim(), r.ctCode.trim());
+          if (!res.ok) { setErr(res.error); setPending(false); return; }
+          ctId = res.data!.id;
+        }
+        const res = await saveCatalogProject({ groupId: group.id, name: r.hangMuc.trim(), constructionTypeId: ctId, blockSystem: r.blockSystem.trim() || null, scale: null, startDate: null, packagingDate: null });
+        if (!res.ok) { setErr(res.error); setPending(false); return; }
+      }
+      onSuccess();
+    } catch (e2) {
+      setErr(String(e2));
+      setPending(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`Thêm loại hình — ${group.code} · ${group.name}`} className="max-w-2xl">
+      <form onSubmit={(e) => void submit(e)} className="space-y-3">
+        <p className="text-xs text-slate-500">Mỗi dòng là 1 Loại hình + Hạng mục. Chọn từ danh sách hoặc gõ mới — loại hình mới sẽ được thêm vào danh mục <em>Loại hình công trình</em>.</p>
+        <div className="space-y-2">
+          {rows.map((r, i) => (
+            <div key={r.id} className="flex items-center gap-2">
+              <span className="w-5 shrink-0 text-center text-xs text-slate-400">{i + 1}</span>
+              <div className="w-44 shrink-0">
+                <SearchableCombobox
+                  creatable
+                  placeholder="Loại hình..."
+                  value={r.ctCode}
+                  options={ctCodes}
+                  onChange={(v) => setRow(r.id, { ctCode: v })}
+                />
+              </div>
+              <input
+                className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Tên hạng mục *"
+                value={r.hangMuc}
+                onChange={(e) => setRow(r.id, { hangMuc: e.target.value })}
+              />
+              <input
+                className="h-9 w-32 shrink-0 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Khối/HT"
+                value={r.blockSystem}
+                onChange={(e) => setRow(r.id, { blockSystem: e.target.value })}
+              />
+              {rows.length > 1 && (
+                <button type="button" onClick={() => setRows((rs) => rs.filter((x) => x.id !== r.id))}
+                  className="grid size-7 shrink-0 place-items-center rounded text-slate-400 hover:bg-red-50 hover:text-red-500">
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={() => setRows((rs) => [...rs, makeRow()])}
+          className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700">
+          <Plus className="size-3" /> Thêm loại hình
+        </button>
+        {err && <p className="text-sm text-red-500">{err}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="rounded-md border border-input px-4 py-2 text-sm hover:bg-muted">Hủy</button>
+          <button type="submit" disabled={pending} className="rounded-md bg-slate-800 px-4 py-2 text-sm text-white hover:bg-slate-700 disabled:opacity-50">
+            {pending ? "Đang lưu..." : "Lưu"}
+          </button>
         </div>
       </form>
     </Modal>

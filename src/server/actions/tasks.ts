@@ -231,9 +231,32 @@ export async function saveTask(input: unknown) {
       status = "DANG_LAM";
     }
 
+    // Khi gõ mới Hạng mục (B3/B4): tự find-or-create Project để projectId không bị null.
+    let resolvedProjectId: string | null = data.projectId || null;
+    if (!resolvedProjectId && data.projectGroupCode && data.level3) {
+      const pg = await prisma.projectGroup.findFirst({ where: { code: data.projectGroupCode } });
+      if (pg) {
+        const ctCodeVal = (data.level2 || "").trim() || null;
+        let ctId: string | null = null;
+        if (ctCodeVal) {
+          let ct = await prisma.constructionType.findUnique({ where: { code: ctCodeVal } });
+          if (!ct) {
+            ct = await prisma.constructionType.create({ data: { name: ctCodeVal, code: ctCodeVal } });
+          }
+          ctId = ct.id;
+        }
+        const existingP = await prisma.project.findFirst({
+          where: { groupId: pg.id, name: data.level3, ...(ctId ? { constructionTypeId: ctId } : {}) },
+        });
+        resolvedProjectId = existingP
+          ? existingP.id
+          : (await prisma.project.create({ data: { groupId: pg.id, code: pg.code, name: data.level3, constructionTypeId: ctId } })).id;
+      }
+    }
+
     const payload = {
       workGroupId: data.workGroupId,
-      projectId: data.projectId || null,
+      projectId: resolvedProjectId,
       disciplineId: data.disciplineId || null,
       phaseId: data.phaseId || null,
       sumId: data.sumId || null,
@@ -361,10 +384,31 @@ export async function saveTasksBatch(input: unknown) {
     const user = await requireUser();
     if (!canAssign(user.role)) throw new Error("Bạn không có quyền giao việc");
 
-    const rows = taskBatchSchema.parse(input).filter((r) => r.workGroupId);
-    if (rows.length === 0) throw new Error("Chưa có dòng nào để giao (cần chọn Nhóm công việc)");
+    const rawRows = taskBatchSchema.parse(input).filter((r) => r.workGroupId);
+    if (rawRows.length === 0) throw new Error("Chưa có dòng nào để giao (cần chọn Nhóm công việc)");
 
-    await validateApprovers([...new Set(rows.map((r) => r.approverId).filter(Boolean) as string[])]);
+    await validateApprovers([...new Set(rawRows.map((r) => r.approverId).filter(Boolean) as string[])]);
+
+    // Resolve projectId cho các dòng gõ hạng mục mới (chưa có projectId nhưng có projectGroupCode).
+    const rows = await Promise.all(rawRows.map(async (r) => {
+      if (r.projectId || !r.projectGroupCode || !r.level3) return r;
+      const pg = await prisma.projectGroup.findFirst({ where: { code: r.projectGroupCode } });
+      if (!pg) return r;
+      const ctCodeVal = (r.level2 || "").trim() || null;
+      let ctId: string | null = null;
+      if (ctCodeVal) {
+        let ct = await prisma.constructionType.findUnique({ where: { code: ctCodeVal } });
+        if (!ct) ct = await prisma.constructionType.create({ data: { name: ctCodeVal, code: ctCodeVal } });
+        ctId = ct.id;
+      }
+      const existingP = await prisma.project.findFirst({
+        where: { groupId: pg.id, name: r.level3, ...(ctId ? { constructionTypeId: ctId } : {}) },
+      });
+      const projectId = existingP
+        ? existingP.id
+        : (await prisma.project.create({ data: { groupId: pg.id, code: pg.code, name: r.level3, constructionTypeId: ctId } })).id;
+      return { ...r, projectId };
+    }));
 
     // Cấp mã + tạo việc + thông báo giao việc trong 1 transaction (helper dùng chung).
     await prisma.$transaction((tx) => createTasksBatchTx(tx, rows, { actorId: user.id }));

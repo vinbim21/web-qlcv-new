@@ -113,7 +113,7 @@ export function SearchableCombobox({
               commit(trimmed);
             }}
           >
-            + Dùng: “{trimmed}”
+            + Tạo: “{trimmed}”
           </button>
         ) : null}
         {matches.map((o) => (
