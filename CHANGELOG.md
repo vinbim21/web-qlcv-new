@@ -4,6 +4,17 @@ Lịch sử cập nhật tính năng theo ngày, mới nhất ở trên.
 
 ---
 
+## 2026-06-30
+
+### Quản lý công việc (`/manage`) & Công việc của tôi (`/tasks`)
+
+- **Fix: Ngày hạng mục lệch cột Bắt đầu / Kết thúc trong dòng nhóm**
+  - Trước: dùng `position: absolute` + tính pixel tay (`colLeft()`) → dễ lệch khi zoom khác 100% hoặc cột resize
+  - Sau: đặt ngày trực tiếp vào `<td>` của đúng cột Bắt đầu / Kết thúc, label nhóm dùng `colSpan` đến trước cột đó → browser tự căn, luôn thẳng ở mọi zoom / độ rộng cửa sổ
+  - Fix thêm: `labelColSpan` phải cộng 1 cho cột checkbox (`__sel__`) vốn là `<td>` riêng trong data rows
+
+---
+
 ## 2026-06-29 (phiên 3)
 
 ### Quản lý công việc (`/manage`) & Công việc của tôi (`/tasks`)
