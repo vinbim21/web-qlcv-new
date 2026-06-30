@@ -6,6 +6,14 @@ Lịch sử cập nhật tính năng theo ngày, mới nhất ở trên.
 
 ## 2026-06-30
 
+### Quản lý công việc (`/manage`) — Cột "Giờ (h)"
+
+- **Thêm cột "Giờ (h)"** — tổng số giờ đã ghi timesheet cho từng công việc
+  - Lấy từ `TimeSheetEntry` (groupBy taskId, sum hours), không cần query N+1
+  - Hiển thị số nguyên (`8`) hoặc 1 chữ số thập phân (`8.5`), để trống nếu chưa ghi
+  - Căn phải, font tabular, rộng 110px — nằm giữa cột "Thực tế hoàn thành" và "Kết quả"
+  - Có thể sort; không có filter riêng
+
 ### Quản lý công việc (`/manage`) & Công việc của tôi (`/tasks`)
 
 - **Fix: Ngày hạng mục lệch cột Bắt đầu / Kết thúc trong dòng nhóm**

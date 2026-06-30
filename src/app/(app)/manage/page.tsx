@@ -32,7 +32,7 @@ export default async function ManagePage({
     to: pick("to"),
   };
 
-  const [tasks, lookups, catalogL3, constructionTypes] = await Promise.all([
+  const [tasks, hoursByTask, lookups, catalogL3, constructionTypes] = await Promise.all([
     prisma.task.findMany({
       where: { deletedAt: null },
       include: {
@@ -49,6 +49,11 @@ export default async function ManagePage({
       orderBy: [{ workGroupId: "asc" }, { createdAt: "asc" }],
       take: 2000,
     }),
+    prisma.timeSheetEntry.groupBy({
+      by: ["taskId"],
+      where: { taskId: { not: null }, deletedAt: null },
+      _sum: { hours: true },
+    }),
     getTaskLookups(),
     prisma.catalogItem.findMany({
       where: { level: 3, projectGroupId: { not: null } },
@@ -56,6 +61,7 @@ export default async function ManagePage({
     }),
     prisma.constructionType.findMany({ orderBy: { order: "asc" } }),
   ]);
+  const hoursMap = new Map(hoursByTask.map((h) => [h.taskId!, Number(h._sum.hours ?? 0)]));
   const catalogPgMap = new Map(
     catalogL3.map((c) => [`${c.workGroupId}::${c.value}`, c.projectGroup]),
   );
@@ -124,6 +130,7 @@ export default async function ManagePage({
         deleteRequestNote: t.deleteRequestNote ?? null,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
+        totalHours: hoursMap.get(t.id) ?? 0,
       }))}
       isAdmin={session.user.role === "ADMIN"}
       constructionTypes={constructionTypes.map((ct) => ({ id: ct.id, code: ct.code, name: ct.name }))}
