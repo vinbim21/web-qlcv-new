@@ -157,6 +157,7 @@ export type TaskRow = {
   deleteRequestNote: string | null;
   assigneeIds: string[];
   assigneeNames: string[];
+  totalHours: number;
 };
 
 // Việc đang "chờ duyệt khởi tạo" → khóa nhập thời gian.
@@ -249,7 +250,7 @@ function inPeriod(plannedStart: string, plannedEnd: string, bounds: PeriodBounds
 const norm = removeVietnameseTones;
 
 // ---- Cấu hình cột bảng (4 cấp phân cấp: Dự án → Loại hình → Hạng mục → Công việc) ----
-type FilterKind = "text" | "multi" | "status" | "date";
+type FilterKind = "text" | "multi" | "status" | "date" | "none";
 type SortKey =
   | "sumId"
   | "duAn"
@@ -264,6 +265,7 @@ type SortKey =
   | "batDau"
   | "ketThuc"
   | "thucTe"
+  | "soGio"
   | "ketQua";
 type ColDef = {
   key: SortKey;
@@ -299,6 +301,8 @@ function colText(t: TaskRow, key: SortKey): string {
       return t.plannedEnd;
     case "thucTe":
       return t.actualEnd;
+    case "soGio":
+      return t.totalHours > 0 ? String(t.totalHours) : "";
     case "ketQua":
       return t.result ?? "";
     default:
@@ -444,6 +448,7 @@ const MANAGE_COL_W: Record<string, number> = {
   batDau: 116,
   ketThuc: 116,
   thucTe: 150,
+  soGio: 110,
   ketQua: 120,
 };
 const clampManageW = (n: number, key?: string) =>
@@ -699,6 +704,7 @@ export function ManageClient({
       { key: "batDau", label: "Bắt đầu", filter: "date" },
       { key: "ketThuc", label: "Kết thúc", filter: "date" },
       { key: "thucTe", label: "Thực tế hoàn thành", filter: "date" },
+      { key: "soGio", label: "Giờ (h)", filter: "none" },
       { key: "ketQua", label: "Kết quả", filter: "text" },
     ];
     return SHOW_MA ? all : all.filter((c) => c.key !== "sumId");
@@ -860,6 +866,8 @@ export function ManageClient({
         return t.plannedEnd || "9999-12-31";
       case "thucTe":
         return t.actualEnd || "9999-12-31";
+      case "soGio":
+        return t.totalHours;
       case "loaiHinh":
         if (!t.projectId) return l2OrderMap.get(t.workGroupId)?.get(t.level2 ?? "") ?? 9999;
         return norm(colText(t, "loaiHinh"));
@@ -1906,6 +1914,12 @@ export function ManageClient({
                     className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
                   />
                 </label>
+              </td>
+            );
+          if (c.key === "soGio")
+            return (
+              <td key="soGio" className={cn(cellPad, "tabular-nums text-right text-slate-600")}>
+                {t.totalHours > 0 ? (Number.isInteger(t.totalHours) ? t.totalHours : t.totalHours.toFixed(1)) : null}
               </td>
             );
           if (c.key === "ketQua")
