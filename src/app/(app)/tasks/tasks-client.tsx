@@ -1297,19 +1297,6 @@ export function TasksClient({
   const clearSel = () => setSelected(new Set());
   const allVisibleSelected = sorted.length > 0 && sorted.every((t) => selected.has(t.id));
 
-  const tableRef = React.useRef<HTMLTableElement>(null);
-  const [tableScaleX, setTableScaleX] = React.useState(1);
-  React.useEffect(() => {
-    const el = tableRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      setTableScaleX(el.offsetWidth / totalW);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Shift+click = chọn dải (anchor → dòng hiện tại); click/Ctrl = bật-tắt 1 dòng.
   const anchorRef = React.useRef<string | null>(null);
   function onCheckClick(e: React.MouseEvent, id: string) {
@@ -1732,16 +1719,6 @@ export function TasksClient({
     return { startDate: t.projectStartDate, packagingDate: t.projectPackagingDate };
   }
 
-  // Pixel left của cột key (tính từ cạnh trái table, scaled theo chiều rộng thực).
-  function taskColLeft(key: string): number {
-    let x = SEL_W;
-    for (const c of cols) {
-      if (c.key === key) return Math.round(x * tableScaleX);
-      x += c.w;
-    }
-    return Math.round(x * tableScaleX);
-  }
-
   // Dòng tiêu đề nhóm trong tree view (Dự án → Loại hình → Hạng mục → Khối/Hệ thống)
   function treeGroupRow(node: { type: "g1" | "g2" | "g3" | "g4"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
     const { type, key, label, count, overdue, tasks: groupTasks } = node;
@@ -1762,14 +1739,19 @@ export function TasksClient({
     const allSel = groupTasks.length > 0 && groupTasks.every((t) => selected.has(t.id));
     const someSel = !allSel && groupTasks.some((t) => selected.has(t.id));
     const projDates = projectDatesForGroup(groupTasks, type);
-    const batDauLeft = taskColLeft("batDau");
-    const ketThucLeft = taskColLeft("ketThuc");
+
+    // Tách cols thành: [trước batDau] | batDau | ketThuc | [sau ketThuc] | ghiGio
+    const batDauIdx = cols.findIndex((c) => c.key === "batDau");
+    const ketThucIdx = cols.findIndex((c) => c.key === "ketThuc");
+    // Label cell spans: sel (1) + cols trước batDau
+    const labelColSpan = 1 + (batDauIdx >= 0 ? batDauIdx : cols.length);
+    const colsAfterKetThuc = ketThucIdx >= 0 ? cols.slice(ketThucIdx + 1) : [];
 
     return (
       <tr key={`tree-${key}`} className={cn(bg, borderCls)}>
-        <td colSpan={colSpan} className="relative p-0">
+        {/* Label cell: bao gồm cả khoảng sel col, colspan đến trước batDau */}
+        <td colSpan={labelColSpan} className="p-0 overflow-hidden">
           <div className={cn("sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center gap-0 py-1.5", bg)}>
-            {/* Checkbox: cùng width + padding với <td className="px-2"> của task row */}
             <div style={{ width: SEL_W }} className="flex shrink-0 items-center px-2">
               <input
                 type="checkbox"
@@ -1799,28 +1781,21 @@ export function TasksClient({
               </span>
             </button>
           </div>
-          {projDates && (
-            <>
-              {projDates.startDate && (
-                <span
-                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-medium text-slate-500"
-                  style={{ left: batDauLeft + 10 }}
-                >
-                  {fmtDate(projDates.startDate)}
-                </span>
-              )}
-              {projDates.packagingDate && (
-                <span
-                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-medium text-slate-500"
-                  style={{ left: ketThucLeft + 10 }}
-                  title="Đóng gói"
-                >
-                  {fmtDate(projDates.packagingDate)}
-                </span>
-              )}
-            </>
-          )}
         </td>
+        {/* Ngày dự án trong <td> thực của cột Bắt đầu / Kết thúc → luôn thẳng cột */}
+        {batDauIdx >= 0 && (
+          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 whitespace-nowrap">
+            {projDates?.startDate ? fmtDate(projDates.startDate) : null}
+          </td>
+        )}
+        {ketThucIdx >= 0 && (
+          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 whitespace-nowrap" title={projDates?.packagingDate ? "Đóng gói" : undefined}>
+            {projDates?.packagingDate ? fmtDate(projDates.packagingDate) : null}
+          </td>
+        )}
+        {colsAfterKetThuc.map((c) => <td key={c.key} />)}
+        {/* ghiGio col */}
+        <td />
       </tr>
     );
   }
@@ -2049,7 +2024,7 @@ export function TasksClient({
           ) : null}
         </div>
         <div className="max-h-[calc(100svh-170px)] overflow-auto">
-          <table ref={tableRef} className="border-separate border-spacing-0 text-sm" style={{ width: "100%", minWidth: totalW, tableLayout: "fixed" }}>
+          <table className="border-separate border-spacing-0 text-sm" style={{ width: "100%", minWidth: totalW, tableLayout: "fixed" }}>
             <colgroup>
               <col style={{ width: SEL_W }} />
               {cols.map((c) => (

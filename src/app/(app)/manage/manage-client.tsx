@@ -612,18 +612,6 @@ export function ManageClient({
   }, [colWidths]);
   const draggingRef = React.useRef(false);
   const resizeStartRef = React.useRef<{ x: number; w: number; key: string } | null>(null);
-  const tableRef = React.useRef<HTMLTableElement>(null);
-  const [tableScaleX, setTableScaleX] = React.useState(1);
-  React.useEffect(() => {
-    const el = tableRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      setTableScaleX(el.offsetWidth / totalMinW);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   React.useEffect(() => {
     try {
       const raw = window.localStorage.getItem(MANAGE_WIDTH_KEY);
@@ -1966,27 +1954,14 @@ export function ManageClient({
     return { startDate: t.projectStartDate, packagingDate: t.projectPackagingDate };
   }
 
-  // Pixel left của cột key trong bảng (tính từ cạnh trái table, scaled theo chiều rộng thực).
-  function colLeft(key: string): number {
-    const selW = canManage ? MANAGE_SEL_PX : 0;
-    let x = selW;
-    for (const c of cols) {
-      if (c.key === key) return Math.round(x * tableScaleX);
-      x += widthOf(c.key);
-    }
-    return Math.round(x * tableScaleX);
-  }
-
   // Dòng tiêu đề nhóm trong tree view Bảng (3 cấp với indent khác nhau).
   function treeGroupRow(node: { type: "g1" | "g2" | "g3" | "g4"; key: string; label: string; count: number; overdue: number; tasks: TaskRow[] }) {
     const { type, key, label, count, overdue, tasks: groupTasks } = node;
-  const isCollapsed = effectiveTreeCollapsed.has(key);
-  const Chevron = isCollapsed ? ChevronRight : ChevronDown;
-  const bg = type === "g1" ? "bg-slate-100" : "bg-slate-50";
-  const parentProject: string = "";
-  const parentLoaiHinh: string = "";
-  const indent = type === "g1" ? 0 : type === "g2" ? widthOf("duAn") : type === "g3" ? widthOf("duAn") + widthOf("loaiHinh") : widthOf("duAn") + widthOf("loaiHinh") + widthOf("hangMuc");
-  const projDates = projectDatesForGroup(groupTasks, type);
+    const isCollapsed = effectiveTreeCollapsed.has(key);
+    const Chevron = isCollapsed ? ChevronRight : ChevronDown;
+    const bg = type === "g1" ? "bg-slate-100" : "bg-slate-50";
+    const indent = type === "g1" ? 0 : type === "g2" ? widthOf("duAn") : type === "g3" ? widthOf("duAn") + widthOf("loaiHinh") : widthOf("duAn") + widthOf("loaiHinh") + widthOf("hangMuc");
+    const projDates = projectDatesForGroup(groupTasks, type);
     const textCls =
       type === "g1"
         ? "text-[13px] font-semibold text-slate-700"
@@ -1995,10 +1970,8 @@ export function ManageClient({
           : "text-xs font-medium text-slate-500";
     const borderCls = type === "g2" ? "border-t border-slate-200" : type === "g3" ? "border-t border-slate-100" : "";
 
-    // Checkbox nhóm: chỉ dùng để chọn/bỏ chọn tất cả con — không phản ánh trạng thái con.
     const allSel = groupTasks.length > 0 && groupTasks.every((t) => selected.has(t.id));
 
-    // Parse key thành context để pre-fill inline insert row
     function parseInsertCtx() {
       const workGroupId = groupTasks[0]?.workGroupId ?? activeWg;
       if (type === "g1") {
@@ -2023,146 +1996,100 @@ export function ManageClient({
       return { groupKey: key, workGroupId, projectGroupCode: d === "—" ? "" : d, constructionTypeCode: l === "—" ? "" : l, hangMuc: h === "—" ? "" : h };
     }
 
-    const batDauLeft = colLeft("batDau");
-    const ketThucLeft = colLeft("ketThuc");
+    // Tách cols thành: trước batDau | batDau | ketThuc | sau ketThuc
+    const batDauIdx = cols.findIndex((c) => c.key === "batDau");
+    const ketThucIdx = cols.findIndex((c) => c.key === "ketThuc");
+    // +1 cho cột __sel__ (checkbox) vốn là <td> riêng trong data rows
+    const labelColSpan = (canManage ? 1 : 0) + (batDauIdx >= 0 ? batDauIdx : cols.length);
+    const colsAfterKetThuc = ketThucIdx >= 0 ? cols.slice(ketThucIdx + 1) : [];
+
+    const labelCell = (
+      <td
+        key="__label__"
+        colSpan={labelColSpan}
+        className="p-0 overflow-hidden"
+      >
+        <div className={cn("sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center gap-2 px-2 py-1.5", bg)}>
+          {canManage ? (
+            <input
+              type="checkbox"
+              className="size-3.5 shrink-0 accent-slate-700"
+              checked={allSel}
+              onChange={() => {
+                setSelected((s) => {
+                  const n = new Set(s);
+                  if (allSel) groupTasks.forEach((t) => n.delete(t.id));
+                  else groupTasks.forEach((t) => n.add(t.id));
+                  return n;
+                });
+              }}
+            />
+          ) : null}
+          {indent ? <div style={{ width: indent }} className="shrink-0" /> : null}
+          <button
+            type="button"
+            onClick={() => toggleTreeNode(key)}
+            className={cn("flex items-center gap-1.5", textCls)}
+          >
+            <Chevron className="size-3.5 shrink-0 text-slate-400" />
+            <span className="whitespace-nowrap">{label}</span>
+            <span className="whitespace-nowrap font-normal text-slate-400 text-xs">
+              {type === "g1"
+                ? `(${count} loại hình)`
+                : type === "g2"
+                  ? `(${count} hạng mục)`
+                  : `(${count} việc)`}
+            </span>
+          </button>
+          {canManage && type === "g3" ? (
+            <button type="button" title="Thêm công việc vào hạng mục này" onClick={() => setInsertCtx(parseInsertCtx())}
+              className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+              <Plus className="size-3.5" />
+            </button>
+          ) : canManage && type === "g2" ? (
+            <button type="button" title="Thêm hạng mục vào loại hình này"
+              onClick={() => {
+                const content = key.slice(2); const i1 = content.indexOf("|");
+                const dk = content.slice(0, i1); const lk = content.slice(i1 + 1);
+                const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
+                const ctProj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk) && p.constructionTypeCode === (lk === "—" ? "" : lk));
+                setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: ctProj?.constructionTypeId || null, constructionTypeCode: lk === "—" ? null : lk, lockCt: true });
+                setAddHmName(""); setAddHmCtId(ctProj?.constructionTypeId ?? "");
+              }}
+              className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+              <Plus className="size-3.5" />
+            </button>
+          ) : canManage && type === "g1" ? (
+            <button type="button" title="Thêm hạng mục vào dự án này"
+              onClick={() => {
+                const dk = key.slice(2);
+                const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
+                setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: null, constructionTypeCode: null, lockCt: false });
+                setAddHmName(""); setAddHmCtId("");
+              }}
+              className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+              <Plus className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
+      </td>
+    );
 
     return (
       <tr key={`tree-${key}`} className={cn(bg, borderCls)}>
-        <td colSpan={totalColsCount} className="relative p-0">
-          <div className={cn("sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center gap-2 px-2 py-1.5", bg)}>
-            {/* Checkbox chọn tất cả trong nhóm */}
-            {canManage ? (
-              <input
-                type="checkbox"
-                className="size-3.5 shrink-0 accent-slate-700"
-                checked={allSel}
-                onChange={() => {
-                  setSelected((s) => {
-                    const n = new Set(s);
-                    if (allSel) groupTasks.forEach((t) => n.delete(t.id));
-                    else groupTasks.forEach((t) => n.add(t.id));
-                    return n;
-                  });
-                }}
-              />
-            ) : null}
-            {false ? (
-              <span
-                style={{ width: widthOf("duAn") }}
-                className="shrink-0 truncate text-xs font-medium text-slate-400"
-                title={parentProject || undefined}
-              >
-                {parentProject === "—" ? "" : parentProject}
-              </span>
-            ) : null}
-            {false ? (
-              <span
-                style={{ width: widthOf("loaiHinh") }}
-                className="shrink-0 truncate text-xs font-medium text-slate-400"
-                title={parentLoaiHinh || undefined}
-              >
-                {parentLoaiHinh === "—" ? "" : parentLoaiHinh}
-              </span>
-            ) : null}
-            {indent ? <div style={{ width: indent }} className="shrink-0" /> : null}
-            <button
-              type="button"
-              onClick={() => toggleTreeNode(key)}
-              className={cn("flex items-center gap-1.5", textCls)}
-            >
-              <Chevron className="size-3.5 shrink-0 text-slate-400" />
-              <span className="whitespace-nowrap">{label}</span>
-              <span className="whitespace-nowrap font-normal text-slate-400 text-xs">
-                {type === "g1"
-                  ? `(${count} loại hình)`
-                  : type === "g2"
-                    ? `(${count} hạng mục)`
-                    : `(${count} việc)`}
-              </span>
-            </button>
-            {/* Nút thêm tùy cấp */}
-            {canManage && type === "g3" ? (
-              <button
-                type="button"
-                title="Thêm công việc vào hạng mục này"
-                onClick={() => setInsertCtx(parseInsertCtx())}
-                className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-              >
-                <Plus className="size-3.5" />
-              </button>
-            ) : canManage && type === "g2" ? (
-              <button
-                type="button"
-                title="Thêm hạng mục vào loại hình này"
-                onClick={() => {
-                  const content = key.slice(2);
-                  const i1 = content.indexOf("|");
-                  const dk = content.slice(0, i1);
-                  const lk = content.slice(i1 + 1);
-                  const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
-                  const ctProj = projects.find(
-                    (p) => p.groupCode === (dk === "—" ? "" : dk) && p.constructionTypeCode === (lk === "—" ? "" : lk),
-                  );
-                  setAddHangMucCtx({
-                    groupId: proj?.groupId ?? "",
-                    groupCode: dk === "—" ? "" : dk,
-                    constructionTypeId: ctProj?.constructionTypeId || null,
-                    constructionTypeCode: lk === "—" ? null : lk,
-                    lockCt: true,
-                  });
-                  setAddHmName("");
-                  setAddHmCtId(ctProj?.constructionTypeId ?? "");
-                }}
-                className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-              >
-                <Plus className="size-3.5" />
-              </button>
-            ) : canManage && type === "g1" ? (
-              <button
-                type="button"
-                title="Thêm hạng mục vào dự án này"
-                onClick={() => {
-                  const dk = key.slice(2);
-                  const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
-                  setAddHangMucCtx({
-                    groupId: proj?.groupId ?? "",
-                    groupCode: dk === "—" ? "" : dk,
-                    constructionTypeId: null,
-                    constructionTypeCode: null,
-                    lockCt: false,
-                  });
-                  setAddHmName("");
-                  setAddHmCtId("");
-                }}
-                className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-              >
-                <Plus className="size-3.5" />
-              </button>
-            ) : null}
-          </div>
-          {/* Ngày dự án — căn thẳng với cột Bắt đầu / Kết thúc */}
-          {projDates && (
-            <>
-              {projDates.startDate && (
-                <span
-                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-medium text-slate-500"
-                  style={{ left: batDauLeft + 10 }}
-                >
-                  {fmtDate(projDates.startDate)}
-                </span>
-              )}
-              {projDates.packagingDate && (
-                <span
-                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-medium text-slate-500"
-                  style={{ left: ketThucLeft + 10 }}
-                  title="Đóng gói"
-                >
-                  {fmtDate(projDates.packagingDate)}
-                </span>
-              )}
-            </>
-          )}
-        </td>
+        {labelCell}
+        {/* Ngày dự án đặt trong <td> thực của cột Bắt đầu / Kết thúc → luôn thẳng cột */}
+        {batDauIdx >= 0 && (
+          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 whitespace-nowrap">
+            {projDates?.startDate ? fmtDate(projDates.startDate) : null}
+          </td>
+        )}
+        {ketThucIdx >= 0 && (
+          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 whitespace-nowrap" title={projDates?.packagingDate ? "Đóng gói" : undefined}>
+            {projDates?.packagingDate ? fmtDate(projDates.packagingDate) : null}
+          </td>
+        )}
+        {colsAfterKetThuc.map((c) => <td key={c.key} />)}
       </tr>
     );
   }
@@ -2536,7 +2463,6 @@ export function ManageClient({
           {/* border-separate + border-spacing-0 + <colgroup>: bề rộng cột khớp tuyệt đối với leftOf
               (cộng dồn colWidths) → cột ghim không lệch px → không hở khe khi cuộn ngang. */}
           <table
-            ref={tableRef}
             className="text-sm"
             style={{ width: "100%", minWidth: totalMinW, tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}
           >
