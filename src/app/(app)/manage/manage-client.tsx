@@ -2897,6 +2897,7 @@ function InlineTaskEditRow({
       id: task.id,
       workGroupId: task.workGroupId,
       projectId: projectId || null,
+      projectGroupCode: isProjectBasedTask ? pgCode || null : null,
       disciplineId: disciplineId || null,
       phaseId: phaseId || null,
       sumId: task.sumId ?? null,
@@ -2935,7 +2936,7 @@ function InlineTaskEditRow({
           return (
             <td key={col.key} className={cellCls}>
               {isProjectBasedTask ? (
-                <SearchableCombobox creatable={false} placeholder={none} value={pgCode} options={[none, ...pgCodes]} className="h-8 text-xs" onChange={(v) => { setPgCode(v === none ? "" : v); setCtCode(""); setHangMuc(""); }} />
+                <SearchableCombobox creatable={false} placeholder={none} value={pgCode} options={[none, ...pgCodes]} className="h-8 text-xs" onChange={(v) => { setPgCode(v === none ? "" : v); }} />
               ) : (
                 <SearchableCombobox creatable={false} placeholder={none} value={level1} options={[none, ...taskCatalog.l1]} className="h-8 text-xs" onChange={(v) => { const nv = v === none ? "" : v; setLevel1(nv); const linked = nv ? (taskCatalog.l2ByL1[nv] ?? []) : []; if (linked.length > 0 && !linked.includes(ctCode)) { setCtCode(""); setHangMuc(""); } }} />
               )}
@@ -2945,7 +2946,7 @@ function InlineTaskEditRow({
         if (col.key === "loaiHinh") {
           return (
             <td key={col.key} className={cellCls}>
-              <SearchableCombobox creatable={false} placeholder={none} value={ctCode} options={[none, ...ctCodes]} className="h-8 text-xs" onChange={(v) => { setCtCode(v === none ? "" : v); setHangMuc(""); }} />
+              <SearchableCombobox creatable placeholder={none} value={ctCode} options={[none, ...ctCodes]} className="h-8 text-xs" onChange={(v) => { setCtCode(v === none ? "" : v); }} />
             </td>
           );
         }
@@ -3382,6 +3383,7 @@ function TreeInsertRow({
     const res = await saveTask({
       workGroupId: ctx.workGroupId,
       projectId: resolvedProjectId || null,
+      projectGroupCode: pgCode || null,
       disciplineId: disciplineId || null, phaseId: phaseId || null, sumId: null,
       level2: ctCode || null,
       level3: hangMuc || null,
@@ -3423,7 +3425,7 @@ function TreeInsertRow({
                   value={pgCode}
                   options={[NONE, ...pgCodes]}
                   className="h-8 text-xs"
-                  onChange={(v) => { setPgCode(v === NONE ? "" : v); setCtCode(""); setHangMuc(""); }}
+                  onChange={(v) => { setPgCode(v === NONE ? "" : v); if (!ctx.constructionTypeCode) setCtCode(""); if (!ctx.hangMuc) setHangMuc(""); }}
                 />
               )}
             </td>
