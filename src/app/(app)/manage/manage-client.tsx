@@ -2855,6 +2855,7 @@ function InlineTaskEditRow({
   const [status, setStatus] = React.useState(task.status);
   const [plannedStart, setPlannedStart] = React.useState(task.plannedStart);
   const [plannedEnd, setPlannedEnd] = React.useState(task.plannedEnd);
+  const [blockSystem, setBlockSystem] = React.useState(task.blockSystem ?? "");
   const taskCatalog = catalog[task.workGroupId] ?? { l1: [], l2: [], l3: [], l5: [], l2ByL1: {}, l3ByL2: {} };
   const isProjectBasedTask = !!task.projectId || (taskCatalog.projectGroups?.length ?? 0) > 0;
   const initialL1 = React.useMemo(() => {
@@ -2885,11 +2886,27 @@ function InlineTaskEditRow({
     return [...new Set(pool.filter((p) => !ctCode || p.constructionTypeCode === ctCode).map((p) => p.name))];
   }, [isProjectBasedTask, taskCatalog, projects, pgCode, ctCode]);
   const level5Opts = React.useMemo(() => taskCatalog.l5 ?? [], [taskCatalog]);
+  const blockSystemOpts = React.useMemo(() => {
+    if (!isProjectBasedTask) return [];
+    const pool = projects.filter((p) =>
+      (!pgCode || p.groupCode === pgCode) &&
+      (!ctCode || p.constructionTypeCode === ctCode) &&
+      (!hangMuc || p.name === hangMuc)
+    );
+    return [...new Set(pool.map((p) => p.blockSystem).filter(Boolean))] as string[];
+  }, [isProjectBasedTask, projects, pgCode, ctCode, hangMuc]);
   const projectId = React.useMemo(() => {
     if (!isProjectBasedTask) return "";
     if (!pgCode || !ctCode || !hangMuc) return "";
-    return projects.find((p) => p.groupCode === pgCode && p.constructionTypeCode === ctCode && p.name === hangMuc)?.id ?? "";
-  }, [isProjectBasedTask, projects, pgCode, ctCode, hangMuc]);
+    return (
+      projects.find((p) =>
+        p.groupCode === pgCode &&
+        p.constructionTypeCode === ctCode &&
+        p.name === hangMuc &&
+        (!blockSystem || p.blockSystem === blockSystem)
+      )?.id ?? ""
+    );
+  }, [isProjectBasedTask, projects, pgCode, ctCode, hangMuc, blockSystem]);
 
   async function save() {
     setPending(true);
@@ -2898,6 +2915,7 @@ function InlineTaskEditRow({
       workGroupId: task.workGroupId,
       projectId: projectId || null,
       projectGroupCode: isProjectBasedTask ? pgCode || null : null,
+      blockSystem: isProjectBasedTask ? blockSystem.trim() || null : null,
       disciplineId: disciplineId || null,
       phaseId: phaseId || null,
       sumId: task.sumId ?? null,
@@ -2960,19 +2978,24 @@ function InlineTaskEditRow({
         if (col.key === "congViec") {
           return (
             <td key={col.key} className={cellCls}>
+              {isProjectBasedTask ? (
+                <SearchableCombobox
+                  creatable
+                  placeholder="Khối/Hệ thống..."
+                  value={blockSystem}
+                  options={blockSystemOpts}
+                  className="h-8 text-xs"
+                  onChange={setBlockSystem}
+                />
+              ) : null}
               <SearchableCombobox
                 creatable
-                autoFocus
-                placeholder="Nhập hoặc chọn tên đầu việc..."
+                placeholder="Nhập hoặc chọn đầu việc..."
                 value={level5}
                 options={level5Opts}
-                className="h-8 text-xs"
+                className={`h-8 text-xs${isProjectBasedTask ? " mt-1" : ""}`}
                 onChange={setLevel5}
               />
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <Button size="sm" onClick={() => void save()} disabled={pending}>{pending ? "Dang luu..." : "Luu"}</Button>
-                <Button size="sm" variant="outline" onClick={onCancel}>Huy</Button>
-              </div>
             </td>
           );
         }
@@ -2983,6 +3006,10 @@ function InlineTaskEditRow({
                 <option value="">{none}</option>
                 {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </Select>
+              <div className="mt-1 flex items-center gap-1">
+                <Button size="sm" onClick={() => void save()} disabled={pending}>{pending ? "..." : "Lưu"}</Button>
+                <Button size="sm" variant="outline" onClick={onCancel}>Hủy</Button>
+              </div>
             </td>
           );
         }
