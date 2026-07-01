@@ -245,12 +245,13 @@ export async function saveTask(input: unknown) {
           }
           ctId = ct.id;
         }
+        const bsVal = (data.blockSystem || "").trim() || null;
         const existingP = await prisma.project.findFirst({
-          where: { groupId: pg.id, name: data.level3, ...(ctId ? { constructionTypeId: ctId } : {}) },
+          where: { groupId: pg.id, name: data.level3, ...(ctId ? { constructionTypeId: ctId } : {}), ...(bsVal ? { blockSystem: bsVal } : {}) },
         });
         resolvedProjectId = existingP
           ? existingP.id
-          : (await prisma.project.create({ data: { groupId: pg.id, code: pg.code, name: data.level3, constructionTypeId: ctId } })).id;
+          : (await prisma.project.create({ data: { groupId: pg.id, code: pg.code, name: data.level3, constructionTypeId: ctId, blockSystem: bsVal } })).id;
       }
     }
 
