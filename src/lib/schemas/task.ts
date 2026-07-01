@@ -27,6 +27,8 @@ export const taskSchema = z.object({
   assigneeIds: z.array(z.string()).optional(),
   // Dùng khi gõ mới hạng mục (isB3): auto-upsert Project nếu projectId trống
   projectGroupCode: z.string().optional().nullable(),
+  // Khối/Hệ thống — dùng khi find-or-create Project để phân biệt hạng mục cùng tên khác khối
+  blockSystem: z.string().optional().nullable(),
 });
 export type TaskInput = z.infer<typeof taskSchema>;
 
