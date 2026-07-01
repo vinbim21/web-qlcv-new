@@ -161,6 +161,9 @@ export function CatalogClient({
   const [groupedHmCollapsed, setGroupedHmCollapsed] = React.useState<Set<string>>(new Set());
   const [groupedBlockCollapsed, setGroupedBlockCollapsed] = React.useState<Set<string>>(new Set());
   const [groupedSelectedIds, setGroupedSelectedIds] = React.useState<Set<string>>(new Set());
+  const [groupedFilter, setGroupedFilter] = React.useState("");
+  const [groupedColFilters, setGroupedColFilters] = React.useState<Record<string, string[]>>({});
+  const [groupedOpenFilter, setGroupedOpenFilter] = React.useState<{ key: string; label: string; opts: string[]; rect: DOMRect } | null>(null);
 
   const ptWorkGroupId = workGroups.find((w) => w.abbr === "PT")?.id ?? null;
   const generalProjectGroups = projectGroups.filter((g) => !g.workGroupId);
@@ -429,7 +432,46 @@ export function CatalogClient({
     const toggleGrouped = (id: string) => setGroupedCollapsed(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
     const toggleCt = (key: string) => setGroupedCtCollapsed(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
     const toggleHm = (key: string) => setGroupedHmCollapsed(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
-    const groupsWithItems = [...byGroup.values()].filter(e => e.items.length > 0);
+    const q = groupedFilter.trim().toLowerCase();
+    // Column filter helpers
+    const gcfGroup = groupedColFilters["group"] ?? [];
+    const gcfCt = groupedColFilters["ct"] ?? [];
+    const gcfName = groupedColFilters["name"] ?? [];
+    const gcfBlock = groupedColFilters["block"] ?? [];
+    const hasColFilter = gcfGroup.length > 0 || gcfCt.length > 0 || gcfName.length > 0 || gcfBlock.length > 0;
+    const gcfClearCol = (k: string) => setGroupedColFilters(s => { const n = { ...s }; delete n[k]; return n; });
+    const gcfClearAll = () => setGroupedColFilters({});
+    // Filter projects by active column filters
+    const filteredProjects = hasColFilter
+      ? generalProjects.filter(p => {
+          const pgCode = pgById.get(p.groupId ?? "")?.code ?? "";
+          const ctCode = ctById.get(p.constructionTypeId ?? "")?.code ?? "";
+          if (gcfGroup.length && !gcfGroup.includes(pgCode)) return false;
+          if (gcfCt.length && !gcfCt.includes(ctCode)) return false;
+          if (gcfName.length && !gcfName.includes(p.name)) return false;
+          if (gcfBlock.length && !gcfBlock.includes(p.blockSystem ?? "")) return false;
+          return true;
+        })
+      : generalProjects;
+    // Rebuild byGroup from filtered projects
+    const byGroupF = new Map<string, { group: ProjectGroupRow; items: ProjectRow[] }>();
+    for (const g of generalProjectGroups) byGroupF.set(g.id, { group: g, items: [] });
+    for (const p of filteredProjects) {
+      const gid = p.groupId ?? "__none__";
+      if (!byGroupF.has(gid)) byGroupF.set(gid, { group: { id: gid, code: "—", name: "(Không nhóm)", order: 9999, workGroupId: null, itemCount: 0 }, items: [] });
+      byGroupF.get(gid)!.items.push(p);
+    }
+    // Filter options (computed from original list for full choices)
+    const optCt = [...new Set(generalProjects.map(p => ctById.get(p.constructionTypeId ?? "")?.code ?? "").filter(Boolean))].sort((a,b) => a.localeCompare(b,"vi"));
+    const optName = [...new Set(generalProjects.map(p => p.name).filter(Boolean))].sort((a,b) => a.localeCompare(b,"vi"));
+    const optBlock = [...new Set(generalProjects.map(p => p.blockSystem ?? "").filter(Boolean))].sort((a,b) => a.localeCompare(b,"vi"));
+    const openGcf = (key: string, label: string, opts: string[], e: React.MouseEvent) => {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      setGroupedOpenFilter(o => o?.key === key ? null : { key, label, opts, rect });
+    };
+    const groupsWithItems = [...byGroupF.values()].filter(e =>
+      !q || e.group.code.toLowerCase().includes(q) || e.group.name.toLowerCase().includes(q)
+    );
     const toggleBlock = (key: string) => setGroupedBlockCollapsed(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
     const expandSelectedPaths = (ids: string[]) => {
       const targets = new Set(ids);
@@ -522,6 +564,53 @@ export function CatalogClient({
 
     return (
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-card shadow-sm">
+        {/* Header với filter */}
+        <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-2.5">
+          <span className="text-sm font-medium text-slate-700">Dự án · Hạng mục</span>
+          <span className="rounded-full bg-slate-100 px-1.5 text-xs text-slate-500">{filteredProjects.length}{hasColFilter ? <span className="text-slate-400"> / {generalProjects.length}</span> : null}</span>
+          {hasColFilter && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {gcfGroup.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-0.5 pl-2 pr-1 text-xs">
+                  <span className="text-slate-400">Dự án:</span>
+                  <span className="font-medium text-slate-700">{gcfGroup.length === 1 ? gcfGroup[0] : `${gcfGroup.length} mục`}</span>
+                  <button type="button" onClick={() => gcfClearCol("group")} className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100"><X className="size-3" /></button>
+                </span>
+              )}
+              {gcfCt.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-0.5 pl-2 pr-1 text-xs">
+                  <span className="text-slate-400">Loại hình:</span>
+                  <span className="font-medium text-slate-700">{gcfCt.length === 1 ? gcfCt[0] : `${gcfCt.length} mục`}</span>
+                  <button type="button" onClick={() => gcfClearCol("ct")} className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100"><X className="size-3" /></button>
+                </span>
+              )}
+              {gcfName.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-0.5 pl-2 pr-1 text-xs">
+                  <span className="text-slate-400">Hạng mục:</span>
+                  <span className="font-medium text-slate-700">{gcfName.length === 1 ? gcfName[0] : `${gcfName.length} mục`}</span>
+                  <button type="button" onClick={() => gcfClearCol("name")} className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100"><X className="size-3" /></button>
+                </span>
+              )}
+              {gcfBlock.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-0.5 pl-2 pr-1 text-xs">
+                  <span className="text-slate-400">Khối/HT:</span>
+                  <span className="font-medium text-slate-700">{gcfBlock.length === 1 ? gcfBlock[0] : `${gcfBlock.length} mục`}</span>
+                  <button type="button" onClick={() => gcfClearCol("block")} className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100"><X className="size-3" /></button>
+                </span>
+              )}
+              <button type="button" onClick={gcfClearAll} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-slate-400 hover:text-red-600"><RotateCcw className="size-3" /> Xóa lọc</button>
+            </div>
+          )}
+          <div className="relative ml-auto w-52">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              className="h-8 w-full rounded-md border border-slate-200 bg-background pl-8 pr-3 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Tìm dự án..."
+              value={groupedFilter}
+              onChange={(e) => setGroupedFilter(e.target.value)}
+            />
+          </div>
+        </div>
         {/* Bulk bar khi có chọn */}
         {groupedSelectedIds.size > 0 && (
           <CatalogBulkBar
@@ -576,10 +665,26 @@ export function CatalogClient({
                     aria-label={allVisibleSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
                   />
                 </th>
-                <th className="w-[12%] px-3 py-2">Dự án</th>
-                <th className="w-[7%] px-3 py-2">Loại hình</th>
-                <th className="w-[12%] px-3 py-2">Hạng mục</th>
-                <th className="w-[30%] px-3 py-2">Khối/Hệ thống</th>
+                <th className="w-[12%] px-3 py-2">
+                  <div className="flex items-center gap-1">Dự án
+                    <button type="button" onClick={(e) => openGcf("group", "Dự án", generalProjectGroups.map(g => g.code), e)} className={cn("grid size-5 place-items-center rounded", (groupedColFilters["group"] ?? []).length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
+                  </div>
+                </th>
+                <th className="w-[7%] px-3 py-2">
+                  <div className="flex items-center gap-1">Loại hình
+                    <button type="button" onClick={(e) => openGcf("ct", "Loại hình", optCt, e)} className={cn("grid size-5 place-items-center rounded", gcfCt.length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
+                  </div>
+                </th>
+                <th className="w-[12%] px-3 py-2">
+                  <div className="flex items-center gap-1">Hạng mục
+                    <button type="button" onClick={(e) => openGcf("name", "Hạng mục", optName, e)} className={cn("grid size-5 place-items-center rounded", gcfName.length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
+                  </div>
+                </th>
+                <th className="w-[30%] px-3 py-2">
+                  <div className="flex items-center gap-1">Khối/Hệ thống
+                    <button type="button" onClick={(e) => openGcf("block", "Khối/Hệ thống", optBlock, e)} className={cn("grid size-5 place-items-center rounded", gcfBlock.length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
+                  </div>
+                </th>
                 <th className="w-28 px-3 py-2">Bắt đầu</th>
                 <th className="w-28 px-3 py-2">Đóng gói</th>
                 <th className="w-32 px-3 py-2 text-right">Quy mô</th>
@@ -617,7 +722,7 @@ export function CatalogClient({
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => toggleGrouped(projectKey)} className="inline-flex items-center gap-2 text-left">
                             {collapsed ? <ChevronRight className="size-4 text-slate-400" /> : <ChevronDown className="size-4 text-slate-400" />}
-                            <span className="font-mono text-xs font-semibold text-slate-800" title={group.name}>{group.code}</span>
+                            <span className="font-mono text-[13px] font-semibold text-slate-700" title={group.name}>{group.code}</span>
                             <span className="text-xs font-normal text-slate-400">({ctMap.size} loại hình)</span>
                           </button>
                           <button type="button" title="Thêm loại hình / hạng mục" onClick={() => setAddLoaiHinhCtx(group)} className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
@@ -841,6 +946,17 @@ export function CatalogClient({
             </button>
           </>
         )}
+        <div className="ml-auto flex items-center gap-2">
+          <button type="button" onClick={() => setManageProjectsScope("general")}
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
+            <Building2 className="size-4 text-slate-400" /> Quản lý dự án
+            <span className="rounded-full bg-slate-100 px-1.5 text-xs">{generalProjectGroups.length}</span>
+          </button>
+          <button type="button" onClick={() => setRecord({ title: "Thêm dự án", fields: GROUP_FIELDS_PROJECT, initial: { code: "", name: "", order: "0" }, submit: (v) => saveProjectGroup({ code: v.code, name: v.name, order: Number(v.order) || 0 }) })}
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
+            <Plus className="size-4" /> Thêm dự án
+          </button>
+        </div>
       </div>
       {projectsViewMode === "g6" ? (
         <CatalogG6Graph
@@ -851,8 +967,7 @@ export function CatalogClient({
       ) : projectsViewMode === "grouped" ? groupedProjectsView() :
     <FilterTable
       title="Dự án · Hạng mục"
-      rows={generalProjects as unknown as Row[]}
-      addLabel="Thêm hạng mục"
+      rows={(groupedFilter.trim() ? generalProjects.filter(p => { const g = pgById.get(p.groupId ?? ""); const q2 = groupedFilter.trim().toLowerCase(); return g ? g.code.toLowerCase().includes(q2) || g.name.toLowerCase().includes(q2) : false; }) : generalProjects) as unknown as Row[]}
       minWidth={720}
       selectable
       bulkBar={(ids, clear) => (
@@ -893,18 +1008,18 @@ export function CatalogClient({
           ]}
         />
       )}
-      infoBar={{ tone: "slate", text: 'Dự án của nhóm Quản lý BIM & Thanh tra BIM — mỗi dòng là một Hạng mục. Quản lý danh sách Dự án ở nút "Quản lý dự án".' }}
+      infoBar={{ tone: "slate", text: "Dự án của nhóm Quản lý BIM & Thanh tra BIM — mỗi dòng là một Hạng mục." }}
       headerExtra={
-        <button type="button" onClick={() => setManageProjectsScope("general")}
-          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
-          <Building2 className="size-4 text-slate-400" /> Quản lý dự án
-          <span className="rounded-full bg-slate-100 px-1.5 text-xs">{generalProjectGroups.length}</span>
-        </button>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+          <input
+            className="h-8 w-48 rounded-md border border-slate-200 bg-background pl-8 pr-3 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-ring"
+            placeholder="Tìm dự án..."
+            value={groupedFilter}
+            onChange={(e) => setGroupedFilter(e.target.value)}
+          />
+        </div>
       }
-      onAdd={() => {
-        if (generalProjectGroups.length === 0) { toast.error('Chưa có dự án nào — hãy tạo dự án ở "Quản lý dự án" trước.'); return; }
-        setAddItemsScope("general");
-      }}
       onEdit={(r) => {
         const p = r as unknown as ProjectRow;
         setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "" },
@@ -1518,6 +1633,19 @@ export function CatalogClient({
         />
       ) : null}
 
+      {/* Filter popover cho grouped view */}
+      {groupedOpenFilter && (
+        <FilterPopover
+          rect={groupedOpenFilter.rect}
+          col={{ key: groupedOpenFilter.key, label: groupedOpenFilter.label, filter: "multi", text: () => "", cell: () => null }}
+          value={groupedColFilters[groupedOpenFilter.key]}
+          options={groupedOpenFilter.opts}
+          onChange={(v) => setGroupedColFilters(s => ({ ...s, [groupedOpenFilter.key]: v as string[] }))}
+          onClear={() => setGroupedColFilters(s => { const n = { ...s }; delete n[groupedOpenFilter.key]; return n; })}
+          onClose={() => setGroupedOpenFilter(null)}
+        />
+      )}
+
       {/* Modal thêm nhiều loại hình vào 1 dự án */}
       {addLoaiHinhCtx ? (
         <AddLoaiHinhToGroupModal
@@ -1602,8 +1730,8 @@ function FilterTable({
   title: string;
   rows: Row[];
   columns: Col[];
-  addLabel: string;
-  onAdd: () => void;
+  addLabel?: string;
+  onAdd?: () => void;
   onEdit: (r: Row) => void;
   onDuplicate?: (r: Row) => void;
   onDelete: (r: Row) => void;
@@ -1761,13 +1889,15 @@ function FilterTable({
         </span>
         <div className="ml-auto flex items-center gap-2">
           {headerExtra}
-          <button
-            type="button"
-            onClick={onAdd}
-            className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-slate-700"
-          >
-            <Plus className="size-4" /> {addLabel}
-          </button>
+          {addLabel && onAdd && (
+            <button
+              type="button"
+              onClick={onAdd}
+              className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-slate-700"
+            >
+              <Plus className="size-4" /> {addLabel}
+            </button>
+          )}
         </div>
       </div>
 
