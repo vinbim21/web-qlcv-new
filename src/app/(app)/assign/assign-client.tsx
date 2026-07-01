@@ -525,6 +525,9 @@ export function AssignClient({
     const payload = validRows.map((r) => ({
       workGroupId: activeWg,
       projectId: cols.includes("project") ? r.projectId || null : null,
+      projectGroupCode: cols.includes("project") && r.projectGroupId
+        ? (projects.find((p) => p.groupId === r.projectGroupId)?.groupCode ?? null)
+        : null,
       disciplineId: r.disciplineId || null,
       phaseId: cols.includes("phase") ? r.phaseId || null : null,
       level1: cols.includes("level1") && activeGroup?.code !== "5" ? r.level1 || null : null,
@@ -783,11 +786,13 @@ export function AssignClient({
                   const nl2 = r.level2.trim();
                   const nl3 = v.trim();
                   if (r.projectGroupId && nl2 && nl3) {
-                    const matches = projects.filter(
+                    // Dùng find() thay filter()+length===1: hạng mục có nhiều khối/hệ thống
+                    // (nhiều Project cùng tên khác blockSystem) vẫn resolve được projectId.
+                    const match = projects.find(
                       (pp) => pp.groupId === r.projectGroupId && pp.constructionTypeCode === nl2 && pp.name === nl3,
                     );
-                    patch.blockSystem = matches.length === 1 ? (matches[0].blockSystem?.trim() ?? "") : "";
-                    patch.projectId = matches.length === 1 ? matches[0].id : "";
+                    patch.blockSystem = match?.blockSystem?.trim() ?? "";
+                    patch.projectId = match?.id ?? "";
                   } else {
                     patch.blockSystem = "";
                     patch.projectId = "";

@@ -25,6 +25,8 @@ export const taskSchema = z.object({
   approverId: z.string().optional().nullable(),
   // nhiều người thực hiện; roleNo = vị trí + 1
   assigneeIds: z.array(z.string()).optional(),
+  // Dùng khi gõ mới hạng mục (isB3): auto-upsert Project nếu projectId trống
+  projectGroupCode: z.string().optional().nullable(),
 });
 export type TaskInput = z.infer<typeof taskSchema>;
 
@@ -32,6 +34,7 @@ export type TaskInput = z.infer<typeof taskSchema>;
 export const taskBatchRowSchema = taskSchema.pick({
   workGroupId: true,
   projectId: true,
+  projectGroupCode: true,
   disciplineId: true,
   phaseId: true,
   level1: true,
