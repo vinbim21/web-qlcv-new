@@ -620,6 +620,7 @@ export function CatalogClient({
             actions={[
               { label: "Đổi Dự án", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "groupId" }) },
               { label: "Đổi Loại hình", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "constructionTypeId" }) },
+              { label: "Đổi Hạng mục", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "name" }) },
               { label: "Đổi Khối/Hệ thống", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "blockSystem" }) },
               { label: "Đổi Bắt đầu", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "startDate" }) },
               { label: "Đổi Đóng gói", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "packagingDate" }) },
@@ -1579,6 +1580,7 @@ export function CatalogClient({
           field={bulkProjectEdit.field}
           projectGroups={generalProjectGroups}
           constructionTypes={constructionTypes}
+          projects={generalProjects}
           onClose={() => setBulkProjectEdit(null)}
           onSubmit={async (patch) => {
             const res = await batchUpdateCatalogProjects(bulkProjectEdit.ids, patch);
@@ -3626,6 +3628,7 @@ function BulkEditProjectsModal({
   field,
   projectGroups,
   constructionTypes,
+  projects,
   onClose,
   onSubmit,
 }: {
@@ -3633,13 +3636,14 @@ function BulkEditProjectsModal({
   field: "groupId" | "constructionTypeId" | "name" | "blockSystem" | "startDate" | "packagingDate";
   projectGroups: ProjectGroupRow[];
   constructionTypes: SimpleRow[];
+  projects: ProjectRow[];
   onClose: () => void;
   onSubmit: (patch: ProjectsPatch) => Promise<void>;
 }) {
   const router = useRouter();
   const [activeField, setActiveField] = React.useState(field);
   const [groupId, setGroupId] = React.useState(projectGroups[0]?.id ?? "");
-  const [ctId, setCtId] = React.useState("");
+  const [ctCode, setCtCode] = React.useState("");
   const [name, setName] = React.useState("");
   const [blockSystem, setBlockSystem] = React.useState("");
   const [startDate, setStartDate] = React.useState("");
@@ -3652,6 +3656,19 @@ function BulkEditProjectsModal({
   const [newGroupCode, setNewGroupCode] = React.useState("");
   const [newGroupName, setNewGroupName] = React.useState("");
   const [creatingGroupPending, setCreatingGroupPending] = React.useState(false);
+
+  // Sửa tên Dự án đang chọn (rename ProjectGroup)
+  const [editingGroupName, setEditingGroupName] = React.useState(false);
+  const [editGroupCode, setEditGroupCode] = React.useState("");
+  const [editGroupName, setEditGroupName] = React.useState("");
+  const [editingGroupPending, setEditingGroupPending] = React.useState(false);
+
+  const nameOpts = React.useMemo(() => [...new Set(projects.map((p) => p.name).filter(Boolean))].sort(), [projects]);
+  const blockSystemOpts = React.useMemo(
+    () => [...new Set(projects.map((p) => p.blockSystem).filter(Boolean) as string[])].sort(),
+    [projects],
+  );
+  const ctCodeOpts = React.useMemo(() => constructionTypes.map((c) => c.code), [constructionTypes]);
 
   const inputCls =
     "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
@@ -3684,6 +3701,23 @@ function BulkEditProjectsModal({
     }
   }
 
+  async function handleSaveGroupName() {
+    const c = editGroupCode.trim().toUpperCase();
+    const n = editGroupName.trim();
+    if (!c || !n) { setErr("Nhập đủ mã và tên dự án"); return; }
+    setErr(null);
+    setEditingGroupPending(true);
+    const res = await saveProjectGroup({ id: groupId, code: c, name: n });
+    setEditingGroupPending(false);
+    if (res.ok) {
+      toast.success("Đã đổi tên dự án");
+      router.refresh();
+      setEditingGroupName(false);
+    } else {
+      setErr(res.error);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -3692,7 +3726,13 @@ function BulkEditProjectsModal({
       if (!groupId) { setErr("Chọn dự án"); return; }
       patch.groupId = groupId;
     } else if (activeField === "constructionTypeId") {
-      patch.constructionTypeId = ctId || null;
+      if (!ctCode.trim()) {
+        patch.constructionTypeId = null;
+      } else {
+        const res = await upsertConstructionTypeReturnId(ctCode.trim(), ctCode.trim());
+        if (!res.ok || !res.data) { setErr(res.ok ? "Lỗi không xác định" : res.error); return; }
+        patch.constructionTypeId = res.data.id;
+      }
     } else if (activeField === "name") {
       if (!name.trim()) { setErr("Nhập tên hạng mục"); return; }
       patch.name = name.trim();
@@ -3731,17 +3771,33 @@ function BulkEditProjectsModal({
         {/* Nội dung theo trường */}
         {activeField === "groupId" && (
           <div className="space-y-2">
-            {!creatingGroup ? (
+            {!creatingGroup && !editingGroupName ? (
               <>
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-slate-600">
                     Dự án <span className="text-red-500">*</span>
                   </label>
-                  <Select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="h-9">
-                    {projectGroups.map((g) => (
-                      <option key={g.id} value={g.id}>{g.code} — {g.name}</option>
-                    ))}
-                  </Select>
+                  <div className="flex gap-1.5">
+                    <Select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="h-9 flex-1">
+                      {projectGroups.map((g) => (
+                        <option key={g.id} value={g.id}>{g.code} — {g.name}</option>
+                      ))}
+                    </Select>
+                    <button
+                      type="button"
+                      title="Sửa tên dự án đang chọn"
+                      disabled={!groupId}
+                      onClick={() => {
+                        const g = projectGroups.find((pg) => pg.id === groupId);
+                        setEditGroupCode(g?.code ?? "");
+                        setEditGroupName(g?.name ?? "");
+                        setEditingGroupName(true);
+                      }}
+                      className="grid size-9 shrink-0 place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      <Pencil className="size-4" />
+                    </button>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -3751,6 +3807,37 @@ function BulkEditProjectsModal({
                   <Plus className="size-3.5" /> Tạo dự án mới
                 </button>
               </>
+            ) : editingGroupName ? (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-medium text-slate-600">Sửa tên dự án</p>
+                <div className="flex gap-2">
+                  <input
+                    autoFocus
+                    className={cn(inputCls, "w-28 shrink-0 font-mono uppercase")}
+                    placeholder="Mã"
+                    value={editGroupCode}
+                    onChange={(e) => { setEditGroupCode(e.target.value.toUpperCase()); setErr(null); }}
+                  />
+                  <input
+                    className={cn(inputCls, "flex-1")}
+                    placeholder="Tên dự án…"
+                    value={editGroupName}
+                    onChange={(e) => { setEditGroupName(e.target.value); setErr(null); }}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={editingGroupPending}
+                    onClick={handleSaveGroupName}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    <Check className="size-3.5" /> {editingGroupPending ? "Đang lưu…" : "Lưu tên"}
+                  </button>
+                  <button type="button" onClick={() => { setEditingGroupName(false); setErr(null); }}
+                    className="text-xs text-slate-400 hover:text-slate-600">Hủy</button>
+                </div>
+              </div>
             ) : (
               <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <p className="text-xs font-medium text-slate-600">Tạo dự án mới</p>
@@ -3789,13 +3876,15 @@ function BulkEditProjectsModal({
         {activeField === "constructionTypeId" && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-slate-600">Loại hình</label>
-            <Select value={ctId} onChange={(e) => setCtId(e.target.value)} className="h-9">
-              <option value="">— Không (xóa loại hình) —</option>
-              {constructionTypes.map((c) => (
-                <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
-              ))}
-            </Select>
-            <p className="text-[11px] text-slate-400">Thêm/sửa loại hình ở tab "Loại hình công trình"</p>
+            <SearchableCombobox
+              creatable
+              placeholder="— Không (xóa loại hình) —"
+              value={ctCode}
+              options={ctCodeOpts}
+              className="h-9"
+              onChange={(v) => { setCtCode(v); setErr(null); }}
+            />
+            <p className="text-[11px] text-slate-400">Gõ mã có sẵn hoặc nhập mã mới để tạo loại hình.</p>
           </div>
         )}
 
@@ -3804,8 +3893,14 @@ function BulkEditProjectsModal({
             <label className="text-xs font-medium text-slate-600">
               Tên hạng mục mới <span className="text-red-500">*</span>
             </label>
-            <input autoFocus className={inputCls} placeholder="Nhập tên mới…" value={name}
-              onChange={(e) => { setName(e.target.value); setErr(null); }} />
+            <SearchableCombobox
+              creatable
+              placeholder="Chọn hoặc nhập tên mới…"
+              value={name}
+              options={nameOpts}
+              className="h-9"
+              onChange={(v) => { setName(v); setErr(null); }}
+            />
             <p className="text-[11px] text-amber-500">Sẽ đổi hạng mục cho tất cả {ids.length} dòng đã chọn thành tên này.</p>
           </div>
         )}
@@ -3813,8 +3908,14 @@ function BulkEditProjectsModal({
         {activeField === "blockSystem" && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-slate-600">Khối/Hệ thống</label>
-            <input autoFocus className={inputCls} placeholder="Nhập Khối/Hệ thống, để trống để xóa" value={blockSystem}
-              onChange={(e) => { setBlockSystem(e.target.value); setErr(null); }} />
+            <SearchableCombobox
+              creatable
+              placeholder="Chọn hoặc nhập Khối/Hệ thống, để trống để xóa"
+              value={blockSystem}
+              options={blockSystemOpts}
+              className="h-9"
+              onChange={(v) => { setBlockSystem(v); setErr(null); }}
+            />
             <p className="text-[11px] text-amber-500">Sẽ đổi Khối/Hệ thống cho tất cả {ids.length} dòng đã chọn.</p>
           </div>
         )}
