@@ -17,6 +17,7 @@ import {
   Filter,
   Flag,
   Pause,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
@@ -65,7 +66,6 @@ import {
   bulkSetApproval,
   bulkSetDeadline,
   bulkSetMeasureNorm,
-  bulkSetPriority,
   bulkSetStatus,
   rejectDeleteTask,
   rejectEndDateChange,
@@ -76,7 +76,7 @@ import {
   setTaskStartApproval,
   updateTaskStatus,
 } from "@/server/actions/tasks";
-import { saveCatalogProject } from "@/server/actions/projects";
+import { saveCatalogProject, batchUpdateCatalogProjects } from "@/server/actions/projects";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { DateInput } from "@/components/ui/date-input";
 
@@ -514,7 +514,9 @@ export function ManageClient({
   const [search, setSearch] = React.useState("");
   const deferredSearch = React.useDeferredValue(search);
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
-  const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [renameHangMuc, setRenameHangMuc] = React.useState<{ ids: string[]; name: string } | null>(null);
+  // Modal "Giao việc": false = đóng, true = mở trống, TaskRow = mở điền sẵn theo việc đó ("Thêm tương tự").
+  const [assignModal, setAssignModal] = React.useState<false | true | TaskRow>(false);
   // Lọc nhanh từ dải KPI.
   const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM" | "HOAN_THANH">("manage:quick", "");
   const _now = React.useRef(new Date());
@@ -667,20 +669,72 @@ export function ManageClient({
     return m;
   }, [tasks]);
 
+  // Mặc định: g1 (dự án) + g2 (loại hình) mở, chỉ thu g3 (hạng mục)
+  const activeWgAbbr = React.useMemo(
+    () => workGroups.find((w) => w.id === activeWg)?.abbr ?? null,
+    [workGroups, activeWg],
+  );
+  // Tab "Tất cả" hoặc QL/TT → pre-seed từ Projects (catalog tab 2)
+  const useProjectSeed = !activeWg || PROJECT_BASED_ABBRS.has(activeWgAbbr ?? "");
+  // Tab "Tất cả" hoặc BT → pre-seed từ CatalogItem L2/L3 (catalog tab 3)
+  const useBTSeed = !activeWg || activeWgAbbr === BT_ABBR;
+  const btWgId = React.useMemo(
+    () => workGroups.find((w) => w.abbr === BT_ABBR)?.id ?? null,
+    [workGroups],
+  );
+
+  // Catalog seed: group → loaiHinh → [hạng mục]
+  // QL/TT: pre-seed từ projects (catalog tab 2); BT: pre-seed từ CatalogItem L2/L3 (tab 3)
+  const catalogSeed = React.useMemo(() => {
+    const seed = new Map<string, Map<string, Set<string>>>();
+    if (useProjectSeed) {
+      for (const p of projects) {
+        const dk = p.groupCode || "—";
+        const lk = p.constructionTypeCode || "—";
+        const hk = p.name || "—";
+        if (!seed.has(dk)) seed.set(dk, new Map());
+        const byLoai = seed.get(dk)!;
+        if (!byLoai.has(lk)) byLoai.set(lk, new Set());
+        byLoai.get(lk)!.add(hk);
+      }
+    }
+    if (useBTSeed && btWgId && catalog[btWgId]?.l3ByL2) {
+      if (!seed.has("—")) seed.set("—", new Map());
+      const byLoai = seed.get("—")!;
+      for (const [l2, l3s] of Object.entries(catalog[btWgId].l3ByL2)) {
+        if (!byLoai.has(l2)) byLoai.set(l2, new Set());
+        for (const l3 of l3s) byLoai.get(l2)!.add(l3);
+      }
+    }
+    return seed;
+  }, [projects, catalog, btWgId, useProjectSeed, useBTSeed]);
+
   // Giá trị phân biệt cho các cột lọc "multi".
+  // Gộp cả giá trị từ catalog seed (Dự án/Loại hình/Hạng mục chưa có việc nào) để có thể
+  // tìm & lọc ra các nhánh rỗng trong cây (VD: BDX01 (0 việc)).
   const distinct = React.useMemo(() => {
     const uniq = (vals: string[]) =>
       [...new Set(vals.filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
+    const seedDuAn: string[] = [];
+    const seedLoaiHinh: string[] = [];
+    const seedHangMuc: string[] = [];
+    for (const [dk, byLoai] of catalogSeed) {
+      seedDuAn.push(dk);
+      for (const [lk, hangSet] of byLoai) {
+        seedLoaiHinh.push(lk);
+        for (const hk of hangSet) seedHangMuc.push(hk);
+      }
+    }
     return {
-      duAn: uniq(tasks.map((t) => colText(t, "duAn"))),
-      loaiHinh: uniq(tasks.map((t) => colText(t, "loaiHinh"))),
-      hangMuc: uniq(tasks.map((t) => colText(t, "hangMuc"))),
+      duAn: uniq([...tasks.map((t) => colText(t, "duAn")), ...seedDuAn]),
+      loaiHinh: uniq([...tasks.map((t) => colText(t, "loaiHinh")), ...seedLoaiHinh]),
+      hangMuc: uniq([...tasks.map((t) => colText(t, "hangMuc")), ...seedHangMuc]),
       congViec: uniq(tasks.map((t) => colText(t, "congViec"))),
       giaiDoan: uniq(tasks.map((t) => colText(t, "giaiDoan"))),
       boMon: uniq(tasks.map((t) => colText(t, "boMon"))),
       thucHien: uniq(tasks.flatMap((t) => t.assigneeNames)),
     };
-  }, [tasks]);
+  }, [tasks, catalogSeed]);
 
   // Danh sách cột (ẩn cột Mã mặc định).
   const cols = React.useMemo<ColDef[]>(() => {
@@ -917,20 +971,6 @@ export function ManageClient({
     | { type: "task"; task: TaskRow }
     | { type: "insert"; ctx: NonNullable<typeof insertCtx> };
 
-  // Mặc định: g1 (dự án) + g2 (loại hình) mở, chỉ thu g3 (hạng mục)
-  const activeWgAbbr = React.useMemo(
-    () => workGroups.find((w) => w.id === activeWg)?.abbr ?? null,
-    [workGroups, activeWg],
-  );
-  // Tab "Tất cả" hoặc QL/TT → pre-seed từ Projects (catalog tab 2)
-  const useProjectSeed = !activeWg || PROJECT_BASED_ABBRS.has(activeWgAbbr ?? "");
-  // Tab "Tất cả" hoặc BT → pre-seed từ CatalogItem L2/L3 (catalog tab 3)
-  const useBTSeed = !activeWg || activeWgAbbr === BT_ABBR;
-  const btWgId = React.useMemo(
-    () => workGroups.find((w) => w.abbr === BT_ABBR)?.id ?? null,
-    [workGroups],
-  );
-
   // Collapse g3 groups from catalog — QL/TT dùng projects, BT dùng catalog L2/L3
   const effectiveTreeCollapsed = React.useMemo(() => {
     if (treeCollapsed) return treeCollapsed;
@@ -955,32 +995,6 @@ export function ManageClient({
     }
     return keys;
   }, [treeCollapsed, sorted, projects, catalog, btWgId, useProjectSeed, useBTSeed]);
-
-  // Catalog seed: group → loaiHinh → [hạng mục]
-  // QL/TT: pre-seed từ projects (catalog tab 2); BT: pre-seed từ CatalogItem L2/L3 (tab 3)
-  const catalogSeed = React.useMemo(() => {
-    const seed = new Map<string, Map<string, Set<string>>>();
-    if (useProjectSeed) {
-      for (const p of projects) {
-        const dk = p.groupCode || "—";
-        const lk = p.constructionTypeCode || "—";
-        const hk = p.name || "—";
-        if (!seed.has(dk)) seed.set(dk, new Map());
-        const byLoai = seed.get(dk)!;
-        if (!byLoai.has(lk)) byLoai.set(lk, new Set());
-        byLoai.get(lk)!.add(hk);
-      }
-    }
-    if (useBTSeed && btWgId && catalog[btWgId]?.l3ByL2) {
-      if (!seed.has("—")) seed.set("—", new Map());
-      const byLoai = seed.get("—")!;
-      for (const [l2, l3s] of Object.entries(catalog[btWgId].l3ByL2)) {
-        if (!byLoai.has(l2)) byLoai.set(l2, new Set());
-        for (const l3 of l3s) byLoai.get(l2)!.add(l3);
-      }
-    }
-    return seed;
-  }, [projects, catalog, btWgId, useProjectSeed, useBTSeed]);
 
   const treeNodes = React.useMemo((): TreeNode[] => {
     const nodes: TreeNode[] = [];
@@ -1393,16 +1407,6 @@ export function ManageClient({
     } else {
       toast.error(res.error);
     }
-  }
-  async function batchStatus(status: string) {
-    if (!status) return;
-    if (!confirm(`Đổi trạng thái ${selected.size} công việc?`)) return;
-    await applyBatch(bulkSetStatus({ ids: [...selected], status }), "Đã đổi trạng thái");
-  }
-  async function batchPriority(priority: string) {
-    if (!priority) return;
-    if (!confirm(`Đổi ưu tiên ${selected.size} công việc?`)) return;
-    await applyBatch(bulkSetPriority({ ids: [...selected], priority }), "Đã đổi ưu tiên");
   }
   async function batchApprove(approved: boolean) {
     const label = approved ? "duyệt" : "thu hồi duyệt";
@@ -2056,10 +2060,25 @@ export function ManageClient({
             </span>
           </button>
           {canManage && type === "g3" ? (
-            <button type="button" title="Thêm công việc vào hạng mục này" onClick={() => setInsertCtx(parseInsertCtx())}
-              className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
-              <Plus className="size-3.5" />
-            </button>
+            <>
+              <button type="button" title="Thêm công việc vào hạng mục này" onClick={() => setInsertCtx(parseInsertCtx())}
+                className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                <Plus className="size-3.5" />
+              </button>
+              {(() => {
+                const ctx = parseInsertCtx();
+                const ids = projects
+                  .filter((p) => p.groupCode === ctx.projectGroupCode && p.constructionTypeCode === ctx.constructionTypeCode && p.name === label)
+                  .map((p) => p.id);
+                if (!ids.length) return null;
+                return (
+                  <button type="button" title="Sửa tên hạng mục" onClick={() => setRenameHangMuc({ ids, name: label })}
+                    className="grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                    <Pencil className="size-3.5" />
+                  </button>
+                );
+              })()}
+            </>
           ) : canManage && type === "g2" ? (
             <button type="button" title="Thêm hạng mục vào loại hình này"
               onClick={() => {
@@ -2246,7 +2265,13 @@ export function ManageClient({
           </p>
         </div>
         {canAssign ? (
-          <Button onClick={() => setBulkOpen(true)}>
+          <Button
+            onClick={() => {
+              // Chọn đúng 1 việc → điền sẵn dòng đầu như "Thêm tương tự"; không chọn gì → mở trống.
+              const t = selected.size === 1 ? tasks.find((x) => selected.has(x.id)) : undefined;
+              setAssignModal(t ?? true);
+            }}
+          >
             <Plus className="size-4" /> Giao việc
           </Button>
         ) : null}
@@ -2592,22 +2617,6 @@ export function ManageClient({
       {canManage && selected.size > 0 ? (
         <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border bg-card p-2 shadow-lg">
           <span className="px-2 text-sm font-medium">Đã chọn {selected.size}</span>
-          <Select className="h-8 w-36 text-xs" value="" onChange={(e) => batchStatus(e.target.value)}>
-            <option value="">Đổi trạng thái…</option>
-            {TASK_STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {TASK_STATUS_LABEL[s]}
-              </option>
-            ))}
-          </Select>
-          <Select className="h-8 w-32 text-xs" value="" onChange={(e) => batchPriority(e.target.value)}>
-            <option value="">Đổi ưu tiên…</option>
-            {PRIORITY_OPTIONS.map((p) => (
-              <option key={p} value={p}>
-                {PRIORITY_LABEL[p]}
-              </option>
-            ))}
-          </Select>
           <Button size="sm" variant="outline" onClick={() => setDeadline({ ids: [...selected], date: "" })}>
             <Calendar className="size-4" /> Đổi hạn
           </Button>
@@ -2648,6 +2657,18 @@ export function ManageClient({
                 Từ chối dời hạn
               </Button>
             </>
+          ) : null}
+          {selected.size === 1 ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const t = tasks.find((x) => selected.has(x.id));
+                if (t) setAssignModal(t);
+              }}
+            >
+              <Plus className="size-4" /> Thêm tương tự
+            </Button>
           ) : null}
           <Button size="sm" variant="destructive" onClick={() => void batchDeleteSelected()}>
             Xóa
@@ -2798,9 +2819,23 @@ export function ManageClient({
         />
       ) : null}
 
-      {/* "Giao việc" → lưới nhập (1 hoặc nhiều việc) trong modal gần kín màn hình. */}
-      {bulkOpen && canAssign ? (
-        <Modal open onClose={() => setBulkOpen(false)} title="Giao việc" className="max-w-[96vw]">
+      {/* Sửa tên Hạng mục (g3) — đổi Project.name cho mọi Khối/Hệ thống cùng hạng mục. */}
+      {renameHangMuc ? (
+        <RenameHangMucModal
+          ids={renameHangMuc.ids}
+          currentName={renameHangMuc.name}
+          onClose={() => setRenameHangMuc(null)}
+          onSaved={() => {
+            setRenameHangMuc(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
+
+      {/* "Giao việc" → lưới nhập (1 hoặc nhiều việc) trong modal gần kín màn hình.
+          assignModal === true: mở trống. assignModal là TaskRow: "Thêm tương tự" — điền sẵn dòng đầu. */}
+      {assignModal && canAssign ? (
+        <Modal open onClose={() => setAssignModal(false)} title="Giao việc" className="max-w-[96vw]">
           <AssignClient
             embedded
             workGroups={workGroups}
@@ -2809,8 +2844,24 @@ export function ManageClient({
             projects={projects}
             users={users}
             catalog={catalog}
+            defaultWorkGroupId={assignModal !== true ? assignModal.workGroupId : undefined}
+            prefillRow={
+              assignModal !== true
+                ? {
+                    projectId: assignModal.projectId ?? "",
+                    level2: assignModal.level2 ?? "",
+                    level3: assignModal.level3 ?? "",
+                    level5: assignModal.level5 ?? assignModal.name,
+                    disciplineId: assignModal.disciplineId ?? "",
+                    phaseId: assignModal.phaseId ?? "",
+                    priority: assignModal.priority || "TRUNG_BINH",
+                    plannedStart: assignModal.plannedStart ?? "",
+                    plannedEnd: assignModal.plannedEnd ?? "",
+                  }
+                : undefined
+            }
             onSaved={() => {
-              setBulkOpen(false);
+              setAssignModal(false);
               router.refresh();
             }}
           />
@@ -3341,6 +3392,50 @@ function TaskDialog({
         onSuccess={onClose}
         onCancel={onClose}
       />
+    </Modal>
+  );
+}
+
+function RenameHangMucModal({
+  ids,
+  currentName,
+  onClose,
+  onSaved,
+}: {
+  ids: string[];
+  currentName: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = React.useState(currentName);
+  const [pending, setPending] = React.useState(false);
+
+  async function save() {
+    const trimmed = name.trim();
+    if (!trimmed) { toast.error("Nhập tên hạng mục"); return; }
+    setPending(true);
+    const res = await batchUpdateCatalogProjects(ids, { name: trimmed });
+    setPending(false);
+    if (res.ok) {
+      toast.success("Đã đổi tên hạng mục");
+      onSaved();
+    } else {
+      toast.error(res.error);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Sửa tên hạng mục" className="max-w-md">
+      <div className="space-y-3">
+        <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+        <p className="text-xs text-amber-500">
+          Sẽ đổi tên hạng mục cho tất cả {ids.length} dòng Khối/Hệ thống thuộc hạng mục này.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Hủy</Button>
+          <Button disabled={pending} onClick={() => void save()}>{pending ? "Đang lưu..." : "Lưu"}</Button>
+        </div>
+      </div>
     </Modal>
   );
 }
