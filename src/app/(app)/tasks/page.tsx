@@ -8,10 +8,19 @@ function iso(d: Date | null): string {
   return d ? d.toISOString().slice(0, 10) : "";
 }
 
-export default async function TasksPage() {
+export default async function TasksPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await auth();
   if (!session?.user) return null;
   const manage = canManage(session.user.role);
+
+  // Deep-link từ Tổng quan: click 1 việc "vừa được giao" → ?q=<sumId> lọc đúng việc đó.
+  const sp = await searchParams;
+  const qv = sp.q;
+  const initialQuery = Array.isArray(qv) ? (qv[0] ?? "") : (qv ?? "");
 
   const [tasks, lookups, catalogL3] = await Promise.all([
     prisma.task.findMany({
@@ -55,6 +64,7 @@ export default async function TasksPage() {
     <TasksClient
       currentUserId={session.user.id}
       canManage={manage}
+      initialQuery={initialQuery}
       tasks={tasks.map((t) => ({
         id: t.id,
         sumId: t.sumId,

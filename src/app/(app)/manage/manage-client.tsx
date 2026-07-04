@@ -92,6 +92,17 @@ const PROJECT_BASED_ABBRS = new Set(["QL", "TT"]);
 // Nhóm dùng cấu trúc CatalogItem PT (catalog tab 3).
 const BT_ABBR = "BT";
 
+// Chip "Lọc:" nhanh theo từng nhóm công việc — lọc thô theo từ khóa có trong
+// Loại hình/Hạng mục/Công việc/mã, KHÔNG cần khai báo catalog Level 1.
+const QUICK_FILTERS: Record<string, string[]> = {
+  XD: ["TC"],
+  DT: ["CDE", "Revit", "Tools"],
+  QL: ["Tạo lập", "KSCL"],
+  TT: ["BB"],
+  PT: ["App", "Cad", "Revit", "Civil3D", "DigitalTwin"],
+  CK: ["Họp"],
+};
+
 type Opt = { id: string; name: string };
 type DisciplineOpt = Opt & { code?: string | null };
 // Nhóm công việc kèm mã + tiền tố Id (abbr) + bộ đếm (lastSeq) cho editor.
@@ -508,6 +519,22 @@ export function ManageClient({
   const [activeWg, setActiveWg] = useLocalStorage("manage:activeWg", initial?.group ?? ""); // "" = Tất cả (tab Bảng)
   const [activeL1, setActiveL1] = React.useState("");
   React.useEffect(() => { setActiveL1(""); }, [activeWg]);
+  // Esc (bất kỳ đâu trên trang) → bỏ chip "Lọc:" đang chọn, về "Tất cả".
+  React.useEffect(() => {
+    if (!activeL1) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setActiveL1("");
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeL1]);
+  // Chip "Lọc:" do người dùng tự thêm — nhớ theo trình duyệt, dùng chung /manage + /tasks.
+  const [extraQuickFilters, setExtraQuickFilters] = useLocalStorage<Record<string, string[]>>(
+    "quickFilters:extra",
+    {},
+  );
+  const [addingChip, setAddingChip] = React.useState(false);
+  const [newChipText, setNewChipText] = React.useState("");
   const fromReport = Boolean(
     initial && (initial.user || initial.group || initial.phong || initial.from || initial.to),
   );
@@ -766,12 +793,10 @@ export function ManageClient({
 
   const activeCols = cols.filter((c) => colActive(c, colFilters[c.key]));
 
-  // Helper: lọc L1
+  // Helper: chip "Lọc:" nhanh — khớp thô theo từ khóa có trong Loại hình/Hạng mục/Công việc/mã.
   function passL1(t: TaskRow): boolean {
     if (!activeL1 || !activeWg || t.workGroupId !== activeWg) return true;
-    const allowed = catalog[activeWg]?.l2ByL1[activeL1];
-    if (!allowed?.length) return true;
-    return allowed.includes(t.level2 ?? "");
+    return (haystacks.get(t.id) ?? "").includes(norm(activeL1));
   }
 
   // Nền KPI: deep-link + tìm + filter cột (KHÔNG gồm quick & tab) → số KPI ổn định khi bấm.
@@ -845,13 +870,9 @@ export function ManageClient({
   }, [base]);
 
   const filtered = React.useMemo(() => {
-    let r = activeWg ? base.filter((t) => t.workGroupId === activeWg) : base;
-    if (activeL1 && activeWg) {
-      const allowed = catalog[activeWg]?.l2ByL1[activeL1];
-      if (allowed?.length) r = r.filter((t) => allowed.includes(t.level2 ?? ""));
-    }
-    return r;
-  }, [base, activeWg, activeL1, catalog]);
+    // activeL1 đã lọc ở kpiBase (upstream) — ở đây chỉ còn cần lọc theo tab nhóm.
+    return activeWg ? base.filter((t) => t.workGroupId === activeWg) : base;
+  }, [base, activeWg]);
 
   // Cột cấu trúc: khi filter những cột này vẫn giữ pre-seed catalog (chỉ lọc trong seed).
   // Các filter khác (người, phòng, ngày, tìm, quick, tình trạng...) mới ẩn group 0-task.
@@ -2255,15 +2276,12 @@ export function ManageClient({
   return (
     <div className="space-y-4 pb-[5px]">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Quản lý công việc</h1>
-          <p className="text-sm text-muted-foreground">
-            {filtered.length} / {tasks.length} công việc
-            {activeFilterCount > 0 ? (
-              <span className="text-slate-400"> · đang lọc {activeFilterCount} điều kiện</span>
-            ) : null}
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          {filtered.length} / {tasks.length} công việc
+          {activeFilterCount > 0 ? (
+            <span className="text-slate-400"> · đang lọc {activeFilterCount} điều kiện</span>
+          ) : null}
+        </p>
         {canAssign ? (
           <Button
             onClick={() => {
@@ -2379,10 +2397,10 @@ export function ManageClient({
         ))}
       </div>
 
-      {/* L1 filter pills — chỉ hiện khi workgroup đang chọn có Level 1 trong catalog */}
-      {activeWg && (catalog[activeWg]?.l1?.length ?? 0) > 0 ? (
+      {/* Chip "Lọc:" nhanh — mặc định theo QUICK_FILTERS + chip người dùng tự thêm (nhớ theo trình duyệt) */}
+      {activeWg ? (
         <div className="flex flex-wrap items-center gap-1.5 py-1.5">
-          <span className="text-xs text-muted-foreground">Dự án:</span>
+          <span className="text-xs text-muted-foreground">Lọc:</span>
           <button
             type="button"
             onClick={() => setActiveL1("")}
@@ -2393,7 +2411,7 @@ export function ManageClient({
           >
             Tất cả
           </button>
-          {catalog[activeWg]!.l1.map((l1) => (
+          {(QUICK_FILTERS[activeWgAbbr ?? ""] ?? []).map((l1) => (
             <button
               key={l1}
               type="button"
@@ -2406,6 +2424,65 @@ export function ManageClient({
               {l1}
             </button>
           ))}
+          {(extraQuickFilters[activeWgAbbr ?? ""] ?? []).map((l1) => (
+            <span
+              key={l1}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                activeL1 === l1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
+              )}
+            >
+              <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
+                {l1}
+              </button>
+              <button
+                type="button"
+                title="Xóa chip lọc này"
+                onClick={() => {
+                  const key = activeWgAbbr ?? "";
+                  setExtraQuickFilters((prev) => ({ ...prev, [key]: (prev[key] ?? []).filter((x) => x !== l1) }));
+                  if (activeL1 === l1) setActiveL1("");
+                }}
+                className="opacity-60 hover:opacity-100"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          {addingChip ? (
+            <input
+              autoFocus
+              value={newChipText}
+              onChange={(e) => setNewChipText(e.target.value)}
+              onBlur={() => { setAddingChip(false); setNewChipText(""); }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") { e.stopPropagation(); setAddingChip(false); setNewChipText(""); }
+                if (e.key === "Enter") {
+                  const v = newChipText.trim();
+                  const key = activeWgAbbr ?? "";
+                  if (v && key) {
+                    setExtraQuickFilters((prev) => {
+                      const cur = prev[key] ?? [];
+                      return cur.includes(v) ? prev : { ...prev, [key]: [...cur, v] };
+                    });
+                  }
+                  setAddingChip(false);
+                  setNewChipText("");
+                }
+              }}
+              placeholder="Từ khóa mới…"
+              className="h-5 w-28 rounded-full border border-input bg-background px-2.5 text-xs outline-none focus:border-slate-400"
+            />
+          ) : (
+            <button
+              type="button"
+              title="Thêm chip lọc cho nhóm này"
+              onClick={() => setAddingChip(true)}
+              className="grid size-5 place-items-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80"
+            >
+              <Plus className="size-3" />
+            </button>
+          )}
         </div>
       ) : null}
 

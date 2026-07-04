@@ -68,13 +68,10 @@ export function TimesheetClient({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Timesheet</h1>
-          <p className="text-sm text-muted-foreground">
-            Tuần {ws.format("DD/MM")} – {ws.add(6, "day").format("DD/MM/YYYY")} · Tổng{" "}
-            <strong>{total} h</strong>
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          Tuần {ws.format("DD/MM")} – {ws.add(6, "day").format("DD/MM/YYYY")} · Tổng{" "}
+          <strong>{total} h</strong>
+        </p>
         <div className="flex items-center gap-2">
           <Link
             href={`/timesheet?week=${prevWeek}`}

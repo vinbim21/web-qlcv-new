@@ -136,6 +136,27 @@ export type TaskRow = {
 
 const norm = removeVietnameseTones;
 
+// Tìm kiếm nhiều điều kiện cách nhau bởi dấu phẩy (VD "HN, KSCL") → khớp khi haystack
+// chứa TẤT CẢ các cụm đã nhập (AND), không phân biệt hoa/thường & dấu.
+function matchesSearch(haystack: string, rawQuery: string): boolean {
+  const terms = rawQuery
+    .split(",")
+    .map((s) => norm(s.trim()))
+    .filter(Boolean);
+  return terms.every((t) => haystack.includes(t));
+}
+
+// Chip "Lọc:" nhanh theo từng nhóm công việc — lọc thô theo từ khóa có trong
+// Loại hình/Hạng mục/Công việc/mã, KHÔNG cần khai báo catalog Level 1.
+const QUICK_FILTERS: Record<string, string[]> = {
+  XD: ["TC"],
+  DT: ["CDE", "Revit", "Tools"],
+  QL: ["Tạo lập", "KSCL"],
+  TT: ["BB"],
+  PT: ["App", "Cad", "Revit", "Civil3D", "DigitalTwin"],
+  CK: ["Họp"],
+};
+
 // ---------- helpers ngày / trạng thái ----------
 function startOfToday(): Date {
   return new Date(new Date().toDateString());
@@ -802,6 +823,7 @@ export function TasksClient({
   users,
   approvers,
   catalog,
+  initialQuery,
 }: {
   currentUserId: string;
   canManage: boolean;
@@ -814,13 +836,39 @@ export function TasksClient({
   users: UserOpt[];
   approvers: UserOpt[];
   catalog: Catalog;
+  /** Deep-link từ Tổng quan: ?q=<sumId> → lọc đúng 1 việc khi vào trang. */
+  initialQuery?: string;
 }) {
   const router = useRouter();
-  const [search, setSearch] = React.useState("");
+  const [search, setSearch] = React.useState(initialQuery ?? "");
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    if (initialQuery) {
+      router.replace("/tasks", { scroll: false });
+      searchInputRef.current?.focus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const deferredSearch = React.useDeferredValue(search);
   const [activeWg, setActiveWg] = useLocalStorage("tasks:activeWg", "");
   const [activeL1, setActiveL1] = React.useState("");
   React.useEffect(() => { setActiveL1(""); }, [activeWg]);
+  // Esc (bất kỳ đâu trên trang) → bỏ chip "Lọc:" đang chọn, về "Tất cả".
+  React.useEffect(() => {
+    if (!activeL1) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setActiveL1("");
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeL1]);
+  // Chip "Lọc:" do người dùng tự thêm — nhớ theo trình duyệt, dùng chung /manage + /tasks.
+  const [extraQuickFilters, setExtraQuickFilters] = useLocalStorage<Record<string, string[]>>(
+    "quickFilters:extra",
+    {},
+  );
+  const [addingChip, setAddingChip] = React.useState(false);
+  const [newChipText, setNewChipText] = React.useState("");
   const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM" | "HOAN_THANH" | "CHO_DUYET">("tasks:quick", "");
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
@@ -866,7 +914,7 @@ export function TasksClient({
   const [bulkStartDate, setBulkStartDate] = React.useState<{ ids: string[]; date: string } | null>(null);
   const [bulkEndDate, setBulkEndDate] = React.useState<{ ids: string[]; date: string; note: string } | null>(null);
   // Tree grouping: null = chưa tương tác (mặc định thu tất cả)
-  const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(null);
+  const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(initialQuery ? new Set() : null);
   const [viewMode, setViewMode] = useLocalStorage<"tree" | "flat">("tasks:viewMode", "tree");
   // Modal chi tiết công việc: note + giờ tuần.
   type WeekEntry = { id: string; date: string; hours: number; note: string | null };
@@ -958,21 +1006,18 @@ export function TasksClient({
     return m;
   }, [tasks]);
 
-  // Helper: lọc L1 — chỉ áp khi activeL1 đã chọn VÀ wg đó có l2ByL1
+  // Helper: chip "Lọc:" nhanh — khớp thô theo từ khóa có trong Loại hình/Hạng mục/Công việc/mã.
   function passL1(t: TaskRow): boolean {
     if (!activeL1 || !activeWg || t.workGroupId !== activeWg) return true;
-    const allowed = catalog[activeWg]?.l2ByL1[activeL1];
-    if (!allowed?.length) return true; // L1 chưa có L2 con → không lọc
-    return allowed.includes(t.level2 ?? "");
+    return (haystacks.get(t.id) ?? "").includes(norm(activeL1));
   }
 
   // Nền KPI: search + lọc cột + tab (KHÔNG gồm quick) → số KPI ổn định khi bấm.
   const baseRows = React.useMemo(() => {
-    const q = norm(deferredSearch.trim());
     return tasks.filter((t) => {
       if (activeWg && t.workGroupId !== activeWg) return false;
       if (!passL1(t)) return false;
-      if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
+      if (!matchesSearch(haystacks.get(t.id) ?? "", deferredSearch)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
       if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t)) return false;
       return true;
@@ -998,9 +1043,8 @@ export function TasksClient({
 
   // Đếm tab nhóm — trên nền tìm + lọc cột + quick (KHÔNG gồm tab).
   const quickFiltered = React.useMemo(() => {
-    const q = norm(deferredSearch.trim());
     return tasks.filter((t) => {
-      if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
+      if (!matchesSearch(haystacks.get(t.id) ?? "", deferredSearch)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
       if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t)) return false;
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
@@ -1020,12 +1064,10 @@ export function TasksClient({
 
   const filtered = React.useMemo(() => {
     let r = activeWg ? quickFiltered.filter((t) => t.workGroupId === activeWg) : quickFiltered;
-    if (activeL1 && activeWg) {
-      const allowed = catalog[activeWg]?.l2ByL1[activeL1];
-      if (allowed?.length) r = r.filter((t) => allowed.includes(t.level2 ?? ""));
-    }
+    if (activeL1 && activeWg) r = r.filter((t) => passL1(t));
     return r;
-  }, [quickFiltered, activeWg, activeL1, catalog]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickFiltered, activeWg, activeL1, haystacks]);
 
   function sortVal(t: TaskRow, key: SortKey): string | number {
     switch (key) {
@@ -1804,15 +1846,12 @@ export function TasksClient({
     <div className="flex flex-col gap-3">
       {/* header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Công việc của tôi</h1>
-          <p className="text-sm text-slate-500">
-            {sorted.length} / {tasks.length} việc được giao
-            {activeFilterCount > 0 ? (
-              <span className="text-slate-400"> · đang lọc {activeFilterCount} điều kiện</span>
-            ) : null}
-          </p>
-        </div>
+        <p className="text-sm text-slate-500">
+          {sorted.length} / {tasks.length} việc được giao
+          {activeFilterCount > 0 ? (
+            <span className="text-slate-400"> · đang lọc {activeFilterCount} điều kiện</span>
+          ) : null}
+        </p>
         <button
           type="button"
           onClick={() => setAddOpen(true)}
@@ -1880,9 +1919,13 @@ export function TasksClient({
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
         <input
+          ref={searchInputRef}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Tìm theo tên, mã, bộ môn, người thực hiện..."
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && search) setSearch("");
+          }}
+          placeholder="Tìm theo tên, mã, bộ môn, người thực hiện... (cách nhau bởi dấu phẩy để lọc nhiều điều kiện)"
           className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 text-[15px] outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
         />
         {search ? (
@@ -1928,35 +1971,95 @@ export function TasksClient({
         })}
       </div>
 
-      {/* L1 filter pills — chỉ hiện khi workgroup đang chọn có Level 1 trong catalog */}
-      {activeWg && (catalog[activeWg]?.l1?.length ?? 0) > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5 py-1.5">
-          <span className="text-xs text-slate-400">Dự án:</span>
-          <button
-            type="button"
-            onClick={() => setActiveL1("")}
-            className={cn(
-              "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-              !activeL1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
-            )}
-          >
-            Tất cả
-          </button>
-          {catalog[activeWg]!.l1.map((l1) => (
+      {/* Chip "Lọc:" nhanh — mặc định theo QUICK_FILTERS + chip người dùng tự thêm (nhớ theo trình duyệt) */}
+      {activeWg ? (() => {
+        const wgAbbr = workGroups.find((w) => w.id === activeWg)?.abbr ?? "";
+        return (
+          <div className="flex flex-wrap items-center gap-1.5 py-1.5">
+            <span className="text-xs text-slate-400">Lọc:</span>
             <button
-              key={l1}
               type="button"
-              onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}
+              onClick={() => setActiveL1("")}
               className={cn(
                 "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-                activeL1 === l1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                !activeL1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
               )}
             >
-              {l1}
+              Tất cả
             </button>
-          ))}
-        </div>
-      ) : null}
+            {(QUICK_FILTERS[wgAbbr] ?? []).map((l1) => (
+              <button
+                key={l1}
+                type="button"
+                onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                  activeL1 === l1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                )}
+              >
+                {l1}
+              </button>
+            ))}
+            {(extraQuickFilters[wgAbbr] ?? []).map((l1) => (
+              <span
+                key={l1}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                  activeL1 === l1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                )}
+              >
+                <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
+                  {l1}
+                </button>
+                <button
+                  type="button"
+                  title="Xóa chip lọc này"
+                  onClick={() => {
+                    setExtraQuickFilters((prev) => ({ ...prev, [wgAbbr]: (prev[wgAbbr] ?? []).filter((x) => x !== l1) }));
+                    if (activeL1 === l1) setActiveL1("");
+                  }}
+                  className="opacity-60 hover:opacity-100"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+            {addingChip ? (
+              <input
+                autoFocus
+                value={newChipText}
+                onChange={(e) => setNewChipText(e.target.value)}
+                onBlur={() => { setAddingChip(false); setNewChipText(""); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") { e.stopPropagation(); setAddingChip(false); setNewChipText(""); }
+                  if (e.key === "Enter") {
+                    const v = newChipText.trim();
+                    if (v && wgAbbr) {
+                      setExtraQuickFilters((prev) => {
+                        const cur = prev[wgAbbr] ?? [];
+                        return cur.includes(v) ? prev : { ...prev, [wgAbbr]: [...cur, v] };
+                      });
+                    }
+                    setAddingChip(false);
+                    setNewChipText("");
+                  }
+                }}
+                placeholder="Từ khóa mới…"
+                className="h-5 w-28 rounded-full border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-slate-400"
+              />
+            ) : (
+              <button
+                type="button"
+                title="Thêm chip lọc cho nhóm này"
+                onClick={() => setAddingChip(true)}
+                className="grid size-5 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+              >
+                <Plus className="size-3" />
+              </button>
+            )}
+          </div>
+        );
+      })() : null}
 
       {/* BẢNG */}
       <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
