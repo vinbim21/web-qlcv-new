@@ -19,5 +19,5 @@ export function Breadcrumbs() {
   const pathname = usePathname();
   const parts = pathname.split("/").filter(Boolean);
   const label = parts.map((p) => LABELS[p] ?? p).join(" / ");
-  return <span className="text-sm font-medium">{label || "Tổng quan"}</span>;
+  return <span className="text-2xl font-semibold tracking-tight">{label || "Tổng quan"}</span>;
 }
