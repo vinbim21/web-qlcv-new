@@ -815,12 +815,9 @@ export function AssignClient({
           Chọn bảng theo nhóm công việc rồi nhập trực tiếp. Mỗi dòng có nội dung sẽ tạo thành một việc mới.
         </p>
       ) : (
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Giao việc</h1>
-          <p className="text-sm text-muted-foreground">
-            Chọn bảng theo nhóm công việc rồi nhập trực tiếp. Mỗi dòng có nội dung sẽ tạo thành một việc mới.
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          Chọn bảng theo nhóm công việc rồi nhập trực tiếp. Mỗi dòng có nội dung sẽ tạo thành một việc mới.
+        </p>
       )}
 
       {/* Tab Bảng 1-7 */}

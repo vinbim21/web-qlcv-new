@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ClipboardList, Clock, FolderTree, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ROLE_LABEL } from "@/lib/labels";
@@ -11,7 +12,7 @@ export default async function DashboardPage() {
 
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  const [projectCount, myTaskCount, weekHours] = await Promise.all([
+  const [projectCount, myTaskCount, weekHours, assignedRecentTasks] = await Promise.all([
     prisma.project.count({ where: { deletedAt: null } }),
     prisma.task.count({
       where: { deletedAt: null, assignees: { some: { userId } } },
@@ -22,6 +23,21 @@ export default async function DashboardPage() {
         where: { userId, date: { gte: weekAgo }, deletedAt: null },
       })
       .then((r) => r._sum.hours?.toString() ?? "0"),
+    // Việc vừa được giao — tạo trong 7 ngày qua
+    prisma.task.findMany({
+      where: { deletedAt: null, assignees: { some: { userId } }, createdAt: { gte: weekAgo } },
+      orderBy: { createdAt: "desc" },
+      take: 15,
+      select: {
+        id: true,
+        sumId: true,
+        name: true,
+        level2: true,
+        level3: true,
+        createdAt: true,
+        project: { select: { group: { select: { code: true } } } },
+      },
+    }),
   ]);
 
   const cards = [
@@ -53,6 +69,65 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Việc vừa được giao (7 ngày qua)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {assignedRecentTasks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Không có việc nào mới được giao trong 7 ngày qua.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="pb-2 pr-3 font-medium">Dự án</th>
+                    <th className="pb-2 pr-3 font-medium">Loại hình</th>
+                    <th className="pb-2 pr-3 font-medium">Hạng mục</th>
+                    <th className="pb-2 pr-3 font-medium">Công việc</th>
+                    <th className="pb-2 font-medium">Ngày giao</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assignedRecentTasks.map((t) => (
+                    <tr key={t.id} className="border-b last:border-0 hover:bg-muted/50">
+                      <td className="p-0">
+                        <Link href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`} className="block py-1.5 pr-3">
+                          {t.project?.group?.code ?? "—"}
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`} className="block py-1.5 pr-3">
+                          {t.level2 || "—"}
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`} className="block py-1.5 pr-3">
+                          {t.level3 || "—"}
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`} className="block py-1.5 pr-3">
+                          {t.name}
+                        </Link>
+                      </td>
+                      <td className="p-0">
+                        <Link
+                          href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`}
+                          className="block whitespace-nowrap py-1.5 text-muted-foreground"
+                        >
+                          {t.createdAt.toLocaleDateString("vi-VN")}
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

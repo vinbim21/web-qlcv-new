@@ -225,10 +225,7 @@ export function ReportsTabs({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Báo cáo số liệu</h1>
-          <p className="text-sm text-slate-500">Module biểu diễn &amp; báo cáo công việc phòng BIM</p>
-        </div>
+        <p className="text-sm text-slate-500">Module biểu diễn &amp; báo cáo công việc phòng BIM</p>
         <a
           href="/api/export/reports"
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-card px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
