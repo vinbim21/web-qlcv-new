@@ -136,14 +136,16 @@ export type TaskRow = {
 
 const norm = removeVietnameseTones;
 
-// Tìm kiếm nhiều điều kiện cách nhau bởi dấu phẩy (VD "HN, KSCL") → khớp khi haystack
-// chứa TẤT CẢ các cụm đã nhập (AND), không phân biệt hoa/thường & dấu.
+// Tìm kiếm nhiều điều kiện: dấu phẩy "," = AND trong 1 nhóm (VD "HN, KSCL" → phải có cả 2),
+// dấu gạch đứng "|" = OR giữa các nhóm (VD "A, B | C, D" → khớp nhóm (A và B) HOẶC nhóm (C và D)).
+// Không phân biệt hoa/thường & dấu.
 function matchesSearch(haystack: string, rawQuery: string): boolean {
-  const terms = rawQuery
-    .split(",")
-    .map((s) => norm(s.trim()))
-    .filter(Boolean);
-  return terms.every((t) => haystack.includes(t));
+  const groups = rawQuery.split("|").map((g) => g.trim()).filter(Boolean);
+  if (!groups.length) return true;
+  return groups.some((g) => {
+    const terms = g.split(",").map((s) => norm(s.trim())).filter(Boolean);
+    return terms.every((t) => haystack.includes(t));
+  });
 }
 
 // Chip "Lọc:" nhanh theo từng nhóm công việc — lọc thô theo từ khóa có trong
@@ -867,8 +869,14 @@ export function TasksClient({
     "quickFilters:extra",
     {},
   );
+  // Chip mặc định (QUICK_FILTERS) bị người dùng ẩn đi — nhớ theo trình duyệt, dùng chung /manage + /tasks.
+  const [hiddenQuickFilters, setHiddenQuickFilters] = useLocalStorage<Record<string, string[]>>(
+    "quickFilters:hidden",
+    {},
+  );
   const [addingChip, setAddingChip] = React.useState(false);
   const [newChipText, setNewChipText] = React.useState("");
+  const [removingChip, setRemovingChip] = React.useState(false);
   const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM" | "HOAN_THANH" | "CHO_DUYET">("tasks:quick", "");
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
@@ -1000,7 +1008,11 @@ export function TasksClient({
     for (const t of tasks) {
       m.set(
         t.id,
-        norm([t.name, t.sumId, duAnText(t), t.loaiHinhCode, t.level3, t.phaseName, t.phaseCode, t.disciplineCode, t.disciplineName, t.assigneeNames.join(" ")].filter(Boolean).join(" ")),
+        norm(
+          [t.name, t.sumId, duAnText(t), t.loaiHinhCode, t.level2, t.level3, t.blockSystem, t.phaseName, t.phaseCode, t.disciplineCode, t.disciplineName, t.assigneeNames.join(" ")]
+            .filter(Boolean)
+            .join(" "),
+        ),
       );
     }
     return m;
@@ -1925,7 +1937,7 @@ export function TasksClient({
           onKeyDown={(e) => {
             if (e.key === "Escape" && search) setSearch("");
           }}
-          placeholder="Tìm theo tên, mã, bộ môn, người thực hiện... (cách nhau bởi dấu phẩy để lọc nhiều điều kiện)"
+          placeholder="Tìm theo tên, mã, bộ môn, người thực hiện..."
           className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 text-[15px] outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
         />
         {search ? (
@@ -1987,19 +1999,37 @@ export function TasksClient({
             >
               Tất cả
             </button>
-            {(QUICK_FILTERS[wgAbbr] ?? []).map((l1) => (
-              <button
-                key={l1}
-                type="button"
-                onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}
-                className={cn(
-                  "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-                  activeL1 === l1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
-                )}
-              >
-                {l1}
-              </button>
-            ))}
+            {(QUICK_FILTERS[wgAbbr] ?? [])
+              .filter((l1) => !(hiddenQuickFilters[wgAbbr] ?? []).includes(l1))
+              .map((l1) => (
+                <span
+                  key={l1}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                    activeL1 === l1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                  )}
+                >
+                  <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
+                    {l1}
+                  </button>
+                  {removingChip ? (
+                    <button
+                      type="button"
+                      title="Xóa chip lọc này"
+                      onClick={() => {
+                        setHiddenQuickFilters((prev) => {
+                          const cur = prev[wgAbbr] ?? [];
+                          return cur.includes(l1) ? prev : { ...prev, [wgAbbr]: [...cur, l1] };
+                        });
+                        if (activeL1 === l1) setActiveL1("");
+                      }}
+                      className="opacity-60 hover:opacity-100"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  ) : null}
+                </span>
+              ))}
             {(extraQuickFilters[wgAbbr] ?? []).map((l1) => (
               <span
                 key={l1}
@@ -2011,17 +2041,19 @@ export function TasksClient({
                 <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
                   {l1}
                 </button>
-                <button
-                  type="button"
-                  title="Xóa chip lọc này"
-                  onClick={() => {
-                    setExtraQuickFilters((prev) => ({ ...prev, [wgAbbr]: (prev[wgAbbr] ?? []).filter((x) => x !== l1) }));
-                    if (activeL1 === l1) setActiveL1("");
-                  }}
-                  className="opacity-60 hover:opacity-100"
-                >
-                  <X className="size-3" />
-                </button>
+                {removingChip ? (
+                  <button
+                    type="button"
+                    title="Xóa chip lọc này"
+                    onClick={() => {
+                      setExtraQuickFilters((prev) => ({ ...prev, [wgAbbr]: (prev[wgAbbr] ?? []).filter((x) => x !== l1) }));
+                      if (activeL1 === l1) setActiveL1("");
+                    }}
+                    className="opacity-60 hover:opacity-100"
+                  >
+                    <X className="size-3" />
+                  </button>
+                ) : null}
               </span>
             ))}
             {addingChip ? (
@@ -2057,6 +2089,17 @@ export function TasksClient({
                 <Plus className="size-3" />
               </button>
             )}
+            <button
+              type="button"
+              title={removingChip ? "Xong, ẩn nút xóa" : "Bật chế độ xóa chip lọc"}
+              onClick={() => setRemovingChip((v) => !v)}
+              className={cn(
+                "grid size-5 place-items-center rounded-full",
+                removingChip ? "bg-red-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+              )}
+            >
+              <X className="size-3" />
+            </button>
           </div>
         );
       })() : null}
