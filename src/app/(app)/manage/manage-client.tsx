@@ -260,6 +260,18 @@ function inPeriod(plannedStart: string, plannedEnd: string, bounds: PeriodBounds
 
 const norm = removeVietnameseTones;
 
+// Tìm kiếm nhiều điều kiện: dấu phẩy "," = AND trong 1 nhóm (VD "HN, KSCL" → phải có cả 2),
+// dấu gạch đứng "|" = OR giữa các nhóm (VD "A, B | C, D" → khớp nhóm (A và B) HOẶC nhóm (C và D)).
+// Không phân biệt hoa/thường & dấu.
+function matchesSearch(haystack: string, rawQuery: string): boolean {
+  const groups = rawQuery.split("|").map((g) => g.trim()).filter(Boolean);
+  if (!groups.length) return true;
+  return groups.some((g) => {
+    const terms = g.split(",").map((s) => norm(s.trim())).filter(Boolean);
+    return terms.every((t) => haystack.includes(t));
+  });
+}
+
 // ---- Cấu hình cột bảng (4 cấp phân cấp: Dự án → Loại hình → Hạng mục → Công việc) ----
 type FilterKind = "text" | "multi" | "status" | "date" | "none";
 type SortKey =
@@ -533,8 +545,14 @@ export function ManageClient({
     "quickFilters:extra",
     {},
   );
+  // Chip mặc định (QUICK_FILTERS) bị người dùng ẩn đi — nhớ theo trình duyệt, dùng chung /manage + /tasks.
+  const [hiddenQuickFilters, setHiddenQuickFilters] = useLocalStorage<Record<string, string[]>>(
+    "quickFilters:hidden",
+    {},
+  );
   const [addingChip, setAddingChip] = React.useState(false);
   const [newChipText, setNewChipText] = React.useState("");
+  const [removingChip, setRemovingChip] = React.useState(false);
   const fromReport = Boolean(
     initial && (initial.user || initial.group || initial.phong || initial.from || initial.to),
   );
@@ -687,7 +705,7 @@ export function ManageClient({
       m.set(
         t.id,
         norm(
-          [t.name, t.sumId, t.level2, t.level3, t.level5, t.assigneeNames.join(" ")]
+          [t.name, t.sumId, colText(t, "duAn"), t.level2, t.level3, blockSystemText(t), t.level5, t.assigneeNames.join(" ")]
             .filter(Boolean)
             .join(" "),
         ),
@@ -785,7 +803,7 @@ export function ManageClient({
       { key: "batDau", label: "Bắt đầu", filter: "date" },
       { key: "ketThuc", label: "Kết thúc", filter: "date" },
       { key: "thucTe", label: "Thực tế hoàn thành", filter: "date" },
-      { key: "soGio", label: "Giờ (h)", filter: "none" },
+      { key: "soGio", label: "Thời gian", filter: "none" },
       { key: "ketQua", label: "Kết quả", filter: "text" },
     ];
     return SHOW_MA ? all : all.filter((c) => c.key !== "sumId");
@@ -801,7 +819,6 @@ export function ManageClient({
 
   // Nền KPI: deep-link + tìm + filter cột (KHÔNG gồm quick & tab) → số KPI ổn định khi bấm.
   const kpiBase = React.useMemo(() => {
-    const q = norm(deferredSearch.trim());
     return tasks.filter((t) => {
       // deep-link Báo cáo
       if (f.userId && !t.assigneeIds.includes(f.userId)) return false;
@@ -812,7 +829,7 @@ export function ManageClient({
         if (f.dateTo && t.plannedEnd > f.dateTo) return false;
       }
       if (!passL1(t)) return false;
-      if (q && !(haystacks.get(t.id) ?? "").includes(q)) return false;
+      if (!matchesSearch(haystacks.get(t.id) ?? "", deferredSearch)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
       if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t) && !t.deleteRequestedAt) return false;
       return true;
@@ -1943,8 +1960,8 @@ export function ManageClient({
             );
           if (c.key === "soGio")
             return (
-              <td key="soGio" className={cn(cellPad, "tabular-nums text-right text-slate-600")}>
-                {t.totalHours > 0 ? (Number.isInteger(t.totalHours) ? t.totalHours : t.totalHours.toFixed(1)) : null}
+              <td key="soGio" className={cn(cellPad, "tabular-nums text-center text-slate-600")}>
+                {t.totalHours > 0 ? `${Number.isInteger(t.totalHours) ? t.totalHours : t.totalHours.toFixed(1)} (h)` : null}
               </td>
             );
           if (c.key === "ketQua")
@@ -2353,9 +2370,12 @@ export function ManageClient({
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Tìm kiếm công việc theo tên, mã, hạng mục, người thực hiện..."
+          placeholder="Tìm theo tên, mã, dự án, loại hình, hạng mục, khối/hệ thống, người thực hiện..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && search) setSearch("");
+          }}
           className="h-11 pl-9 pr-9 text-base"
         />
         {search ? (
@@ -2411,19 +2431,38 @@ export function ManageClient({
           >
             Tất cả
           </button>
-          {(QUICK_FILTERS[activeWgAbbr ?? ""] ?? []).map((l1) => (
-            <button
-              key={l1}
-              type="button"
-              onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}
-              className={cn(
-                "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-                activeL1 === l1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
-              )}
-            >
-              {l1}
-            </button>
-          ))}
+          {(QUICK_FILTERS[activeWgAbbr ?? ""] ?? [])
+            .filter((l1) => !(hiddenQuickFilters[activeWgAbbr ?? ""] ?? []).includes(l1))
+            .map((l1) => (
+              <span
+                key={l1}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                  activeL1 === l1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
+                )}
+              >
+                <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
+                  {l1}
+                </button>
+                {removingChip ? (
+                  <button
+                    type="button"
+                    title="Xóa chip lọc này"
+                    onClick={() => {
+                      const key = activeWgAbbr ?? "";
+                      setHiddenQuickFilters((prev) => {
+                        const cur = prev[key] ?? [];
+                        return cur.includes(l1) ? prev : { ...prev, [key]: [...cur, l1] };
+                      });
+                      if (activeL1 === l1) setActiveL1("");
+                    }}
+                    className="opacity-60 hover:opacity-100"
+                  >
+                    <X className="size-3" />
+                  </button>
+                ) : null}
+              </span>
+            ))}
           {(extraQuickFilters[activeWgAbbr ?? ""] ?? []).map((l1) => (
             <span
               key={l1}
@@ -2435,18 +2474,20 @@ export function ManageClient({
               <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
                 {l1}
               </button>
-              <button
-                type="button"
-                title="Xóa chip lọc này"
-                onClick={() => {
-                  const key = activeWgAbbr ?? "";
-                  setExtraQuickFilters((prev) => ({ ...prev, [key]: (prev[key] ?? []).filter((x) => x !== l1) }));
-                  if (activeL1 === l1) setActiveL1("");
-                }}
-                className="opacity-60 hover:opacity-100"
-              >
-                <X className="size-3" />
-              </button>
+              {removingChip ? (
+                <button
+                  type="button"
+                  title="Xóa chip lọc này"
+                  onClick={() => {
+                    const key = activeWgAbbr ?? "";
+                    setExtraQuickFilters((prev) => ({ ...prev, [key]: (prev[key] ?? []).filter((x) => x !== l1) }));
+                    if (activeL1 === l1) setActiveL1("");
+                  }}
+                  className="opacity-60 hover:opacity-100"
+                >
+                  <X className="size-3" />
+                </button>
+              ) : null}
             </span>
           ))}
           {addingChip ? (
@@ -2483,6 +2524,17 @@ export function ManageClient({
               <Plus className="size-3" />
             </button>
           )}
+          <button
+            type="button"
+            title={removingChip ? "Xong, ẩn nút xóa" : "Bật chế độ xóa chip lọc"}
+            onClick={() => setRemovingChip((v) => !v)}
+            className={cn(
+              "grid size-5 place-items-center rounded-full",
+              removingChip ? "bg-destructive text-destructive-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
+            )}
+          >
+            <X className="size-3" />
+          </button>
         </div>
       ) : null}
 
