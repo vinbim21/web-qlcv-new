@@ -16,13 +16,14 @@ import {
   Clock,
   Filter,
   Flag,
+  History,
+  Lock,
   Pause,
   Pencil,
   Play,
   Plus,
   RotateCcw,
   Search,
-  ShieldCheck,
   UserX,
   Users,
   X,
@@ -69,6 +70,7 @@ import {
   bulkSetStatus,
   rejectDeleteTask,
   rejectEndDateChange,
+  requestTaskUpdate,
   saveTask,
   setTaskApproval,
   setTaskCompletion,
@@ -169,6 +171,19 @@ export type TaskRow = {
   assigneeIds: string[];
   assigneeNames: string[];
   totalHours: number;
+  // Tách giờ theo từng lần hoàn thành (chỉ có khi việc đã từng "Cập nhật công việc") — hover cột
+  // Thời gian để xem giờ của lần hoàn thành trước tách bạch với giờ đang làm hiện tại.
+  hoursBreakdown: { seq: number; completedOn: string | null; hours: number }[];
+  completionHistory: CompletionHistoryEntry[];
+};
+
+export type CompletionHistoryEntry = {
+  plannedStart: string;
+  plannedEnd: string;
+  actualEnd: string;
+  approvedAt: string | null;
+  approvedByName: string | null;
+  note: string | null;
 };
 
 // Việc đang "chờ duyệt khởi tạo" → khóa nhập thời gian.
@@ -179,6 +194,28 @@ function isPendingApproval(t: TaskRow): boolean {
 // Có yêu cầu dời hạn đang chờ quản lý duyệt.
 function hasPendingDeadline(t: TaskRow): boolean {
   return !!t.pendingPlannedEnd || !!t.endChangeRequesterId;
+}
+
+// Chuỗi hiện khi hover cột "Thời gian" — tách giờ của từng lần hoàn thành + lần đang làm hiện tại.
+function formatHoursBreakdown(breakdown: { seq: number; completedOn: string | null; hours: number }[]): string {
+  return breakdown
+    .map((b) => {
+      const label = b.completedOn ? `Hoàn thành lần ${b.seq} (${fmtDate(b.completedOn)})` : "Hiện tại";
+      return `${label}: ${Number.isInteger(b.hours) ? b.hours : b.hours.toFixed(1)} (h)`;
+    })
+    .join("\n");
+}
+
+// Chuỗi hiện khi hover badge "N lần hoàn thành trước" — mỗi mốc 1 dòng, mới nhất trước.
+function formatCompletionHistory(history: CompletionHistoryEntry[]): string {
+  return history
+    .map((h) => {
+      const parts = [`Hoàn thành ${fmtDate(h.actualEnd)}`];
+      if (h.approvedByName) parts.push(`duyệt bởi ${h.approvedByName}`);
+      if (h.note) parts.push(h.note);
+      return parts.join(" — ");
+    })
+    .join("\n");
 }
 
 function isOverdue(t: TaskRow): boolean {
@@ -500,6 +537,7 @@ export function ManageClient({
   phases,
   projects,
   users,
+  approvers,
   catalog,
   initial,
 }: {
@@ -515,6 +553,7 @@ export function ManageClient({
   phases: Opt[];
   projects: ProjectOpt[];
   users: UserOpt[];
+  approvers: UserOpt[];
   catalog: Catalog;
   // Bộ lọc khởi tạo từ deep-link Báo cáo (?user/group/phong/from/to) — server đọc & truyền xuống.
   initial?: { user: string; group: string; phong: string; from: string; to: string };
@@ -562,6 +601,35 @@ export function ManageClient({
   const [renameHangMuc, setRenameHangMuc] = React.useState<{ ids: string[]; name: string } | null>(null);
   // Modal "Giao việc": false = đóng, true = mở trống, TaskRow = mở điền sẵn theo việc đó ("Thêm tương tự").
   const [assignModal, setAssignModal] = React.useState<false | true | TaskRow>(false);
+  // "Cập nhật công việc": làm tiếp việc đã Hoàn thành (đầu việc đổi) — chờ quản lý duyệt lại.
+  const [updateTaskDialog, setUpdateTaskDialog] = React.useState<{
+    id: string;
+    name: string;
+    plannedStart: string;
+    plannedEnd: string;
+    approverId: string;
+    note: string;
+  } | null>(null);
+  const [updateTaskPending, setUpdateTaskPending] = React.useState(false);
+  async function runUpdateTaskRequest() {
+    if (!updateTaskDialog) return;
+    if (!updateTaskDialog.plannedStart || !updateTaskDialog.plannedEnd || !updateTaskDialog.approverId) return;
+    setUpdateTaskPending(true);
+    const res = await requestTaskUpdate({
+      id: updateTaskDialog.id,
+      plannedStart: updateTaskDialog.plannedStart,
+      plannedEnd: updateTaskDialog.plannedEnd,
+      approverId: updateTaskDialog.approverId,
+      note: updateTaskDialog.note,
+    });
+    setUpdateTaskPending(false);
+    if (res.ok) {
+      toast.success("Đã gửi yêu cầu cập nhật, đang chờ duyệt");
+      setUpdateTaskDialog(null);
+      clearSel();
+      router.refresh();
+    } else toast.error(res.error);
+  }
   // Lọc nhanh từ dải KPI.
   const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM" | "HOAN_THANH">("manage:quick", "");
   const _now = React.useRef(new Date());
@@ -1760,8 +1828,26 @@ export function ManageClient({
               </button>
             </div>
           ) : null}
-          {dz !== "DA_DUYET" ? (
-            dz === "CHUA_DUYET" && canManage ? (
+          {dz === "CHO_DUYET" ? (
+            canApproveStart ? (
+              <button
+                type="button"
+                onClick={() => void toggleStartApproval(t, true)}
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600 hover:text-emerald-600"
+                title="Bấm để duyệt khởi tạo — cho phép nhập thời gian"
+              >
+                <Lock className="size-2.5" /> Chờ duyệt
+              </button>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600"
+                title={t.approverName ? `Chờ ${t.approverName} duyệt khởi tạo` : "Đang chờ quản lý duyệt khởi tạo"}
+              >
+                <Lock className="size-2.5" /> Chờ duyệt
+              </span>
+            )
+          ) : dz === "CHUA_DUYET" ? (
+            canManage ? (
               <button
                 type="button"
                 onClick={() => void approveCompletion(t)}
@@ -1778,6 +1864,14 @@ export function ManageClient({
                 <span className="size-1.5 rounded-full bg-amber-500" /> Chưa duyệt
               </span>
             )
+          ) : null}
+          {t.completionHistory.length > 0 ? (
+            <span
+              className="mt-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200"
+              title={formatCompletionHistory(t.completionHistory)}
+            >
+              <History className="size-2.5 shrink-0" /> {t.completionHistory.length} lần hoàn thành trước
+            </span>
           ) : null}
         </div>
       </td>
@@ -1960,7 +2054,11 @@ export function ManageClient({
             );
           if (c.key === "soGio")
             return (
-              <td key="soGio" className={cn(cellPad, "tabular-nums text-center text-slate-600")}>
+              <td
+                key="soGio"
+                className={cn(cellPad, "tabular-nums text-center text-slate-600")}
+                title={t.hoursBreakdown.length > 0 ? formatHoursBreakdown(t.hoursBreakdown) : undefined}
+              >
                 {t.totalHours > 0 ? `${Number.isInteger(t.totalHours) ? t.totalHours : t.totalHours.toFixed(1)} (h)` : null}
               </td>
             );
@@ -2799,6 +2897,28 @@ export function ManageClient({
               <Plus className="size-4" /> Thêm tương tự
             </Button>
           ) : null}
+          {selected.size === 1 && (() => {
+            const t = tasks.find((x) => selected.has(x.id));
+            if (!t || t.status !== "HOAN_THANH") return null;
+            return (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setUpdateTaskDialog({
+                    id: t.id,
+                    name: t.name,
+                    plannedStart: t.plannedStart,
+                    plannedEnd: t.plannedEnd,
+                    approverId: t.approverId ?? "",
+                    note: "",
+                  })
+                }
+              >
+                <History className="size-4" /> Cập nhật công việc
+              </Button>
+            );
+          })()}
           <Button size="sm" variant="destructive" onClick={() => void batchDeleteSelected()}>
             Xóa
           </Button>
@@ -2994,6 +3114,75 @@ export function ManageClient({
               router.refresh();
             }}
           />
+        </Modal>
+      ) : null}
+
+      {/* Modal: "Cập nhật công việc" — làm tiếp việc đã hoàn thành, gửi quản lý duyệt lại */}
+      {updateTaskDialog ? (
+        <Modal
+          open
+          onClose={() => setUpdateTaskDialog(null)}
+          title={`Cập nhật công việc — ${updateTaskDialog.name}`}
+          className="max-w-sm"
+        >
+          <div className="space-y-3">
+            <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">
+              Việc sẽ quay về "Chưa làm" và chờ người duyệt xác nhận lại. Người được giao vẫn ghi giờ được ngay.
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600">Ngày bắt đầu mới</label>
+              <DateInput
+                value={updateTaskDialog.plannedStart}
+                onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, plannedStart: e.target.value })}
+                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600">Ngày kết thúc mới</label>
+              <DateInput
+                value={updateTaskDialog.plannedEnd}
+                onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, plannedEnd: e.target.value })}
+                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600">Người duyệt</label>
+              <select
+                value={updateTaskDialog.approverId}
+                onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, approverId: e.target.value })}
+                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+              >
+                <option value="">— Chọn người duyệt —</option>
+                {approvers.map((u) => (
+                  <option key={u.id} value={u.id}>{u.fullName}</option>
+                ))}
+              </select>
+            </div>
+            <textarea
+              rows={2}
+              placeholder="Lý do cập nhật (tùy chọn)…"
+              value={updateTaskDialog.note}
+              onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, note: e.target.value })}
+              className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-slate-400"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUpdateTaskDialog(null)}
+                className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={updateTaskPending || !updateTaskDialog.plannedStart || !updateTaskDialog.plannedEnd || !updateTaskDialog.approverId}
+                onClick={runUpdateTaskRequest}
+                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {updateTaskPending ? "Đang gửi…" : "Gửi yêu cầu"}
+              </button>
+            </div>
+          </div>
         </Modal>
       ) : null}
     </div>
