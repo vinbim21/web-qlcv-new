@@ -12,7 +12,7 @@ export default async function DashboardPage() {
 
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  const [projectCount, myTaskCount, weekHours, assignedRecentTasks] = await Promise.all([
+  const [projectCount, myTaskCount, weekHours, assignedTasks] = await Promise.all([
     prisma.project.count({ where: { deletedAt: null } }),
     prisma.task.count({
       where: { deletedAt: null, assignees: { some: { userId } } },
@@ -27,18 +27,23 @@ export default async function DashboardPage() {
     prisma.task.findMany({
       where: { deletedAt: null, assignees: { some: { userId } }, createdAt: { gte: weekAgo } },
       orderBy: { createdAt: "desc" },
-      take: 15,
       select: {
         id: true,
-        sumId: true,
         name: true,
         level2: true,
         level3: true,
         createdAt: true,
         project: { select: { group: { select: { code: true } } } },
+        discipline: { select: { code: true } },
+        phase: { select: { name: true } },
       },
     }),
   ]);
+
+  // "Xem tất cả": OR (dấu "|") giữa từng việc, mỗi việc là AND (dấu ",") của Dự án/Loại hình/Hạng mục/Công việc.
+  const viewAllQuery = assignedTasks
+    .map((t) => [t.project?.group?.code, t.level2, t.level3, t.name].filter(Boolean).join(", "))
+    .join(" | ");
 
   const cards = [
     { label: "Dự án", value: projectCount, icon: FolderTree },
@@ -71,57 +76,80 @@ export default async function DashboardPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Việc vừa được giao (7 ngày qua)</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle>Việc vừa được giao (7 ngày qua) — {assignedTasks.length} việc</CardTitle>
+          {assignedTasks.length > 0 ? (
+            <Link
+              href={`/tasks?q=${encodeURIComponent(viewAllQuery)}`}
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Xem tất cả trong Công việc của tôi →
+            </Link>
+          ) : null}
         </CardHeader>
         <CardContent>
-          {assignedRecentTasks.length === 0 ? (
+          {assignedTasks.length === 0 ? (
             <p className="text-sm text-muted-foreground">Không có việc nào mới được giao trong 7 ngày qua.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="max-h-[28rem] overflow-y-auto overflow-x-auto">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 bg-card">
                   <tr className="border-b text-left text-xs text-muted-foreground">
                     <th className="pb-2 pr-3 font-medium">Dự án</th>
                     <th className="pb-2 pr-3 font-medium">Loại hình</th>
                     <th className="pb-2 pr-3 font-medium">Hạng mục</th>
                     <th className="pb-2 pr-3 font-medium">Công việc</th>
+                    <th className="pb-2 pr-3 font-medium">Bộ môn</th>
+                    <th className="pb-2 pr-3 font-medium">Giai đoạn</th>
                     <th className="pb-2 font-medium">Ngày giao</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {assignedRecentTasks.map((t) => (
-                    <tr key={t.id} className="border-b last:border-0 hover:bg-muted/50">
-                      <td className="p-0">
-                        <Link href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`} className="block py-1.5 pr-3">
-                          {t.project?.group?.code ?? "—"}
-                        </Link>
-                      </td>
-                      <td className="p-0">
-                        <Link href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`} className="block py-1.5 pr-3">
-                          {t.level2 || "—"}
-                        </Link>
-                      </td>
-                      <td className="p-0">
-                        <Link href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`} className="block py-1.5 pr-3">
-                          {t.level3 || "—"}
-                        </Link>
-                      </td>
-                      <td className="p-0">
-                        <Link href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`} className="block py-1.5 pr-3">
-                          {t.name}
-                        </Link>
-                      </td>
-                      <td className="p-0">
-                        <Link
-                          href={`/tasks?q=${encodeURIComponent(t.sumId ?? t.name)}`}
-                          className="block whitespace-nowrap py-1.5 text-muted-foreground"
-                        >
-                          {t.createdAt.toLocaleDateString("vi-VN")}
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
+                  {assignedTasks.map((t) => {
+                    // Điền vào ô tìm kiếm của /tasks: Dự án, Loại hình, Hạng mục, Công việc
+                    // (thay vì mã việc) — khớp nhiều điều kiện bằng dấu phẩy (AND).
+                    const q = [t.project?.group?.code, t.level2, t.level3, t.name].filter(Boolean).join(", ");
+                    const href = `/tasks?q=${encodeURIComponent(q)}`;
+                    return (
+                      <tr key={t.id} className="border-b last:border-0 hover:bg-muted/50">
+                        <td className="p-0">
+                          <Link href={href} className="block py-1.5 pr-3">
+                            {t.project?.group?.code ?? "—"}
+                          </Link>
+                        </td>
+                        <td className="p-0">
+                          <Link href={href} className="block py-1.5 pr-3">
+                            {t.level2 || "—"}
+                          </Link>
+                        </td>
+                        <td className="p-0">
+                          <Link href={href} className="block py-1.5 pr-3">
+                            {t.level3 || "—"}
+                          </Link>
+                        </td>
+                        <td className="p-0">
+                          <Link href={href} className="block py-1.5 pr-3">
+                            {t.name}
+                          </Link>
+                        </td>
+                        <td className="p-0">
+                          <Link href={href} className="block py-1.5 pr-3">
+                            {t.discipline?.code ?? "—"}
+                          </Link>
+                        </td>
+                        <td className="p-0">
+                          <Link href={href} className="block py-1.5 pr-3">
+                            {t.phase?.name ?? "—"}
+                          </Link>
+                        </td>
+                        <td className="p-0">
+                          <Link href={href} className="block whitespace-nowrap py-1.5 text-muted-foreground">
+                            {t.createdAt.toLocaleDateString("vi-VN")}
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
