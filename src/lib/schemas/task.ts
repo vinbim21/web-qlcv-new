@@ -82,6 +82,16 @@ export const taskStartApprovalSchema = z.object({
   approved: z.boolean(),
 });
 
+// "Cập nhật công việc": làm tiếp việc đã Hoàn thành (đầu việc có thay đổi) — đặt lại ngày,
+// gửi người duyệt (giống duyệt khởi tạo), lưu mốc hoàn thành cũ vào lịch sử.
+export const taskUpdateRequestSchema = z.object({
+  id: z.string().min(1),
+  plannedStart: z.string().min(1, "Chọn ngày bắt đầu"),
+  plannedEnd: z.string().min(1, "Chọn ngày kết thúc"),
+  approverId: z.string().min(1, "Chọn người duyệt"),
+  note: z.string().max(500).optional(),
+});
+
 // ---- Thao tác hàng loạt (tab Quản lý công việc) ----
 const taskIds = z.array(z.string().min(1)).min(1, "Chưa chọn công việc").max(2000);
 

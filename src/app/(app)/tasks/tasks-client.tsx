@@ -17,6 +17,7 @@ import {
   Clock,
   Filter,
   Flag,
+  History,
   Info,
   Lock,
   Pause,
@@ -61,6 +62,7 @@ import {
   rejectDeleteTask,
   rejectEndDateChange,
   requestEndDateChange,
+  requestTaskUpdate,
   saveMyTasks,
   setTaskCompletion,
   setTaskPaused,
@@ -132,6 +134,16 @@ export type TaskRow = {
   deleteRequestNote: string | null;
   assigneeIds: string[];
   assigneeNames: string[];
+  completionHistory: CompletionHistoryEntry[];
+};
+
+export type CompletionHistoryEntry = {
+  plannedStart: string;
+  plannedEnd: string;
+  actualEnd: string;
+  approvedAt: string | null;
+  approvedByName: string | null;
+  note: string | null;
 };
 
 const norm = removeVietnameseTones;
@@ -179,6 +191,17 @@ function fmtDate(iso: string): string {
 }
 function isPendingApproval(t: TaskRow): boolean {
   return !!t.approverId && !t.startApproved;
+}
+// Chuỗi hiện khi hover badge "N lần hoàn thành trước" — mỗi mốc 1 dòng, mới nhất trước.
+function formatCompletionHistory(history: CompletionHistoryEntry[]): string {
+  return history
+    .map((h) => {
+      const parts = [`Hoàn thành ${fmtDate(h.actualEnd)}`];
+      if (h.approvedByName) parts.push(`duyệt bởi ${h.approvedByName}`);
+      if (h.note) parts.push(h.note);
+      return parts.join(" — ");
+    })
+    .join("\n");
 }
 function isAnyPending(t: TaskRow): boolean {
   return isPendingApproval(t) || !!t.pendingPlannedEnd || !!t.endChangeRequesterId || !!t.deleteRequestedAt;
@@ -717,13 +740,32 @@ function StatusCell({
       </div>
       {pending ? (
         <div className="flex items-center gap-1">
-          <span
-            className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200"
-            title={t.approverName ? `Chờ ${t.approverName} duyệt khởi tạo` : "Đang chờ quản lý duyệt khởi tạo"}
-          >
-            <Lock className="size-2.5" /> Chờ duyệt
-          </span>
+          {canApproveStart ? (
+            <button
+              type="button"
+              onClick={onApprove}
+              className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 hover:bg-emerald-50 hover:text-emerald-700 hover:ring-emerald-200"
+              title="Bấm để duyệt khởi tạo — cho phép nhập thời gian"
+            >
+              <Lock className="size-2.5" /> Chờ duyệt
+            </button>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200"
+              title={t.approverName ? `Chờ ${t.approverName} duyệt khởi tạo` : "Đang chờ quản lý duyệt khởi tạo"}
+            >
+              <Lock className="size-2.5" /> Chờ duyệt
+            </span>
+          )}
         </div>
+      ) : null}
+      {t.completionHistory.length > 0 ? (
+        <span
+          className="mt-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200"
+          title={formatCompletionHistory(t.completionHistory)}
+        >
+          <History className="size-2.5 shrink-0" /> {t.completionHistory.length} lần hoàn thành trước
+        </span>
       ) : null}
     </div>
   );
@@ -921,6 +963,16 @@ export function TasksClient({
   const [bulkDeadline, setBulkDeadline] = React.useState<{ ids: string[]; date: string } | null>(null);
   const [bulkStartDate, setBulkStartDate] = React.useState<{ ids: string[]; date: string } | null>(null);
   const [bulkEndDate, setBulkEndDate] = React.useState<{ ids: string[]; date: string; note: string } | null>(null);
+  // "Cập nhật công việc": làm tiếp việc đã Hoàn thành (đầu việc đổi) — chờ quản lý duyệt lại.
+  const [updateTaskDialog, setUpdateTaskDialog] = React.useState<{
+    id: string;
+    name: string;
+    plannedStart: string;
+    plannedEnd: string;
+    approverId: string;
+    note: string;
+  } | null>(null);
+  const [updateTaskPending, setUpdateTaskPending] = React.useState(false);
   // Tree grouping: null = chưa tương tác (mặc định thu tất cả)
   const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(initialQuery ? new Set() : null);
   const [viewMode, setViewMode] = useLocalStorage<"tree" | "flat">("tasks:viewMode", "tree");
@@ -1415,6 +1467,25 @@ export function TasksClient({
         : `Đã gửi yêu cầu đổi ngày kết thúc cho ${res.data ?? ""} công việc`;
       toast.success(msg.replace("  ", " "));
       setBulkEndDate(null);
+      clearSel();
+      router.refresh();
+    } else toast.error(res.error);
+  }
+  async function runUpdateTaskRequest() {
+    if (!updateTaskDialog) return;
+    if (!updateTaskDialog.plannedStart || !updateTaskDialog.plannedEnd || !updateTaskDialog.approverId) return;
+    setUpdateTaskPending(true);
+    const res = await requestTaskUpdate({
+      id: updateTaskDialog.id,
+      plannedStart: updateTaskDialog.plannedStart,
+      plannedEnd: updateTaskDialog.plannedEnd,
+      approverId: updateTaskDialog.approverId,
+      note: updateTaskDialog.note,
+    });
+    setUpdateTaskPending(false);
+    if (res.ok) {
+      toast.success("Đã gửi yêu cầu cập nhật, đang chờ duyệt");
+      setUpdateTaskDialog(null);
       clearSel();
       router.refresh();
     } else toast.error(res.error);
@@ -2411,6 +2482,29 @@ export function TasksClient({
           ) : null}
           {selected.size === 1 && (() => {
             const t = tasks.find((x) => x.id === [...selected][0]);
+            if (!t || t.status !== "HOAN_THANH") return null;
+            if (!t.assigneeIds.includes(currentUserId) && !canManage) return null;
+            return (
+              <button
+                type="button"
+                onClick={() =>
+                  setUpdateTaskDialog({
+                    id: t.id,
+                    name: t.name,
+                    plannedStart: t.plannedStart,
+                    plannedEnd: t.plannedEnd,
+                    approverId: t.approverId ?? "",
+                    note: "",
+                  })
+                }
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                <History className="size-3.5" /> Cập nhật công việc
+              </button>
+            );
+          })()}
+          {selected.size === 1 && (() => {
+            const t = tasks.find((x) => x.id === [...selected][0]);
             if (!t) return null;
             if (!t.assigneeIds.includes(currentUserId) && !canManage) return null;
             if (t.deleteRequestedAt) return null;
@@ -2524,6 +2618,75 @@ export function TasksClient({
                 className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {canManage ? "Áp dụng" : "Gửi yêu cầu"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {/* Modal: "Cập nhật công việc" — làm tiếp việc đã hoàn thành, gửi quản lý duyệt lại */}
+      {updateTaskDialog ? (
+        <Modal
+          open
+          onClose={() => setUpdateTaskDialog(null)}
+          title={`Cập nhật công việc — ${updateTaskDialog.name}`}
+          className="max-w-sm"
+        >
+          <div className="space-y-3">
+            <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">
+              Việc sẽ quay về "Chưa làm" và chờ người duyệt xác nhận lại. Bạn vẫn ghi giờ được ngay.
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600">Ngày bắt đầu mới</label>
+              <DateInput
+                value={updateTaskDialog.plannedStart}
+                onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, plannedStart: e.target.value })}
+                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600">Ngày kết thúc mới</label>
+              <DateInput
+                value={updateTaskDialog.plannedEnd}
+                onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, plannedEnd: e.target.value })}
+                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-600">Người duyệt</label>
+              <select
+                value={updateTaskDialog.approverId}
+                onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, approverId: e.target.value })}
+                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+              >
+                <option value="">— Chọn người duyệt —</option>
+                {approvers.map((u) => (
+                  <option key={u.id} value={u.id}>{u.fullName}</option>
+                ))}
+              </select>
+            </div>
+            <textarea
+              rows={2}
+              placeholder="Lý do cập nhật (tùy chọn)…"
+              value={updateTaskDialog.note}
+              onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, note: e.target.value })}
+              className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-slate-400"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUpdateTaskDialog(null)}
+                className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={updateTaskPending || !updateTaskDialog.plannedStart || !updateTaskDialog.plannedEnd || !updateTaskDialog.approverId}
+                onClick={runUpdateTaskRequest}
+                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {updateTaskPending ? "Đang gửi…" : "Gửi yêu cầu"}
               </button>
             </div>
           </div>
