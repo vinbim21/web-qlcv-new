@@ -19,6 +19,7 @@ export async function createUser(input: unknown) {
         email: data.email,
         role: data.role,
         disciplineId: data.disciplineId || null,
+        departmentId: data.departmentId || null,
         passwordHash,
         isActive: data.isActive ?? true,
       },
@@ -38,6 +39,7 @@ export async function updateUser(input: unknown) {
         email: data.email,
         role: data.role,
         disciplineId: data.disciplineId || null,
+        departmentId: data.departmentId || null,
         isActive: data.isActive,
       },
     });

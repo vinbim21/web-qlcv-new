@@ -2,7 +2,7 @@ import { prisma } from "@/server/db/client";
 import { CatalogClient } from "./catalog-client";
 
 export default async function CatalogPage() {
-  const [workGroups, phases, constructionTypes, disciplines, projectGroups, projects, level5, ptItems] = await Promise.all([
+  const [workGroups, phases, constructionTypes, disciplines, departments, projectGroups, projects, level5, ptItems] = await Promise.all([
     prisma.workGroup.findMany({
       orderBy: { order: "asc" },
       include: { _count: { select: { tasks: true } } },
@@ -10,6 +10,7 @@ export default async function CatalogPage() {
     prisma.phase.findMany({ orderBy: { order: "asc" } }),
     prisma.constructionType.findMany({ orderBy: { order: "asc" } }),
     prisma.discipline.findMany({ orderBy: { order: "asc" } }),
+    prisma.department.findMany({ orderBy: { order: "asc" } }),
     prisma.projectGroup.findMany({
       orderBy: [{ order: "asc" }, { name: "asc" }],
       include: { _count: { select: { items: true } } },
@@ -44,6 +45,7 @@ export default async function CatalogPage() {
       }))}
       phases={phases.map((p) => ({ id: p.id, code: p.code, name: p.name, order: p.order }))}
       disciplines={disciplines.map((d) => ({ id: d.id, code: d.code, name: d.name, order: d.order }))}
+      departments={departments.map((d) => ({ id: d.id, code: d.code, name: d.name, order: d.order }))}
       constructionTypes={constructionTypes.map((c) => ({
         id: c.id,
         code: c.code,

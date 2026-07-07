@@ -21,8 +21,8 @@ type TabKey = "overview" | "project" | "group" | "phong" | "person" | "time";
 type Tab = { key: TabKey; label: string; isNew?: boolean; sensitive?: boolean };
 
 const TABS: Tab[] = [
-  { key: "overview", label: "Tổng quan" },
-  { key: "project", label: "Theo dự án", isNew: true },
+  { key: "overview", label: "Tổng quan", isNew: true },
+  { key: "project", label: "Theo dự án" },
   { key: "group", label: "Theo nhóm" },
   { key: "phong", label: "Theo phòng" },
   { key: "person", label: "Theo nhân sự", sensitive: true },
@@ -135,12 +135,12 @@ export function ReportsTabs({
   rows,
   canViewPerson,
   selfOnly,
-  disciplineByPerson,
+  departmentByPerson,
 }: {
   rows: TaskRow[];
   canViewPerson: boolean;
   selfOnly: boolean;
-  disciplineByPerson: Record<string, string>;
+  departmentByPerson: Record<string, string>;
 }) {
   const tabs = selfOnly
     ? TABS.filter((t) => SELF_TABS.includes(t.key))
@@ -281,7 +281,7 @@ export function ReportsTabs({
       </div>
 
       {/* Tab content — nhận periodRows đã lọc */}
-      {active === "overview" ? <ReportsClient rows={periodRows} disciplineByPerson={disciplineByPerson} /> : null}
+      {active === "overview" ? <ReportsClient rows={periodRows} departmentByPerson={departmentByPerson} /> : null}
       {active === "project" && !selfOnly ? <ProjectReport rows={periodRows} /> : null}
       {active === "group" && !selfOnly ? <PivotReport rows={periodRows} mode="group" /> : null}
       {active === "phong" && !selfOnly ? <PivotReport rows={periodRows} mode="phong" /> : null}

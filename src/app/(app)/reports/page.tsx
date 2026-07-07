@@ -85,13 +85,13 @@ export default async function ReportsPage() {
     }),
     prisma.user.findMany({
       where: { deletedAt: null },
-      select: { fullName: true, discipline: { select: { name: true } } },
+      select: { fullName: true, department: { select: { name: true } } },
     }),
   ]);
 
-  // Tên người → tên Bộ môn (khai báo ở Quản trị/Người dùng) — cho nhóm "Danh sách nhân sự" ở báo cáo.
-  const disciplineByPerson: Record<string, string> = {};
-  for (const u of users) disciplineByPerson[u.fullName] = u.discipline?.name ?? "Chưa gán bộ môn";
+  // Tên người → tên Bộ phận (khai báo ở Quản trị/Người dùng) — cho nhóm "Danh sách nhân sự" ở báo cáo.
+  const departmentByPerson: Record<string, string> = {};
+  for (const u of users) departmentByPerson[u.fullName] = u.department?.name ?? "Chưa gán bộ phận";
 
   const hoursByTask = new Map(hoursAgg.map((h) => [h.taskId as string, Number(h._sum.hours ?? 0)]));
   const catalogByWorkGroupAndValue = new Map<string, typeof catalogItems>();
@@ -171,6 +171,6 @@ export default async function ReportsPage() {
   }
 
   return (
-    <ReportsTabs rows={rows} canViewPerson={canViewPerson} selfOnly={selfOnly} disciplineByPerson={disciplineByPerson} />
+    <ReportsTabs rows={rows} canViewPerson={canViewPerson} selfOnly={selfOnly} departmentByPerson={departmentByPerson} />
   );
 }
