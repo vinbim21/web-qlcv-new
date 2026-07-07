@@ -27,6 +27,7 @@ import {
   taskCompletionSchema,
   taskApprovalSchema,
   taskStartApprovalSchema,
+  taskUpdateRequestSchema,
   taskPausedSchema,
   taskSchema,
   taskStatusSchema,
@@ -655,6 +656,83 @@ export async function setTaskStartApproval(input: unknown) {
         ...(!data.approved && !t.approverId ? { approverId: user.id } : {}),
       },
     });
+    revalidateTaskViews();
+  });
+}
+
+/**
+ * "Cập nhật công việc": làm tiếp 1 việc ĐÃ HOÀN THÀNH vì đầu việc có thay đổi.
+ * - Lưu mốc hoàn thành hiện tại (ngày, người duyệt cũ...) vào lịch sử (TaskCompletionHistory).
+ * - Đặt lại ngày bắt đầu/kết thúc mới, status luôn về "Chưa làm" (giờ hiện tại = 0, chỉ lên
+ *   "Đang làm" khi thực sự ghi giờ), xóa actualEnd/approvedAt, đưa việc về lại luồng
+ *   "chờ duyệt khởi tạo" (approverId + startApprovedAt=null) — TÁI DÙNG cổng duyệt khởi tạo sẵn có.
+ * Quyền: Quản trị/Cấp 1 hoặc người được giao việc.
+ */
+export async function requestTaskUpdate(input: unknown) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const data = taskUpdateRequestSchema.parse(input);
+    const t = await prisma.task.findUnique({
+      where: { id: data.id },
+      select: {
+        name: true,
+        status: true,
+        plannedStart: true,
+        plannedEnd: true,
+        actualEnd: true,
+        approvedAt: true,
+        approvedById: true,
+        assignees: { where: { userId: user.id }, select: { id: true } },
+      },
+    });
+    if (!t) throw new Error("Không tìm thấy công việc");
+    if (!canManage(user.role) && !t.assignees.length) throw new Error("Bạn không được giao công việc này");
+    if (t.status !== "HOAN_THANH") throw new Error("Chỉ áp dụng cho việc đã hoàn thành");
+
+    const newStart = toDate(data.plannedStart);
+    const newEnd = toDate(data.plannedEnd);
+    if (!newStart || !newEnd) throw new Error("Ngày không hợp lệ");
+    if (newEnd < newStart) throw new Error("Ngày kết thúc phải sau ngày bắt đầu");
+
+    await prisma.$transaction([
+      prisma.taskCompletionHistory.create({
+        data: {
+          taskId: data.id,
+          plannedStart: t.plannedStart,
+          plannedEnd: t.plannedEnd,
+          actualEnd: t.actualEnd,
+          approvedAt: t.approvedAt,
+          approvedById: t.approvedById,
+          note: data.note?.trim() || null,
+        },
+      }),
+      prisma.task.update({
+        where: { id: data.id },
+        data: {
+          plannedStart: newStart,
+          plannedEnd: newEnd,
+          actualEnd: null,
+          approvedAt: null,
+          approvedById: null,
+          progressPercent: 0,
+          // Luôn về "Chưa làm" (giờ hiện tại = 0) — chỉ lên "Đang làm" khi thực sự ghi giờ mới
+          // (xử lý ở saveTimesheet/bulkSaveTimesheetEntry), không suy theo ngày bắt đầu.
+          status: "CHUA_LAM",
+          approverId: data.approverId,
+          startApprovedAt: null,
+        },
+      }),
+    ]);
+
+    await createNotifications(prisma, [{
+      userId: data.approverId,
+      actorId: user.id,
+      type: "TASK_APPROVAL_REQUESTED",
+      taskId: data.id,
+      title: "Yêu cầu duyệt cập nhật công việc",
+      body: `${user.fullName ?? user.email} cập nhật lại việc đã hoàn thành: ${t.name}`,
+    }]);
+
     revalidateTaskViews();
   });
 }

@@ -23,22 +23,33 @@ export default async function DashboardPage() {
         where: { userId, date: { gte: weekAgo }, deletedAt: null },
       })
       .then((r) => r._sum.hours?.toString() ?? "0"),
-    // Việc vừa được giao — tạo trong 7 ngày qua
+    // Việc vừa được giao — tạo mới HOẶC vừa được duyệt lại (VD sau "Cập nhật công việc") trong 7 ngày qua.
     prisma.task.findMany({
-      where: { deletedAt: null, assignees: { some: { userId } }, createdAt: { gte: weekAgo } },
-      orderBy: { createdAt: "desc" },
+      where: {
+        deletedAt: null,
+        assignees: { some: { userId } },
+        OR: [{ createdAt: { gte: weekAgo } }, { startApprovedAt: { gte: weekAgo } }],
+      },
       select: {
         id: true,
         name: true,
         level2: true,
         level3: true,
         createdAt: true,
+        startApprovedAt: true,
         project: { select: { group: { select: { code: true } } } },
         discipline: { select: { code: true } },
         phase: { select: { name: true } },
       },
     }),
   ]);
+
+  // Ngày "giao" hiển thị = mốc gần đây nhất giữa lúc tạo và lúc được duyệt lại (nếu có).
+  assignedTasks.sort((a, b) => {
+    const da = Math.max(a.createdAt.getTime(), a.startApprovedAt?.getTime() ?? 0);
+    const db = Math.max(b.createdAt.getTime(), b.startApprovedAt?.getTime() ?? 0);
+    return db - da;
+  });
 
   // "Xem tất cả": OR (dấu "|") giữa từng việc, mỗi việc là AND (dấu ",") của Dự án/Loại hình/Hạng mục/Công việc.
   const viewAllQuery = assignedTasks
@@ -110,6 +121,7 @@ export default async function DashboardPage() {
                     // (thay vì mã việc) — khớp nhiều điều kiện bằng dấu phẩy (AND).
                     const q = [t.project?.group?.code, t.level2, t.level3, t.name].filter(Boolean).join(", ");
                     const href = `/tasks?q=${encodeURIComponent(q)}`;
+                    const assignedOn = t.startApprovedAt && t.startApprovedAt > t.createdAt ? t.startApprovedAt : t.createdAt;
                     return (
                       <tr key={t.id} className="border-b last:border-0 hover:bg-muted/50">
                         <td className="p-0">
@@ -144,7 +156,7 @@ export default async function DashboardPage() {
                         </td>
                         <td className="p-0">
                           <Link href={href} className="block whitespace-nowrap py-1.5 text-muted-foreground">
-                            {t.createdAt.toLocaleDateString("vi-VN")}
+                            {assignedOn.toLocaleDateString("vi-VN")}
                           </Link>
                         </td>
                       </tr>

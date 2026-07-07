@@ -45,6 +45,10 @@ export default async function ManagePage({
         endChangeRequester: { select: { fullName: true } },
         deleteRequester: { select: { fullName: true } },
         assignees: { include: { user: true }, orderBy: { roleNo: "asc" } },
+        completionHistory: {
+          orderBy: { createdAt: "desc" },
+          include: { approvedBy: { select: { fullName: true } } },
+        },
       },
       orderBy: [{ workGroupId: "asc" }, { createdAt: "asc" }],
       take: 2000,
@@ -62,6 +66,44 @@ export default async function ManagePage({
     prisma.constructionType.findMany({ orderBy: { order: "asc" } }),
   ]);
   const hoursMap = new Map(hoursByTask.map((h) => [h.taskId!, Number(h._sum.hours ?? 0)]));
+
+  // Chi tiết giờ theo từng lần hoàn thành (chỉ với việc từng "Cập nhật công việc") — để hover
+  // cột Thời gian thấy tách bạch giờ của lần hoàn thành trước và lần đang làm hiện tại.
+  const taskIdsWithHistory = tasks.filter((t) => t.completionHistory.length > 0).map((t) => t.id);
+  const entriesForHistoryTasks = taskIdsWithHistory.length
+    ? await prisma.timeSheetEntry.findMany({
+        where: { taskId: { in: taskIdsWithHistory }, deletedAt: null },
+        select: { taskId: true, date: true, hours: true },
+      })
+    : [];
+  const entriesByTask = new Map<string, { date: Date; hours: number }[]>();
+  for (const e of entriesForHistoryTasks) {
+    const arr = entriesByTask.get(e.taskId!) ?? [];
+    arr.push({ date: e.date, hours: Number(e.hours) });
+    entriesByTask.set(e.taskId!, arr);
+  }
+  function computeHoursBreakdown(
+    taskId: string,
+    history: { createdAt: Date; actualEnd: Date | null }[],
+  ): { seq: number; completedOn: string | null; hours: number }[] {
+    const entries = entriesByTask.get(taskId);
+    if (!entries?.length || !history.length) return [];
+    const sorted = [...history].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const segments: { seq: number; completedOn: string | null; hours: number }[] = [];
+    let prevBoundary: Date | null = null;
+    for (const [i, h] of sorted.entries()) {
+      const sum = entries
+        .filter((e) => (!prevBoundary || e.date >= prevBoundary) && e.date < h.createdAt)
+        .reduce((s, e) => s + e.hours, 0);
+      segments.push({ seq: i + 1, completedOn: h.actualEnd ? iso(h.actualEnd) : null, hours: sum });
+      prevBoundary = h.createdAt;
+    }
+    const currentSum = entries
+      .filter((e) => !prevBoundary || e.date >= prevBoundary)
+      .reduce((s, e) => s + e.hours, 0);
+    segments.push({ seq: sorted.length + 1, completedOn: null, hours: currentSum });
+    return segments;
+  }
   const catalogPgMap = new Map(
     catalogL3.map((c) => [`${c.workGroupId}::${c.value}`, c.projectGroup]),
   );
@@ -131,6 +173,15 @@ export default async function ManagePage({
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
         totalHours: hoursMap.get(t.id) ?? 0,
+        hoursBreakdown: computeHoursBreakdown(t.id, t.completionHistory),
+        completionHistory: t.completionHistory.map((h) => ({
+          plannedStart: iso(h.plannedStart),
+          plannedEnd: iso(h.plannedEnd),
+          actualEnd: iso(h.actualEnd),
+          approvedAt: h.approvedAt ? h.approvedAt.toISOString() : null,
+          approvedByName: h.approvedBy?.fullName ?? null,
+          note: h.note,
+        })),
       }))}
       isAdmin={session.user.role === "ADMIN"}
       constructionTypes={constructionTypes.map((ct) => ({ id: ct.id, code: ct.code, name: ct.name }))}
@@ -139,6 +190,7 @@ export default async function ManagePage({
       phases={lookups.phases}
       projects={lookups.projects}
       users={lookups.users}
+      approvers={lookups.approvers}
       catalog={lookups.catalog}
     />
   );

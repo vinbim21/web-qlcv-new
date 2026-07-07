@@ -196,6 +196,7 @@ model User {
   tasksToApprove       Task[]  @relation("TaskStartApprover")
   endChangeRequests    Task[]  @relation("TaskEndChangeRequester")
   deleteRequests       Task[]  @relation("TaskDeleteRequester")
+  completionHistoryApprovals TaskCompletionHistory[] @relation("TaskCompletionHistoryApprover")
   timeSheets    TimeSheetEntry[]
   notifications Notification[]   @relation("NotifRecipient")
 
@@ -274,6 +275,7 @@ model Task {
   assignees     TaskAssignee[]
   timeSheets    TimeSheetEntry[]
   notifications Notification[]
+  completionHistory TaskCompletionHistory[]
 
   @@unique([workGroupId, seq])
   @@index([workGroupId])
@@ -283,6 +285,25 @@ model Task {
   @@index([wbsPath])
   @@index([sumId])
   @@index([approverId])
+}
+
+/// Lịch sử các lần "Hoàn thành" trước đó của 1 việc — ghi lại khi user đề xuất "Cập nhật công việc"
+/// (làm tiếp việc đã hoàn thành vì đầu việc có thay đổi). Xem lại bằng cách hover cột Tình trạng.
+model TaskCompletionHistory {
+  id           String    @id @default(cuid())
+  taskId       String
+  plannedStart DateTime?
+  plannedEnd   DateTime?
+  actualEnd    DateTime?
+  approvedAt   DateTime?
+  approvedById String?
+  note         String? // Lý do cập nhật lại (người đề xuất nhập)
+  createdAt    DateTime  @default(now())
+
+  task       Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  approvedBy User? @relation("TaskCompletionHistoryApprover", fields: [approvedById], references: [id])
+
+  @@index([taskId])
 }
 
 /// Bảng nối nhiều-nhiều: 1 công việc có thể có nhiều người (Nhân sự 01/02/03)

@@ -37,6 +37,10 @@ export default async function TasksPage({
         endChangeRequester: { select: { fullName: true } },
         deleteRequester: { select: { fullName: true } },
         assignees: { include: { user: true }, orderBy: { roleNo: "asc" } },
+        completionHistory: {
+          orderBy: { createdAt: "desc" },
+          include: { approvedBy: { select: { fullName: true } } },
+        },
       },
       orderBy: [{ workGroupId: "asc" }, { createdAt: "asc" }],
       take: 2000,
@@ -111,6 +115,14 @@ export default async function TasksPage({
         deleteRequestNote: t.deleteRequestNote ?? null,
         assigneeIds: t.assignees.map((a) => a.userId),
         assigneeNames: t.assignees.map((a) => a.user.fullName),
+        completionHistory: t.completionHistory.map((h) => ({
+          plannedStart: iso(h.plannedStart),
+          plannedEnd: iso(h.plannedEnd),
+          actualEnd: iso(h.actualEnd),
+          approvedAt: h.approvedAt ? h.approvedAt.toISOString() : null,
+          approvedByName: h.approvedBy?.fullName ?? null,
+          note: h.note,
+        })),
       }))}
       isAdmin={session.user.role === "ADMIN"}
       workGroups={lookups.workGroups}
