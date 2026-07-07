@@ -31,7 +31,7 @@ export default async function ReportsPage() {
   const selfOnly = !canViewPerson;
   const meId = session.user.id;
 
-  const [tasks, hoursAgg, catalogItems] = await Promise.all([
+  const [tasks, hoursAgg, catalogItems, users] = await Promise.all([
     // Count only leaf tasks to avoid parent/child duplicates.
     prisma.task.findMany({
       where: {
@@ -83,7 +83,15 @@ export default async function ReportsPage() {
       },
       orderBy: [{ order: "asc" }, { value: "asc" }],
     }),
+    prisma.user.findMany({
+      where: { deletedAt: null },
+      select: { fullName: true, discipline: { select: { name: true } } },
+    }),
   ]);
+
+  // Tên người → tên Bộ môn (khai báo ở Quản trị/Người dùng) — cho nhóm "Danh sách nhân sự" ở báo cáo.
+  const disciplineByPerson: Record<string, string> = {};
+  for (const u of users) disciplineByPerson[u.fullName] = u.discipline?.name ?? "Chưa gán bộ môn";
 
   const hoursByTask = new Map(hoursAgg.map((h) => [h.taskId as string, Number(h._sum.hours ?? 0)]));
   const catalogByWorkGroupAndValue = new Map<string, typeof catalogItems>();
@@ -162,5 +170,7 @@ export default async function ReportsPage() {
     if (!row.hangMuc) row.hangMuc = catalog?.value ?? task.level3 ?? "";
   }
 
-  return <ReportsTabs rows={rows} canViewPerson={canViewPerson} selfOnly={selfOnly} />;
+  return (
+    <ReportsTabs rows={rows} canViewPerson={canViewPerson} selfOnly={selfOnly} disciplineByPerson={disciplineByPerson} />
+  );
 }

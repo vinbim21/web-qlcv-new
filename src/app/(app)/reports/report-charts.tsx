@@ -22,8 +22,8 @@ export function Donut({
   thickness?: number;
   centerTop: React.ReactNode;
   centerBottom: string;
-  selected?: string | null;
-  onSelect?: (key: string | null) => void;
+  selected?: string[];
+  onSelect?: (key: string, chained: boolean) => void;
   vertical?: boolean;
   legendTitle?: string;
 }) {
@@ -35,14 +35,14 @@ export function Donut({
     acc.push(i === 0 ? 0 : acc[i - 1] + (segments[i - 1].value / tot) * circ);
     return acc;
   }, []);
-  const hasSelection = !!selected;
+  const hasSelection = (selected?.length ?? 0) > 0;
 
   const svgEl = (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className={vertical ? "-rotate-90" : "shrink-0 -rotate-90"}>
       <circle cx={c} cy={c} r={r} fill="none" stroke="#f1f5f9" strokeWidth={thickness} />
       {segments.map((s, i) => {
         const len = (s.value / tot) * circ;
-        const isSelected = selected === s.key;
+        const isSelected = !!selected?.includes(s.key);
         return (
           <circle
             key={s.key}
@@ -60,7 +60,7 @@ export function Donut({
               cursor: onSelect ? "pointer" : "default",
               transition: "opacity 0.15s, stroke-width 0.15s",
             }}
-            onClick={() => onSelect?.(isSelected ? null : s.key)}
+            onClick={(e) => onSelect?.(s.key, e.ctrlKey || e.metaKey)}
           >
             <title>{s.label}: {s.value}</title>
           </circle>
@@ -85,7 +85,7 @@ export function Donut({
       <ul className="grid gap-2.5">
         {segments.map((s) => {
           const pct = Math.round((s.value / tot) * 100);
-          const isSelected = selected === s.key;
+          const isSelected = !!selected?.includes(s.key);
           return (
             <li
               key={s.key}
@@ -95,7 +95,7 @@ export function Donut({
                 cursor: onSelect ? "pointer" : "default",
                 transition: "opacity 0.15s",
               }}
-              onClick={() => onSelect?.(isSelected ? null : s.key)}
+              onClick={(e) => onSelect?.(s.key, e.ctrlKey || e.metaKey)}
             >
               <span
                 className="size-3 shrink-0 rounded-[3px]"
@@ -146,12 +146,12 @@ export function HBars({
   unit?: string;
   maxRows?: number;
   valueFmt?: (n: number) => string;
-  selected?: string | null;
-  onSelect?: (key: string | null) => void;
+  selected?: string[];
+  onSelect?: (key: string, chained: boolean) => void;
 }) {
   const rows = data.slice(0, maxRows);
   const mx = Math.max(1, ...rows.map((d) => d[valueKey]));
-  const hasSelection = !!selected;
+  const hasSelection = (selected?.length ?? 0) > 0;
   if (rows.length === 0) {
     return <div className="grid h-24 place-items-center text-sm text-slate-400">Không có dữ liệu</div>;
   }
@@ -160,7 +160,7 @@ export function HBars({
       {rows.map((d) => {
         const v = d[valueKey];
         const w = Math.max(2, (v / mx) * 100);
-        const isSelected = selected === d.key;
+        const isSelected = !!selected?.includes(d.key);
         return (
           <li
             key={d.key}
@@ -170,7 +170,7 @@ export function HBars({
               cursor: onSelect ? "pointer" : "default",
               transition: "opacity 0.15s",
             }}
-            onClick={() => onSelect?.(isSelected ? null : d.key)}
+            onClick={(e) => onSelect?.(d.key, e.ctrlKey || e.metaKey)}
           >
             <span className="truncate text-right text-slate-600" title={d.key}
               style={{ fontWeight: isSelected ? 600 : undefined, color: isSelected ? "#0f172a" : undefined }}>
