@@ -9,6 +9,7 @@ export const userCreateSchema = z.object({
   email: z.string().email("Email không hợp lệ"),
   role: z.enum(["ADMIN", "LEVEL_1", "LEVEL_2", "LEVEL_3"]),
   disciplineId: z.string().optional().nullable(),
+  departmentId: z.string().optional().nullable(),
   password: z.string().min(8, "Mật khẩu tối thiểu 8 ký tự").optional(),
   isActive: z.boolean().optional(),
 });
@@ -21,6 +22,7 @@ export const userUpdateSchema = z.object({
   email: z.string().email("Email không hợp lệ"),
   role: z.enum(["ADMIN", "LEVEL_1", "LEVEL_2", "LEVEL_3"]),
   disciplineId: z.string().optional().nullable(),
+  departmentId: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
 });
 
@@ -31,6 +33,14 @@ export const disciplineSchema = z.object({
   order: z.coerce.number().int().min(0).optional(),
 });
 export type DisciplineInput = z.infer<typeof disciplineSchema>;
+
+export const departmentSchema = z.object({
+  id: z.string().optional(),
+  code: z.string().min(1, "Nhập mã"),
+  name: z.string().min(1, "Nhập tên"),
+  order: z.coerce.number().int().min(0).optional(),
+});
+export type DepartmentInput = z.infer<typeof departmentSchema>;
 
 export const constructionTypeSchema = z.object({
   id: z.string().optional(),

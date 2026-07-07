@@ -61,9 +61,9 @@ function uniq(rows: TaskRow[], pick: (r: TaskRow) => string): string[] {
   return [...new Set(rows.map(pick).filter((x) => x && x !== "—"))].sort((a, b) => a.localeCompare(b, "vi"));
 }
 
-const NO_DISCIPLINE = "Chưa gán bộ môn";
+const NO_DEPARTMENT = "Chưa gán bộ phận";
 
-// 1 dòng checkbox dùng chung cho cả 2 tab (Nhân sự / Bộ môn).
+// 1 dòng checkbox dùng chung cho cả 2 tab (Nhân sự / Bộ phận).
 function CheckRow({ label, sub, on, onClick }: { label: string; sub?: string; on: boolean; onClick: () => void }) {
   return (
     <li>
@@ -87,9 +87,9 @@ function CheckRow({ label, sub, on, onClick }: { label: string; sub?: string; on
   );
 }
 
-// Danh sách nhân sự — 2 tab: "Nhân sự" (checkbox từng người) và "Bộ môn" (checkbox chọn cả bộ môn —
-// tick 1 bộ môn = chọn toàn bộ nhân sự thuộc bộ môn đó vào bộ lọc thucHien, đồng thời xổ ra danh sách
-// nhân sự trong bộ môn đó để xem/bỏ bớt từng người). Mode + ô tìm kiếm điều khiển từ ngoài (cùng dòng tiêu đề panel).
+// Danh sách nhân sự — 2 tab: "Nhân sự" (checkbox từng người) và "Bộ phận" (checkbox chọn cả bộ phận —
+// tick 1 bộ phận = chọn toàn bộ nhân sự thuộc bộ phận đó vào bộ lọc thucHien, đồng thời xổ ra danh sách
+// nhân sự trong bộ phận đó để xem/bỏ bớt từng người). Mode + ô tìm kiếm điều khiển từ ngoài (cùng dòng tiêu đề panel).
 function PersonCheckList({
   people,
   groupOf,
@@ -102,7 +102,7 @@ function PersonCheckList({
   people: string[];
   groupOf: (p: string) => string;
   counts: Record<string, number>;
-  mode: "person" | "discipline";
+  mode: "person" | "department";
   q: string;
   value: string[] | undefined;
   onChange: (v: string[]) => void;
@@ -111,18 +111,18 @@ function PersonCheckList({
   const sel = value ?? [];
   const togglePerson = (p: string) => onChange(sel.includes(p) ? sel.filter((x) => x !== p) : [...sel, p]);
 
-  const disciplines = React.useMemo(() => {
+  const departments = React.useMemo(() => {
     const m = new Map<string, string[]>();
     for (const p of people) {
       const g = groupOf(p);
       (m.get(g) ?? m.set(g, []).get(g)!).push(p);
     }
     return [...m.entries()]
-      .sort(([a], [b]) => (a === NO_DISCIPLINE ? 1 : b === NO_DISCIPLINE ? -1 : a.localeCompare(b, "vi")))
+      .sort(([a], [b]) => (a === NO_DEPARTMENT ? 1 : b === NO_DEPARTMENT ? -1 : a.localeCompare(b, "vi")))
       .map(([name, members]) => ({ name, members }));
   }, [people, groupOf]);
 
-  const toggleDiscipline = (d: { name: string; members: string[] }) => {
+  const toggleDepartment = (d: { name: string; members: string[] }) => {
     const allIn = d.members.every((m) => sel.includes(m));
     onChange(allIn ? sel.filter((x) => !d.members.includes(x)) : [...new Set([...sel, ...d.members])]);
     setExpanded((prev) => new Set(prev).add(d.name));
@@ -136,7 +136,7 @@ function PersonCheckList({
     });
 
   const filteredPeople = people.filter((p) => norm(p).includes(norm(q)));
-  const filteredDisciplines = disciplines.filter((d) => norm(d.name).includes(norm(q)));
+  const filteredDepartments = departments.filter((d) => norm(d.name).includes(norm(q)));
 
   return (
     <div>
@@ -162,8 +162,8 @@ function PersonCheckList({
               onClick={() => togglePerson(p)}
             />
           ))}
-        {mode === "discipline" &&
-          filteredDisciplines.map((d) => {
+        {mode === "department" &&
+          filteredDepartments.map((d) => {
             const allIn = d.members.every((m) => sel.includes(m));
             const isOpen = expanded.has(d.name);
             const taskCount = d.members.reduce((s, m) => s + (counts[m] ?? 0), 0);
@@ -179,7 +179,7 @@ function PersonCheckList({
                   </button>
                   <button
                     type="button"
-                    onClick={() => toggleDiscipline(d)}
+                    onClick={() => toggleDepartment(d)}
                     className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
                   >
                     <span
@@ -212,7 +212,7 @@ function PersonCheckList({
               </li>
             );
           })}
-        {(mode === "person" ? filteredPeople.length : filteredDisciplines.length) === 0 && (
+        {(mode === "person" ? filteredPeople.length : filteredDepartments.length) === 0 && (
           <li className="px-2 py-4 text-center text-xs text-slate-400">Không có kết quả</li>
         )}
       </ul>
@@ -222,20 +222,20 @@ function PersonCheckList({
 
 export function ReportsClient({
   rows,
-  disciplineByPerson,
+  departmentByPerson,
 }: {
   rows: TaskRow[];
-  disciplineByPerson: Record<string, string>;
+  departmentByPerson: Record<string, string>;
 }) {
   const groupOfPerson = React.useCallback(
-    (p: string) => disciplineByPerson[p] ?? NO_DISCIPLINE,
-    [disciplineByPerson],
+    (p: string) => departmentByPerson[p] ?? NO_DEPARTMENT,
+    [departmentByPerson],
   );
   const people = React.useMemo(
     () => [...new Set(rows.flatMap((r) => r.thucHien))].sort((a, b) => a.localeCompare(b, "vi")),
     [rows],
   );
-  const [personMode, setPersonMode] = React.useState<"person" | "discipline">("person");
+  const [personMode, setPersonMode] = React.useState<"person" | "department">("person");
   const [personQuery, setPersonQuery] = React.useState("");
 
   const cols: ColDef[] = React.useMemo(
@@ -415,7 +415,7 @@ export function ReportsClient({
           right={
             <div className="flex items-center gap-2">
               <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 text-xs">
-                {(["person", "discipline"] as const).map((m) => (
+                {(["person", "department"] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
@@ -425,7 +425,7 @@ export function ReportsClient({
                       personMode === m ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700",
                     )}
                   >
-                    {m === "person" ? "Nhân sự" : "Bộ môn"}
+                    {m === "person" ? "Nhân sự" : "Bộ phận"}
                   </button>
                 ))}
               </div>
@@ -434,7 +434,7 @@ export function ReportsClient({
                 <input
                   value={personQuery}
                   onChange={(e) => setPersonQuery(e.target.value)}
-                  placeholder={personMode === "person" ? "Tìm nhân sự…" : "Tìm bộ môn…"}
+                  placeholder={personMode === "person" ? "Tìm nhân sự…" : "Tìm bộ phận…"}
                   className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-xs outline-none focus:border-slate-400 focus:bg-white"
                 />
               </div>
