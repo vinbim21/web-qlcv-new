@@ -166,6 +166,25 @@ export async function getTaskWeekEntries(taskId: string) {
   });
 }
 
+/** Lấy toàn bộ giờ đã ghi (mọi người, mọi thời điểm) cho 1 task — dùng cho modal chi tiết ở /manage. */
+export async function getTaskAllEntries(taskId: string) {
+  return runAction(async () => {
+    await requireUser();
+    const entries = await prisma.timeSheetEntry.findMany({
+      where: { taskId, deletedAt: null },
+      orderBy: { date: "asc" },
+      select: { id: true, date: true, hours: true, note: true, user: { select: { fullName: true } } },
+    });
+    return entries.map((e) => ({
+      id: e.id,
+      date: e.date.toISOString().slice(0, 10),
+      hours: Number(e.hours),
+      note: e.note,
+      userName: e.user.fullName,
+    }));
+  });
+}
+
 export async function deleteTimesheetEntry(id: string) {
   return runAction(async () => {
     const user = await requireUser();

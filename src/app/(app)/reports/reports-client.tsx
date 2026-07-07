@@ -394,6 +394,62 @@ export function ReportsClient({
   const toggleSort = (k: string) =>
     setSort((s) => (s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: "asc" }));
 
+  // Xuất Excel — lấy đúng dữ liệu đang lọc/sắp xếp trên màn hình (không phải toàn bộ DB).
+  const [exporting, setExporting] = React.useState(false);
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet("Cong viec");
+      ws.columns = [
+        { header: "Dự án", key: "duAn", width: 14 },
+        { header: "Loại hình", key: "loaiHinh", width: 16 },
+        { header: "Hạng mục", key: "hangMuc", width: 20 },
+        { header: "Công việc", key: "congViec", width: 28 },
+        { header: "Giai đoạn", key: "giaiDoan", width: 14 },
+        { header: "Bộ môn", key: "boMon", width: 12 },
+        { header: "Thực hiện", key: "thucHien", width: 24 },
+        { header: "Ưu tiên", key: "uuTien", width: 10 },
+        { header: "Tình trạng", key: "tinhTrang", width: 16 },
+        { header: "Bắt đầu", key: "batDau", width: 12 },
+        { header: "Kết thúc", key: "ketThuc", width: 12 },
+        { header: "Thực tế hoàn thành", key: "thucTe", width: 16 },
+        { header: "Thời gian (giờ)", key: "hours", width: 14 },
+        { header: "Kết quả", key: "result", width: 24 },
+      ];
+      ws.getRow(1).font = { bold: true };
+      for (const r of sorted) {
+        ws.addRow({
+          duAn: r.duAn === "—" ? "" : r.duAn,
+          loaiHinh: r.loaiHinh,
+          hangMuc: r.hangMuc,
+          congViec: r.congViec,
+          giaiDoan: r.giaiDoan,
+          boMon: r.boMon,
+          thucHien: r.thucHien.join(", "),
+          uuTien: PRIO_LABEL[r.uuTien] ?? r.uuTien,
+          tinhTrang: STATUS_LABEL[effStatus(r)],
+          batDau: fmtDate(r.batDau),
+          ketThuc: fmtDate(r.ketThuc),
+          thucTe: fmtDate(r.thucTe),
+          hours: r.hours || "",
+          result: r.result,
+        });
+      }
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bao-cao-cong-viec-loc-${Date.now()}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const openCol = open ? cols.find((c) => c.key === open.key) : null;
 
   return (
@@ -506,12 +562,14 @@ export function ReportsClient({
         title="Danh sách công việc"
         sub={`${sorted.length} việc · mọi cột đều lọc được`}
         right={
-          <a
-            href="/api/export/tasks"
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={exporting}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
           >
-            <ArrowDown className="size-3.5" /> Xuất Excel
-          </a>
+            <ArrowDown className="size-3.5" /> {exporting ? "Đang xuất…" : `Xuất Excel (${sorted.length} việc đang lọc)`}
+          </button>
         }
         bodyClass="!px-0 !py-0"
       >
