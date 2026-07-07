@@ -7,14 +7,14 @@ import {
   ArrowUp,
   Building2,
   Check,
+  ChevronDown,
+  ChevronRight,
   ChevronsUpDown,
   Clock,
   Filter,
   ListChecks,
-  RotateCcw,
   Search,
   UserX,
-  X,
 } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
@@ -33,7 +33,6 @@ import {
 import {
   type ColDef,
   type ColFilters,
-  chipText,
   colActive,
   DateBody,
   fmtDate,
@@ -49,16 +48,195 @@ import {
 } from "./report-ui";
 
 const CYAN = "#0891b2";
+// Bảng màu cho biểu đồ tròn "Công việc" (cột congViec — cardinality cao hơn duAn/trạng thái).
+const CONGVIEC_PALETTE = [
+  "#0891b2", "#7c3aed", "#db2777", "#ea580c", "#16a34a", "#2563eb", "#ca8a04", "#64748b", "#0d9488", "#be123c",
+];
+
+// 5 trường có thể lọc chéo từ biểu đồ: click thường = thay hẳn bộ lọc; giữ Ctrl = nối thêm điều kiện.
+type ChartField = "status" | "duAn" | "hangMuc" | "thucHien" | "congViec";
+type ChartFilters = Partial<Record<ChartField, string[]>>;
 
 function uniq(rows: TaskRow[], pick: (r: TaskRow) => string): string[] {
   return [...new Set(rows.map(pick).filter((x) => x && x !== "—"))].sort((a, b) => a.localeCompare(b, "vi"));
 }
 
-export function ReportsClient({ rows }: { rows: TaskRow[] }) {
+const NO_DISCIPLINE = "Chưa gán bộ môn";
+
+// 1 dòng checkbox dùng chung cho cả 2 tab (Nhân sự / Bộ môn).
+function CheckRow({ label, sub, on, onClick }: { label: string; sub?: string; on: boolean; onClick: () => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+      >
+        <span
+          className={cn(
+            "grid size-4 shrink-0 place-items-center rounded border",
+            on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+          )}
+        >
+          {on && <Check className="size-3" strokeWidth={3} />}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {sub && <span className="shrink-0 text-xs text-slate-400">{sub}</span>}
+      </button>
+    </li>
+  );
+}
+
+// Danh sách nhân sự — 2 tab: "Nhân sự" (checkbox từng người) và "Bộ môn" (checkbox chọn cả bộ môn —
+// tick 1 bộ môn = chọn toàn bộ nhân sự thuộc bộ môn đó vào bộ lọc thucHien, đồng thời xổ ra danh sách
+// nhân sự trong bộ môn đó để xem/bỏ bớt từng người). Mode + ô tìm kiếm điều khiển từ ngoài (cùng dòng tiêu đề panel).
+function PersonCheckList({
+  people,
+  groupOf,
+  counts,
+  mode,
+  q,
+  value,
+  onChange,
+}: {
+  people: string[];
+  groupOf: (p: string) => string;
+  counts: Record<string, number>;
+  mode: "person" | "discipline";
+  q: string;
+  value: string[] | undefined;
+  onChange: (v: string[]) => void;
+}) {
+  const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
+  const sel = value ?? [];
+  const togglePerson = (p: string) => onChange(sel.includes(p) ? sel.filter((x) => x !== p) : [...sel, p]);
+
+  const disciplines = React.useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const p of people) {
+      const g = groupOf(p);
+      (m.get(g) ?? m.set(g, []).get(g)!).push(p);
+    }
+    return [...m.entries()]
+      .sort(([a], [b]) => (a === NO_DISCIPLINE ? 1 : b === NO_DISCIPLINE ? -1 : a.localeCompare(b, "vi")))
+      .map(([name, members]) => ({ name, members }));
+  }, [people, groupOf]);
+
+  const toggleDiscipline = (d: { name: string; members: string[] }) => {
+    const allIn = d.members.every((m) => sel.includes(m));
+    onChange(allIn ? sel.filter((x) => !d.members.includes(x)) : [...new Set([...sel, ...d.members])]);
+    setExpanded((prev) => new Set(prev).add(d.name));
+  };
+  const toggleExpand = (name: string) =>
+    setExpanded((prev) => {
+      const n = new Set(prev);
+      if (n.has(name)) n.delete(name);
+      else n.add(name);
+      return n;
+    });
+
+  const filteredPeople = people.filter((p) => norm(p).includes(norm(q)));
+  const filteredDisciplines = disciplines.filter((d) => norm(d.name).includes(norm(q)));
+
+  return (
+    <div>
+      {sel.length > 0 && (
+        <div className="mb-1.5 flex justify-end">
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="text-[11px] font-medium text-slate-400 hover:text-slate-600"
+          >
+            {sel.length} đã chọn · Bỏ chọn
+          </button>
+        </div>
+      )}
+      <ul className="max-h-[800px] overflow-auto pr-1">
+        {mode === "person" &&
+          filteredPeople.map((p) => (
+            <CheckRow
+              key={p}
+              label={p}
+              sub={`${counts[p] ?? 0} việc`}
+              on={sel.includes(p)}
+              onClick={() => togglePerson(p)}
+            />
+          ))}
+        {mode === "discipline" &&
+          filteredDisciplines.map((d) => {
+            const allIn = d.members.every((m) => sel.includes(m));
+            const isOpen = expanded.has(d.name);
+            const taskCount = d.members.reduce((s, m) => s + (counts[m] ?? 0), 0);
+            return (
+              <li key={d.name}>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(d.name)}
+                    className="grid size-6 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    {isOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleDiscipline(d)}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+                  >
+                    <span
+                      className={cn(
+                        "grid size-4 shrink-0 place-items-center rounded border",
+                        allIn ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+                      )}
+                    >
+                      {allIn && <Check className="size-3" strokeWidth={3} />}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{d.name}</span>
+                    <span className="shrink-0 text-xs text-slate-400">
+                      {d.members.length} người · {taskCount} việc
+                    </span>
+                  </button>
+                </div>
+                {isOpen && (
+                  <ul className="ml-6 border-l border-slate-100 pl-1">
+                    {d.members.map((m) => (
+                      <CheckRow
+                        key={m}
+                        label={m}
+                        sub={`${counts[m] ?? 0} việc`}
+                        on={sel.includes(m)}
+                        onClick={() => togglePerson(m)}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+        {(mode === "person" ? filteredPeople.length : filteredDisciplines.length) === 0 && (
+          <li className="px-2 py-4 text-center text-xs text-slate-400">Không có kết quả</li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+export function ReportsClient({
+  rows,
+  disciplineByPerson,
+}: {
+  rows: TaskRow[];
+  disciplineByPerson: Record<string, string>;
+}) {
+  const groupOfPerson = React.useCallback(
+    (p: string) => disciplineByPerson[p] ?? NO_DISCIPLINE,
+    [disciplineByPerson],
+  );
   const people = React.useMemo(
     () => [...new Set(rows.flatMap((r) => r.thucHien))].sort((a, b) => a.localeCompare(b, "vi")),
     [rows],
   );
+  const [personMode, setPersonMode] = React.useState<"person" | "discipline">("person");
+  const [personQuery, setPersonQuery] = React.useState("");
 
   const cols: ColDef[] = React.useMemo(
     () => [
@@ -74,6 +252,7 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
       { key: "batDau", label: "Bắt đầu", w: 110, filter: "date" },
       { key: "ketThuc", label: "Kết thúc", w: 110, filter: "date" },
       { key: "thucTe", label: "Thực tế hoàn thành", w: 158, filter: "date" },
+      { key: "soGio", label: "Thời gian", w: 100 },
       { key: "result", label: "Kết quả", w: 120, filter: "text" },
     ],
     [rows, people],
@@ -84,12 +263,34 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
   const [open, setOpen] = React.useState<{ key: string; rect: DOMRect } | null>(null);
   const [sort, setSort] = React.useState<{ key: string; dir: "asc" | "desc" }>({ key: "duAn", dir: "asc" });
 
-  // Cross-filter: click chart segment → lọc toàn bộ data.
-  type ChartSel = { field: "status" | "duAn"; value: string } | null;
-  const [chartSel, setChartSel] = React.useState<ChartSel>(null);
-  function toggleChart(field: NonNullable<ChartSel>["field"], value: string) {
-    setChartSel((s) => (s?.field === field && s.value === value ? null : { field, value }));
+  // Cross-filter: click biểu đồ → lọc toàn bộ data. Click thường thay hẳn bộ lọc (chỉ giữ 1 tiêu chí);
+  // giữ Ctrl/Cmd khi click sẽ nối thêm điều kiện (giữ các biểu đồ khác đang chọn, OR trong cùng 1 biểu đồ).
+  const [chartFilters, setChartFilters] = React.useState<ChartFilters>({});
+  function toggleChart(field: ChartField, value: string, chained: boolean) {
+    setChartFilters((prev) => {
+      if (chained) {
+        const cur = new Set(prev[field] ?? []);
+        if (cur.has(value)) cur.delete(value);
+        else cur.add(value);
+        const next = { ...prev };
+        if (cur.size) next[field] = [...cur];
+        else delete next[field];
+        return next;
+      }
+      const isSolo = Object.keys(prev).length === 1 && prev[field]?.length === 1 && prev[field]![0] === value;
+      return isSolo ? {} : { [field]: [value] };
+    });
   }
+  const setChartValues = (field: ChartField, values: string[]) =>
+    setChartFilters((prev) => {
+      if (!values.length) {
+        const n = { ...prev };
+        delete n[field];
+        return n;
+      }
+      return { ...prev, [field]: values };
+    });
+  const chartFilterEntries = (Object.entries(chartFilters) as [ChartField, string[]][]).filter(([, v]) => v.length > 0);
 
   const setCF = (k: string, v: string | string[]) => setColFilters((f) => ({ ...f, [k]: v }));
   const clearCol = (k: string) =>
@@ -101,9 +302,8 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
   const clearAll = () => {
     setColFilters({});
     setSearch("");
-    setChartSel(null);
+    setChartFilters({});
   };
-
   const filtered = React.useMemo(() => {
     const q = norm(search.trim());
     return rows.filter((r) => {
@@ -112,17 +312,29 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
         if (!hay.includes(q)) return false;
       }
       for (const c of cols) if (!rowMatch(r, c, colFilters[c.key])) return false;
-      if (chartSel) {
-        const { field, value } = chartSel;
-        if (field === "status" && effStatus(r) !== value) return false;
-        if (field === "duAn" && r.duAn !== value) return false;
+      for (const [field, values] of chartFilterEntries) {
+        if (field === "status" && !values.includes(effStatus(r))) return false;
+        if (field === "duAn" && !values.includes(r.duAn)) return false;
+        if (field === "hangMuc" && !values.includes(r.hangMuc)) return false;
+        if (field === "congViec" && !values.includes(r.congViec)) return false;
+        if (field === "thucHien" && !values.some((v) => r.thucHien.includes(v))) return false;
       }
       return true;
     });
-  }, [rows, search, colFilters, cols, chartSel]);
+  }, [rows, search, colFilters, cols, chartFilterEntries]);
 
   const kpi = React.useMemo(() => buildKpi(filtered), [filtered]);
   const activeCols = cols.filter((c) => colActive(c, colFilters[c.key]));
+  const hasAnyFilter = activeCols.length > 0 || !!search || Object.keys(chartFilters).length > 0;
+  // Esc (bất kỳ đâu trên trang) → xóa hết bộ lọc, trừ khi popover lọc cột đang mở (để nó tự đóng trước).
+  React.useEffect(() => {
+    if (!hasAnyFilter || open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") clearAll();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hasAnyFilter, open]);
 
   const agg = React.useMemo(() => {
     const sub = filtered;
@@ -132,17 +344,32 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
       color: STATUS_COLOR[s],
       value: sub.filter((r) => effStatus(r) === s).length,
     })).filter((s) => s.value > 0);
+    const congViec = tally(sub, (r) => r.congViec)
+      .slice(0, 10)
+      .map((s, i) => ({ key: s.key, label: s.key, color: CONGVIEC_PALETTE[i % CONGVIEC_PALETTE.length], value: s.total }));
+    const byDuAn = tally(sub, (r) => r.duAn);
+    const hangMucDonut = tally(sub, (r) => r.hangMuc)
+      .slice(0, 10)
+      .map((s, i) => ({ key: s.key, label: s.key, color: CONGVIEC_PALETTE[i % CONGVIEC_PALETTE.length], value: s.total }));
     return {
       status,
-      byDuAn: tally(sub, (r) => r.duAn),
+      congViec,
+      hangMucDonut,
+      byDuAn,
+      byThucHien: tally(sub, (r) => r.thucHien),
       count: sub.length,
     };
   }, [filtered]);
+  const personCounts = React.useMemo(
+    () => Object.fromEntries(agg.byThucHien.map((s) => [s.key, s.total])),
+    [agg.byThucHien],
+  );
 
   const sorted = React.useMemo(() => {
     const arr = [...filtered];
     const { key, dir } = sort;
     arr.sort((a, b) => {
+      if (key === "soGio") return dir === "asc" ? a.hours - b.hours : b.hours - a.hours;
       let va: string;
       let vb: string;
       if (key === "thucHien") {
@@ -181,78 +408,47 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
         <Kpi icon={Clock} label="Giờ công" value={kpi.hours.toLocaleString("vi")} sub="ước tính timesheet" tone="amber" />
       </div>
 
-      {/* Tìm + lọc */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[260px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Tìm việc theo tên, mã, hạng mục, người thực hiện…"
-            className="h-10 w-full rounded-lg border border-slate-200 bg-card pl-9 pr-3 text-sm outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-          />
-        </div>
-        {(activeCols.length > 0 || search || chartSel) && (
-          <button
-            type="button"
-            onClick={clearAll}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-500 hover:bg-slate-50"
-          >
-            <RotateCcw className="size-3.5" /> Xóa lọc
-          </button>
-        )}
-      </div>
-      {(activeCols.length > 0 || chartSel) && (
-        <div className="-mt-1 flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
-            <Filter className="size-3.5" /> Đang lọc:
-          </span>
-          {chartSel && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 py-1 pl-2.5 pr-1 text-xs shadow-sm">
-              <span className="size-2 rounded-full bg-violet-400" />
-              <span className="font-medium text-violet-700">{chartSel.value}</span>
-              <button
-                type="button"
-                onClick={() => setChartSel(null)}
-                className="grid size-4 place-items-center rounded-full text-violet-400 hover:bg-violet-100 hover:text-violet-700"
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          )}
-          {activeCols.map((c) => (
-            <span
-              key={c.key}
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-card py-1 pl-2.5 pr-1 text-xs shadow-sm"
-            >
-              <span className="text-slate-400">{c.label}:</span>
-              <span className="font-medium text-slate-700">{chipText(c, colFilters[c.key])}</span>
-              <button
-                type="button"
-                onClick={() => clearCol(c.key)}
-                className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
-          <span className="text-xs text-slate-400">· {agg.count} việc khớp</span>
-        </div>
-      )}
-
-      {/* Lát cắt */}
+      {/* Lát cắt — mọi biểu đồ click chọn 1 tiêu chí; giữ Ctrl/Cmd để nối thêm bộ lọc khác */}
       <div className="grid grid-cols-3 gap-4">
-        <Panel title="Trạng thái công việc">
-          <Donut
-            segments={agg.status}
-            size={240}
-            thickness={30}
-            centerTop={agg.count}
-            centerBottom="việc"
-            selected={chartSel?.field === "status" ? chartSel.value : null}
-            onSelect={(v) => v && toggleChart("status", v)}
-            vertical
-            legendTitle="Tình trạng công việc"
+        <Panel
+          title="Danh sách nhân sự"
+          right={
+            <div className="flex items-center gap-2">
+              <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 text-xs">
+                {(["person", "discipline"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setPersonMode(m)}
+                    className={cn(
+                      "rounded px-2.5 py-1 font-medium transition-colors",
+                      personMode === m ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                    )}
+                  >
+                    {m === "person" ? "Nhân sự" : "Bộ môn"}
+                  </button>
+                ))}
+              </div>
+              <div className="relative w-40">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={personQuery}
+                  onChange={(e) => setPersonQuery(e.target.value)}
+                  placeholder={personMode === "person" ? "Tìm nhân sự…" : "Tìm bộ môn…"}
+                  className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-xs outline-none focus:border-slate-400 focus:bg-white"
+                />
+              </div>
+            </div>
+          }
+        >
+          <PersonCheckList
+            people={people}
+            groupOf={groupOfPerson}
+            counts={personCounts}
+            mode={personMode}
+            q={personQuery}
+            value={chartFilters.thucHien}
+            onChange={(v) => setChartValues("thucHien", v)}
           />
         </Panel>
         <Panel title="Danh sách dự án" className="col-span-2">
@@ -260,8 +456,47 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
             data={agg.byDuAn}
             color={CYAN}
             maxRows={20}
-            selected={chartSel?.field === "duAn" ? chartSel.value : null}
-            onSelect={(v) => v && toggleChart("duAn", v)}
+            selected={chartFilters.duAn}
+            onSelect={(v, chained) => toggleChart("duAn", v, chained)}
+          />
+        </Panel>
+        <Panel title="Công việc">
+          <Donut
+            segments={agg.congViec}
+            size={200}
+            thickness={26}
+            centerTop={agg.count}
+            centerBottom="việc"
+            selected={chartFilters.congViec}
+            onSelect={(v, chained) => toggleChart("congViec", v, chained)}
+            vertical
+            legendTitle="Theo đầu việc (top 10)"
+          />
+        </Panel>
+        <Panel title="Trạng thái công việc">
+          <Donut
+            segments={agg.status}
+            size={200}
+            thickness={26}
+            centerTop={agg.count}
+            centerBottom="việc"
+            selected={chartFilters.status}
+            onSelect={(v, chained) => toggleChart("status", v, chained)}
+            vertical
+            legendTitle="Tình trạng công việc"
+          />
+        </Panel>
+        <Panel title="Hạng mục">
+          <Donut
+            segments={agg.hangMucDonut}
+            size={200}
+            thickness={26}
+            centerTop={agg.count}
+            centerBottom="việc"
+            selected={chartFilters.hangMuc}
+            onSelect={(v, chained) => toggleChart("hangMuc", v, chained)}
+            vertical
+            legendTitle="Theo hạng mục (top 10)"
           />
         </Panel>
       </div>
@@ -311,20 +546,22 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
                             <ChevronsUpDown className="size-3 shrink-0 opacity-25" />
                           )}
                         </button>
-                        <button
-                          type="button"
-                          title="Lọc cột này"
-                          onClick={(e) => {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setOpen((o) => (o && o.key === c.key ? null : { key: c.key, rect }));
-                          }}
-                          className={cn(
-                            "grid size-5 shrink-0 place-items-center rounded transition",
-                            on ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200 hover:text-slate-600",
-                          )}
-                        >
-                          <Filter className="size-3" />
-                        </button>
+                        {c.filter && (
+                          <button
+                            type="button"
+                            title="Lọc cột này"
+                            onClick={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setOpen((o) => (o && o.key === c.key ? null : { key: c.key, rect }));
+                            }}
+                            className={cn(
+                              "grid size-5 shrink-0 place-items-center rounded transition",
+                              on ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200 hover:text-slate-600",
+                            )}
+                          >
+                            <Filter className="size-3" />
+                          </button>
+                        )}
                       </div>
                     </th>
                   );
@@ -385,6 +622,9 @@ export function ReportsClient({ rows }: { rows: TaskRow[] }) {
                       ) : (
                         <span className="text-slate-300">—</span>
                       )}
+                    </td>
+                    <td className="px-3 py-2 align-top text-center text-xs tabular-nums text-slate-600">
+                      {r.hours > 0 ? `${Number.isInteger(r.hours) ? r.hours : r.hours.toFixed(1)} (h)` : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-3 py-1.5 align-top text-xs">
                       <ResultCell taskId={r.id} value={r.result || null} canEdit={false} />

@@ -920,6 +920,15 @@ export function TasksClient({
   const [newChipText, setNewChipText] = React.useState("");
   const [removingChip, setRemovingChip] = React.useState(false);
   const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "DANG_LAM" | "HOAN_THANH" | "CHO_DUYET">("tasks:quick", "");
+  // Esc (bất kỳ đâu trên trang) → bỏ KPI đang chọn.
+  React.useEffect(() => {
+    if (!quick) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setQuick("");
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [quick, setQuick]);
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
   const [timePeriod, setTimePeriod] = useLocalStorage<PeriodType>("tasks:timePeriod", "week");
@@ -1973,20 +1982,20 @@ export function TasksClient({
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-5">
         {(
           [
-            { key: "DANG_LAM",    n: kpi.doing,           label: "Đang làm",            Icon: Activity,     tone: "border-blue-200   bg-blue-50   text-blue-700",   activeTone: "border-blue-400   bg-blue-200   text-black" },
-            { key: "HOAN_THANH", n: kpi.done,             label: "Hoàn thành",           Icon: CheckCircle2, tone: "border-green-200  bg-green-50  text-green-700",  activeTone: "border-green-400  bg-green-200  text-black" },
-            { key: "SAP_HAN",    n: kpi.soon,             label: "Sắp đến hạn (≤3 ngày)", Icon: Clock,       tone: "border-amber-200  bg-amber-50  text-amber-700",  activeTone: "border-amber-400  bg-amber-200  text-black" },
-            { key: "QUA_HAN",    n: kpi.overdue,          label: "Quá hạn",              Icon: AlertTriangle, tone: "border-red-200   bg-red-50    text-red-700",    activeTone: "border-red-400    bg-red-200    text-black" },
-            { key: "CHO_DUYET",  n: kpi.pendingApproval,  label: "Chờ duyệt",            Icon: ShieldCheck,  tone: "border-violet-200 bg-violet-50 text-violet-700", activeTone: "border-violet-400 bg-violet-200 text-black" },
+            { key: "DANG_LAM",    n: kpi.doing,           label: "Đang làm",            Icon: Activity,     tone: "border-blue-200   bg-blue-50   text-blue-700",   activeTone: "border-blue-400   bg-blue-200   text-black",   ring: "ring-blue-400" },
+            { key: "HOAN_THANH", n: kpi.done,             label: "Hoàn thành",           Icon: CheckCircle2, tone: "border-green-200  bg-green-50  text-green-700",  activeTone: "border-green-400  bg-green-200  text-black",  ring: "ring-green-400" },
+            { key: "SAP_HAN",    n: kpi.soon,             label: "Sắp đến hạn (≤3 ngày)", Icon: Clock,       tone: "border-amber-200  bg-amber-50  text-amber-700",  activeTone: "border-amber-400  bg-amber-200  text-black",  ring: "ring-amber-400" },
+            { key: "QUA_HAN",    n: kpi.overdue,          label: "Quá hạn",              Icon: AlertTriangle, tone: "border-red-200   bg-red-50    text-red-700",    activeTone: "border-red-400    bg-red-200    text-black",    ring: "ring-red-400" },
+            { key: "CHO_DUYET",  n: kpi.pendingApproval,  label: "Chờ duyệt",            Icon: ShieldCheck,  tone: "border-violet-200 bg-violet-50 text-violet-700", activeTone: "border-violet-400 bg-violet-200 text-black", ring: "ring-violet-400" },
           ] as const
-        ).map(({ key, n, label, Icon, tone, activeTone }) => (
+        ).map(({ key, n, label, Icon, tone, activeTone, ring }) => (
           <button
             key={key}
             type="button"
             onClick={() => setQuick((q) => (q === key ? "" : key))}
             className={cn(
-              "flex items-center gap-3 rounded-lg border p-3 text-left transition",
-              quick === key ? activeTone : [tone, "hover:brightness-[0.97]"],
+              "flex items-center gap-3 rounded-lg border p-3 text-left outline-none transition",
+              quick === key ? [activeTone, "ring-2 ring-offset-1", ring] : [tone, "hover:brightness-[0.97]"],
             )}
           >
             <Icon className="size-5 shrink-0" />
@@ -2064,8 +2073,10 @@ export function TasksClient({
               type="button"
               onClick={() => setActiveL1("")}
               className={cn(
-                "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-                !activeL1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                "rounded-full px-2.5 py-0.5 text-xs font-medium outline-none transition-colors",
+                !activeL1
+                  ? "bg-slate-800 text-white ring-2 ring-slate-800 ring-offset-1"
+                  : "bg-slate-100 text-slate-500 hover:bg-slate-200",
               )}
             >
               Tất cả
@@ -2077,10 +2088,12 @@ export function TasksClient({
                   key={l1}
                   className={cn(
                     "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-                    activeL1 === l1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                    activeL1 === l1
+                      ? "bg-slate-800 text-white ring-2 ring-slate-800 ring-offset-1"
+                      : "bg-slate-100 text-slate-500 hover:bg-slate-200",
                   )}
                 >
-                  <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
+                  <button type="button" className="outline-none" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
                     {l1}
                   </button>
                   {removingChip ? (
@@ -2106,10 +2119,12 @@ export function TasksClient({
                 key={l1}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-                  activeL1 === l1 ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                  activeL1 === l1
+                    ? "bg-slate-800 text-white ring-2 ring-slate-800 ring-offset-1"
+                    : "bg-slate-100 text-slate-500 hover:bg-slate-200",
                 )}
               >
-                <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
+                <button type="button" className="outline-none" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
                   {l1}
                 </button>
                 {removingChip ? (
