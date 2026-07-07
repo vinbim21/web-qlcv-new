@@ -135,10 +135,12 @@ export function ReportsTabs({
   rows,
   canViewPerson,
   selfOnly,
+  disciplineByPerson,
 }: {
   rows: TaskRow[];
   canViewPerson: boolean;
   selfOnly: boolean;
+  disciplineByPerson: Record<string, string>;
 }) {
   const tabs = selfOnly
     ? TABS.filter((t) => SELF_TABS.includes(t.key))
@@ -223,12 +225,32 @@ export function ReportsTabs({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-sm text-slate-500">Module biểu diễn &amp; báo cáo công việc phòng BIM</p>
+      {/* Tab bar + Xuất Excel */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200">
+        <div className="flex flex-wrap items-center gap-0.5">
+          {tabs.map((t) => {
+            const on = active === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setActive(t.key)}
+                className={cn(
+                  "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors",
+                  on ? "border-slate-800 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800",
+                )}
+              >
+                {t.label}
+                {t.isNew && (
+                  <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">Mới</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
         <a
           href="/api/export/reports"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-card px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          className="mb-1.5 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-card px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
         >
           <Download className="size-4" /> Xuất Excel
           {selfOnly ? " (của tôi)" : " (3 báo cáo)"}
@@ -258,31 +280,8 @@ export function ReportsTabs({
         )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex flex-wrap items-center gap-0.5 border-b border-slate-200">
-        {tabs.map((t) => {
-          const on = active === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setActive(t.key)}
-              className={cn(
-                "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors",
-                on ? "border-slate-800 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800",
-              )}
-            >
-              {t.label}
-              {t.isNew && (
-                <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">Mới</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
       {/* Tab content — nhận periodRows đã lọc */}
-      {active === "overview" ? <ReportsClient rows={periodRows} /> : null}
+      {active === "overview" ? <ReportsClient rows={periodRows} disciplineByPerson={disciplineByPerson} /> : null}
       {active === "project" && !selfOnly ? <ProjectReport rows={periodRows} /> : null}
       {active === "group" && !selfOnly ? <PivotReport rows={periodRows} mode="group" /> : null}
       {active === "phong" && !selfOnly ? <PivotReport rows={periodRows} mode="phong" /> : null}

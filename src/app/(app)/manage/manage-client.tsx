@@ -488,11 +488,7 @@ const STATUS_SOFT: Record<string, { dot: string; pill: string }> = {
   QUA_HAN: { dot: "bg-red-500", pill: "bg-red-50 text-red-700 ring-red-200" },
 };
 
-// Kéo giãn cột bảng /manage.
-const MANAGE_MIN_W = 80;
-const MANAGE_MAX_W = 600;
-const MANAGE_COL_MIN_W: Record<string, number> = { thucTe: 120 };
-const MANAGE_WIDTH_KEY = "manage-col-widths-v4";
+// Bề rộng cột bảng /manage — cố định, khớp /tasks (không cho kéo giãn để tránh lệch cột).
 const MANAGE_SEL_PX = 36; // cột checkbox (ghim trái)
 const MANAGE_COL_W: Record<string, number> = {
   sumId: 150,
@@ -511,8 +507,6 @@ const MANAGE_COL_W: Record<string, number> = {
   soGio: 110,
   ketQua: 120,
 };
-const clampManageW = (n: number, key?: string) =>
-  Math.min(MANAGE_MAX_W, Math.max(key ? (MANAGE_COL_MIN_W[key] ?? MANAGE_MIN_W) : MANAGE_MIN_W, Math.round(n)));
 
 // Nhãn gọn cho khoảng Hạn đến từ deep-link Báo cáo (năm trọn / tất cả thời gian / khoảng tùy ý).
 function rangeLabel(from: string, to: string): string {
@@ -632,6 +626,15 @@ export function ManageClient({
   }
   // Lọc nhanh từ dải KPI.
   const [quick, setQuick] = useLocalStorage<"" | "QUA_HAN" | "SAP_HAN" | "CHUA_GIAO" | "DANG_LAM" | "HOAN_THANH">("manage:quick", "");
+  // Esc (bất kỳ đâu trên trang) → bỏ KPI đang chọn.
+  React.useEffect(() => {
+    if (!quick) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setQuick("");
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [quick, setQuick]);
   const _now = React.useRef(new Date());
   const _curWeek = React.useRef(getISOWeekYear(_now.current));
   const [timePeriod, setTimePeriod] = useLocalStorage<PeriodType>("manage:timePeriod", "week");
@@ -724,38 +727,7 @@ export function ManageClient({
       return n;
     });
 
-  // Bề rộng cột bảng (kéo giãn) — nhớ bằng localStorage.
-  const [colWidths, setColWidths] = React.useState<Record<string, number>>(() => ({ ...MANAGE_COL_W }));
-  const colWidthsRef = React.useRef(colWidths);
-  React.useEffect(() => {
-    colWidthsRef.current = colWidths;
-  }, [colWidths]);
-  const draggingRef = React.useRef(false);
-  const resizeStartRef = React.useRef<{ x: number; w: number; key: string } | null>(null);
-  React.useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(MANAGE_WIDTH_KEY);
-      // Nạp bề rộng đã lưu 1 lần khi mount (window chỉ có ở client) — chấp nhận set-state trong effect.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (raw) setColWidths((w) => ({ ...w, ...(JSON.parse(raw) as Record<string, number>) }));
-    } catch {
-      /* bỏ qua localStorage lỗi */
-    }
-  }, []);
-  const persistWidths = (w: Record<string, number>) => {
-    try {
-      window.localStorage.setItem(MANAGE_WIDTH_KEY, JSON.stringify(w));
-    } catch {
-      /* bỏ qua localStorage lỗi */
-    }
-  };
-  const setColW = (k: string, px: number) => setColWidths((w) => ({ ...w, [k]: px }));
-  const endResize = () => persistWidths(colWidthsRef.current);
-  const resetColW = (k: string) => {
-    const nw = { ...colWidthsRef.current, [k]: MANAGE_COL_W[k] };
-    setColWidths(nw);
-    persistWidths(nw);
-  };
+  // Bề rộng cột cố định (giống /tasks) — không cho kéo giãn để tránh lệch cột.
 
   // Chọn nhiều việc để thao tác hàng loạt.
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
@@ -1575,7 +1547,7 @@ export function ManageClient({
   // ---- Ghim cột (freeze) + bố cục ----
   const dens = DENSITY === "compact" ? "py-1" : DENSITY === "comfy" ? "py-3" : "py-1.5";
   const cellPad = `px-2.5 ${dens}`;
-  const widthOf = (k: string) => (k === "__sel__" ? MANAGE_SEL_PX : (colWidths[k] ?? MANAGE_COL_W[k] ?? 120));
+  const widthOf = (k: string) => (k === "__sel__" ? MANAGE_SEL_PX : (MANAGE_COL_W[k] ?? 120));
   const frozenKeys = FREEZE
     ? ["__sel__", ...cols.filter((c) => c.lvl).map((c) => c.key)]
     : ([] as string[]);
@@ -1629,7 +1601,7 @@ export function ManageClient({
     return (
       <th
         key={col.key}
-        style={headStyle(col.key, colWidths[col.key])}
+        style={headStyle(col.key, MANAGE_COL_W[col.key])}
         className={cn(
           "group relative select-none border-b border-slate-200 px-2.5 py-2.5 text-left text-xs font-semibold text-slate-500",
           col.lvl && "border-l border-slate-100",
@@ -1639,10 +1611,7 @@ export function ManageClient({
           <button
             type="button"
             className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-slate-800"
-            onClick={() => {
-              if (draggingRef.current) return;
-              toggleSort(col.key);
-            }}
+            onClick={() => toggleSort(col.key)}
           >
             <span className="truncate">{col.label}</span>
             {active ? (
@@ -1672,37 +1641,6 @@ export function ManageClient({
             <Filter className="size-3" strokeWidth={filterOn ? 2.5 : 2} />
           </button>
         </div>
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none hover:bg-primary/40"
-          title="Kéo để giãn cột · nhấp đúp để đặt lại"
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            (e.target as HTMLElement).setPointerCapture(e.pointerId);
-            resizeStartRef.current = { x: e.clientX, w: colWidths[col.key], key: col.key };
-            draggingRef.current = true;
-          }}
-          onPointerMove={(e) => {
-            const s = resizeStartRef.current;
-            if (!s) return;
-            setColW(s.key, clampManageW(s.w + (e.clientX - s.x), s.key));
-          }}
-          onPointerUp={(e) => {
-            if (!resizeStartRef.current) return;
-            resizeStartRef.current = null;
-            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-            endResize();
-            setTimeout(() => {
-              draggingRef.current = false;
-            }, 0);
-          }}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            resetColW(col.key);
-          }}
-        />
       </th>
     );
   }
@@ -2439,20 +2377,20 @@ export function ManageClient({
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {(
           [
-            { key: "DANG_LAM",   label: "Đang làm",              n: kpi.doing,               Icon: Activity,     tone: "border-blue-200   bg-blue-50   text-blue-700",   activeTone: "border-blue-400   bg-blue-200   text-black" },
-            { key: "HOAN_THANH", label: "Hoàn thành",            n: kpi.done,                Icon: CheckCircle2, tone: "border-green-200  bg-green-50  text-green-700",  activeTone: "border-green-400  bg-green-200  text-black" },
-            { key: "SAP_HAN",    label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon,               Icon: Clock,        tone: "border-amber-200  bg-amber-50  text-amber-700",  activeTone: "border-amber-400  bg-amber-200  text-black" },
-            { key: "QUA_HAN",    label: "Quá hạn",               n: kpi.overdue,             Icon: AlertTriangle, tone: "border-red-200   bg-red-50    text-red-700",    activeTone: "border-red-400    bg-red-200    text-black" },
-            { key: "CHUA_GIAO",  label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX,        tone: "border-violet-200 bg-violet-50 text-violet-700", activeTone: "border-violet-400 bg-violet-200 text-black" },
+            { key: "DANG_LAM",   label: "Đang làm",              n: kpi.doing,               Icon: Activity,     tone: "border-blue-200   bg-blue-50   text-blue-700",   activeTone: "border-blue-400   bg-blue-200   text-black",   ring: "ring-blue-400" },
+            { key: "HOAN_THANH", label: "Hoàn thành",            n: kpi.done,                Icon: CheckCircle2, tone: "border-green-200  bg-green-50  text-green-700",  activeTone: "border-green-400  bg-green-200  text-black",  ring: "ring-green-400" },
+            { key: "SAP_HAN",    label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon,               Icon: Clock,        tone: "border-amber-200  bg-amber-50  text-amber-700",  activeTone: "border-amber-400  bg-amber-200  text-black",  ring: "ring-amber-400" },
+            { key: "QUA_HAN",    label: "Quá hạn",               n: kpi.overdue,             Icon: AlertTriangle, tone: "border-red-200   bg-red-50    text-red-700",    activeTone: "border-red-400    bg-red-200    text-black",    ring: "ring-red-400" },
+            { key: "CHUA_GIAO",  label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX,        tone: "border-violet-200 bg-violet-50 text-violet-700", activeTone: "border-violet-400 bg-violet-200 text-black", ring: "ring-violet-400" },
           ] as const
-        ).map(({ key, label, n, Icon, tone, activeTone }) => (
+        ).map(({ key, label, n, Icon, tone, activeTone, ring }) => (
           <button
             key={key}
             type="button"
             onClick={() => setQuick((q) => (q === key ? "" : key))}
             className={cn(
-              "flex items-center gap-3 rounded-lg border p-3 text-left transition",
-              quick === key ? activeTone : [tone, "hover:brightness-95"],
+              "flex items-center gap-3 rounded-lg border p-3 text-left outline-none transition",
+              quick === key ? [activeTone, "ring-2 ring-offset-1", ring] : [tone, "hover:brightness-95"],
             )}
           >
             <Icon className="size-5 shrink-0" />
@@ -2523,8 +2461,10 @@ export function ManageClient({
             type="button"
             onClick={() => setActiveL1("")}
             className={cn(
-              "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-              !activeL1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
+              "rounded-full px-2.5 py-0.5 text-xs font-medium outline-none transition-colors",
+              !activeL1
+                ? "bg-primary text-primary-foreground ring-2 ring-slate-800 ring-offset-1"
+                : "bg-muted text-muted-foreground hover:bg-muted/80",
             )}
           >
             Tất cả
@@ -2536,10 +2476,12 @@ export function ManageClient({
                 key={l1}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-                  activeL1 === l1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
+                  activeL1 === l1
+                    ? "bg-primary text-primary-foreground ring-2 ring-slate-800 ring-offset-1"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80",
                 )}
               >
-                <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
+                <button type="button" className="outline-none" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
                   {l1}
                 </button>
                 {removingChip ? (
@@ -2566,10 +2508,12 @@ export function ManageClient({
               key={l1}
               className={cn(
                 "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-                activeL1 === l1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
+                activeL1 === l1
+                  ? "bg-primary text-primary-foreground ring-2 ring-slate-800 ring-offset-1"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80",
               )}
             >
-              <button type="button" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
+              <button type="button" className="outline-none" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
                 {l1}
               </button>
               {removingChip ? (
