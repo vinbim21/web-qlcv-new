@@ -79,6 +79,7 @@ import {
   updateTaskStatus,
 } from "@/server/actions/tasks";
 import { saveCatalogProject, batchUpdateCatalogProjects } from "@/server/actions/projects";
+import { getTaskAllEntries } from "@/server/actions/timesheet";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { DateInput } from "@/components/ui/date-input";
 
@@ -592,6 +593,22 @@ export function ManageClient({
   const [search, setSearch] = React.useState("");
   const deferredSearch = React.useDeferredValue(search);
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
+  // Modal chi tiết công việc (click 1 lần vào tên việc): nội dung + toàn bộ giờ đã ghi (mọi người, mọi thời điểm).
+  type WeekEntry = { id: string; date: string; hours: number; note: string | null; userName: string };
+  const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
+  const [detailEntries, setDetailEntries] = React.useState<WeekEntry[]>([]);
+  const [detailLoading, setDetailLoading] = React.useState(false);
+  async function openDetail(t: TaskRow) {
+    setDetailTask(t);
+    setDetailEntries([]);
+    setDetailLoading(true);
+    const res = await getTaskAllEntries(t.id);
+    setDetailEntries(res.ok ? (res.data ?? []) : []);
+    setDetailLoading(false);
+  }
+  function closeDetail() {
+    setDetailTask(null);
+  }
   const [renameHangMuc, setRenameHangMuc] = React.useState<{ ids: string[]; name: string } | null>(null);
   // Modal "Giao việc": false = đóng, true = mở trống, TaskRow = mở điền sẵn theo việc đó ("Thêm tương tự").
   const [assignModal, setAssignModal] = React.useState<false | true | TaskRow>(false);
@@ -1651,11 +1668,14 @@ export function ManageClient({
     const blank = rep && GROUPING === "merge";
     const dim = rep && GROUPING === "dim";
     const v = colText(t, col.key);
+    const isCongViec = col.key === "congViec";
     return (
       <td
         key={col.key}
         style={bodyFrozenStyle(col.key)}
-        className={cn("border-l border-slate-100 align-top", cellPad)}
+        className={cn("border-l border-slate-100 align-top", cellPad, isCongViec && "cursor-pointer")}
+        onClick={isCongViec ? () => void openDetail(t) : undefined}
+        title={isCongViec ? "Xem chi tiết công việc" : undefined}
       >
         {blank ? null : !v ? (
           <span className="text-slate-300">—</span>
@@ -1876,24 +1896,21 @@ export function ManageClient({
           </td>
         ) : null}
         {cols.map((c) => {
-          // Trong tree view (Bảng): gộp các ô cấp cha trống (duAn/loaiHinh/hangMuc) + ô congViec
-          // thành 1 td colSpan sticky — cùng chiều rộng với group row.
+          // Trong tree view (Bảng): duAn/loaiHinh/hangMuc để trống (đã hiện ở dòng nhóm phía trên),
+          // Công việc hiện tên việc — mỗi cột 1 ô riêng (không colSpan) để khớp đúng colgroup/sticky,
+          // tránh lệch cột (trước đây gộp bằng colSpan + sticky gây lệch — giống cách tab Công việc của tôi làm).
           if (c.lvl) {
             if (viewMode === "table") {
-              if (!c.leaf) return null; // bỏ ô trống, congViec sẽ colSpan bao phủ
-              // congViec leaf: colSpan = (số ô đã bỏ) + 1, sticky từ sau checkbox
-              const hierCols = cols.filter((col) => col.lvl && !col.leaf);
-              const hierW = hierCols.reduce((s, col) => s + widthOf(col.key), 0);
+              if (!c.leaf) return <td key={c.key} style={bodyFrozenStyle(c.key)} className="align-top" />;
               return (
                 <td
                   key={c.key}
-                  colSpan={hierCols.length + 1}
-                  style={{ position: "sticky", left: leftOf("duAn") ?? 0, zIndex: 10, background: "var(--row-bg)", boxShadow: FROZEN_SHADOW }}
-                  className="border-l border-slate-100 align-top"
+                  style={bodyFrozenStyle(c.key)}
+                  className={cn("cursor-pointer border-l border-slate-100 align-top", cellPad)}
+                  onClick={() => void openDetail(t)}
+                  title="Xem chi tiết công việc"
                 >
-                  <div style={{ paddingLeft: hierW }} className={cellPad}>
-                    <span className="font-medium text-slate-800">{t.name || <span className="text-slate-300">—</span>}</span>
-                  </div>
+                  <span className="font-medium text-slate-800">{t.name || <span className="text-slate-300">—</span>}</span>
                 </td>
               );
             }
@@ -1907,7 +1924,7 @@ export function ManageClient({
             );
           if (c.key === "giaiDoan")
             return (
-              <td key="giaiDoan" className={cn("align-top text-xs text-slate-600", cellPad)}>
+              <td key="giaiDoan" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
                 {t.phaseName || <span className="text-slate-300">—</span>}
               </td>
             );
@@ -3010,6 +3027,72 @@ export function ManageClient({
             router.refresh();
           }}
         />
+      ) : null}
+
+      {/* Modal chi tiết công việc (click 1 lần vào tên việc) — nội dung + toàn bộ giờ đã ghi. */}
+      {detailTask ? (
+        <Modal
+          open
+          onClose={closeDetail}
+          title={
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-slate-500">{detailTask.sumId}</span>
+              <span className="text-base font-semibold text-slate-800">{detailTask.name}</span>
+            </div>
+          }
+          className="max-w-xl"
+        >
+          <div className="space-y-4">
+            <div>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Nội dung công việc</div>
+              {detailTask.note ? (
+                <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{detailTask.note}</p>
+              ) : (
+                <p className="text-sm italic text-slate-400">Chưa có nội dung mô tả.</p>
+              )}
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Giờ đã ghi (toàn bộ thời gian)</div>
+              {detailLoading ? (
+                <p className="text-sm text-slate-400">Đang tải…</p>
+              ) : detailEntries.length === 0 ? (
+                <p className="text-sm italic text-slate-400">Chưa có giờ nào được ghi.</p>
+              ) : (
+                <div className="max-h-80 overflow-auto rounded-md border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Ngày</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Số giờ</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Người ghi</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Nội dung</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {detailEntries.map((e) => (
+                        <tr key={e.id}>
+                          <td className="px-3 py-2 text-slate-600">{fmtDate(e.date)}</td>
+                          <td className="px-3 py-2 font-medium text-slate-700">{e.hours}h</td>
+                          <td className="px-3 py-2 text-slate-600">{e.userName}</td>
+                          <td className="px-3 py-2 text-slate-500">{e.note || <span className="italic text-slate-300">—</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-200 bg-slate-50">
+                        <td className="px-3 py-2 text-xs font-semibold text-slate-600">Tổng</td>
+                        <td className="px-3 py-2 text-sm font-bold text-blue-600">
+                          {detailEntries.reduce((s, e) => s + e.hours, 0)}h
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </Modal>
       ) : null}
 
       {/* Sửa tên Hạng mục (g3) — đổi Project.name cho mọi Khối/Hệ thống cùng hạng mục. */}
