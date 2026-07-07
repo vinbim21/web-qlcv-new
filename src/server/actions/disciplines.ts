@@ -24,6 +24,23 @@ export async function saveDiscipline(input: unknown) {
   });
 }
 
+// Tìm-hoặc-tạo Discipline theo code, trả về id (dùng khi người dùng nhập mới từ client).
+export async function upsertDisciplineReturnId(code: string, name: string) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    const c = code.trim();
+    if (!c) throw new Error("Nhập tên bộ môn");
+    const existing = await prisma.discipline.findUnique({ where: { code: c }, select: { id: true } });
+    if (existing) return { id: existing.id };
+    const created = await prisma.discipline.create({
+      data: { code: c, name: name.trim() || c, order: 0 },
+    });
+    revalidatePath("/admin/catalog");
+    revalidatePath("/admin/users");
+    return { id: created.id };
+  });
+}
+
 export async function deleteDiscipline(id: string) {
   return runAction(async () => {
     await requireRole("ADMIN");

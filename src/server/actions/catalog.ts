@@ -228,7 +228,7 @@ export async function batchUpdateCatalogItems(
 
 // ---------- Batch reorder (drag-and-drop) ----------
 
-type OrderModel = "workGroup" | "phase" | "discipline" | "constructionType" | "projectGroup" | "catalogItem";
+type OrderModel = "workGroup" | "phase" | "discipline" | "department" | "constructionType" | "projectGroup" | "catalogItem";
 
 export async function batchReorderItems(model: OrderModel, ids: string[]) {
   return runAction(async () => {
@@ -242,7 +242,7 @@ export async function batchReorderItems(model: OrderModel, ids: string[]) {
   });
 }
 
-type SimpleCatalogModel = "workGroup" | "phase" | "discipline" | "constructionType";
+type SimpleCatalogModel = "workGroup" | "phase" | "discipline" | "department" | "constructionType";
 
 export async function batchUpdateSimpleCatalog(
   model: SimpleCatalogModel,

@@ -17,9 +17,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { SearchableCombobox } from "@/components/searchable-combobox";
 import { ROLE_LABEL, ROLE_OPTIONS } from "@/lib/labels";
 import { removeVietnameseTones } from "@/lib/utils";
 import { createUser, resetUserPassword, updateUser } from "@/server/actions/users";
+import { upsertDepartmentReturnId } from "@/server/actions/departments";
+import { upsertDisciplineReturnId } from "@/server/actions/disciplines";
 
 type UserRow = {
   id: string;
@@ -29,17 +32,22 @@ type UserRow = {
   role: string;
   disciplineId: string | null;
   disciplineName: string | null;
+  departmentId: string | null;
+  departmentName: string | null;
   isActive: boolean;
 };
 
 type Discipline = { id: string; name: string };
+type Department = { id: string; name: string };
 
 export function UsersManager({
   users,
   disciplines,
+  departments,
 }: {
   users: UserRow[];
   disciplines: Discipline[];
+  departments: Department[];
 }) {
   const [search, setSearch] = React.useState("");
   const [editing, setEditing] = React.useState<UserRow | null>(null);
@@ -82,6 +90,7 @@ export function UsersManager({
               <TableHead>Tài khoản</TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Bộ môn</TableHead>
+              <TableHead>Bộ phận</TableHead>
               <TableHead>Quyền</TableHead>
               <TableHead>Trạng thái</TableHead>
               <TableHead className="text-right">Thao tác</TableHead>
@@ -94,6 +103,7 @@ export function UsersManager({
                 <TableCell>{u.username}</TableCell>
                 <TableCell className="text-muted-foreground">{u.email}</TableCell>
                 <TableCell>{u.disciplineName ?? "—"}</TableCell>
+                <TableCell>{u.departmentName ?? "—"}</TableCell>
                 <TableCell>
                   <Badge variant="secondary">{ROLE_LABEL[u.role] ?? u.role}</Badge>
                 </TableCell>
@@ -121,7 +131,7 @@ export function UsersManager({
             ))}
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                   Không có người dùng
                 </TableCell>
               </TableRow>
@@ -131,10 +141,10 @@ export function UsersManager({
       </div>
 
       {creating ? (
-        <UserDialog disciplines={disciplines} onClose={() => setCreating(false)} />
+        <UserDialog disciplines={disciplines} departments={departments} onClose={() => setCreating(false)} />
       ) : null}
       {editing ? (
-        <UserDialog user={editing} disciplines={disciplines} onClose={() => setEditing(null)} />
+        <UserDialog user={editing} disciplines={disciplines} departments={departments} onClose={() => setEditing(null)} />
       ) : null}
       {pwUser ? <PasswordDialog user={pwUser} onClose={() => setPwUser(null)} /> : null}
     </div>
@@ -144,35 +154,69 @@ export function UsersManager({
 function UserDialog({
   user,
   disciplines,
+  departments,
   onClose,
 }: {
   user?: UserRow;
   disciplines: Discipline[];
+  departments: Department[];
   onClose: () => void;
 }) {
   const [pending, setPending] = React.useState(false);
+  const [disciplineName, setDisciplineName] = React.useState(user?.disciplineName ?? "");
+  const [departmentName, setDepartmentName] = React.useState(user?.departmentName ?? "");
+
+  // Tên → id: khớp mục có sẵn, hoặc tạo mới (tìm-hoặc-tạo theo tên) nếu người dùng gõ tên chưa có.
+  async function resolveDisciplineId(): Promise<string | null> {
+    const name = disciplineName.trim();
+    if (!name) return null;
+    const found = disciplines.find((d) => d.name === name);
+    if (found) return found.id;
+    const res = await upsertDisciplineReturnId(name, name);
+    if (!res.ok) throw new Error(res.error);
+    if (!res.data) throw new Error("Không tạo được bộ môn mới");
+    return res.data.id;
+  }
+  async function resolveDepartmentId(): Promise<string | null> {
+    const name = departmentName.trim();
+    if (!name) return null;
+    const found = departments.find((d) => d.name === name);
+    if (found) return found.id;
+    const res = await upsertDepartmentReturnId(name, name);
+    if (!res.ok) throw new Error(res.error);
+    if (!res.data) throw new Error("Không tạo được bộ phận mới");
+    return res.data.id;
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setPending(true);
-    const fd = new FormData(e.currentTarget);
-    const payload = {
-      id: user?.id,
-      username: String(fd.get("username") || ""),
-      fullName: String(fd.get("fullName") || ""),
-      email: String(fd.get("email") || ""),
-      role: String(fd.get("role") || "LEVEL_2") as "ADMIN" | "LEVEL_1" | "LEVEL_2" | "LEVEL_3",
-      disciplineId: (fd.get("disciplineId") as string) || null,
-      isActive: fd.get("isActive") === "on",
-      ...(user ? {} : { password: (fd.get("password") as string) || undefined }),
-    };
-    const res = user ? await updateUser(payload) : await createUser(payload);
-    setPending(false);
-    if (res.ok) {
-      toast.success(user ? "Đã cập nhật" : "Đã thêm người dùng");
-      onClose();
-    } else {
-      toast.error(res.error);
+    try {
+      const fd = new FormData(e.currentTarget);
+      const disciplineId = await resolveDisciplineId();
+      const departmentId = await resolveDepartmentId();
+      const payload = {
+        id: user?.id,
+        username: String(fd.get("username") || ""),
+        fullName: String(fd.get("fullName") || ""),
+        email: String(fd.get("email") || ""),
+        role: String(fd.get("role") || "LEVEL_2") as "ADMIN" | "LEVEL_1" | "LEVEL_2" | "LEVEL_3",
+        disciplineId,
+        departmentId,
+        isActive: fd.get("isActive") === "on",
+        ...(user ? {} : { password: (fd.get("password") as string) || undefined }),
+      };
+      const res = user ? await updateUser(payload) : await createUser(payload);
+      if (res.ok) {
+        toast.success(user ? "Đã cập nhật" : "Đã thêm người dùng");
+        onClose();
+      } else {
+        toast.error(res.error);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Có lỗi xảy ra");
+    } finally {
+      setPending(false);
     }
   }
 
@@ -211,16 +255,27 @@ function UserDialog({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="disciplineId">Bộ môn</Label>
-            <Select id="disciplineId" name="disciplineId" defaultValue={user?.disciplineId ?? ""}>
-              <option value="">— Không —</option>
-              {disciplines.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </Select>
+            <Label>Bộ môn</Label>
+            <SearchableCombobox
+              creatable
+              value={disciplineName}
+              options={disciplines.map((d) => d.name)}
+              placeholder="— Không —"
+              className="h-9"
+              onChange={setDisciplineName}
+            />
           </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Bộ phận</Label>
+          <SearchableCombobox
+            creatable
+            value={departmentName}
+            options={departments.map((d) => d.name)}
+            placeholder="— Không —"
+            className="h-9"
+            onChange={setDepartmentName}
+          />
         </div>
         {!user ? (
           <div className="space-y-1.5">

@@ -104,6 +104,18 @@ model Discipline {
   tasks Task[]
 }
 
+/// Bộ phận — đơn vị tổ chức lớn hơn Bộ môn (VD: Phòng BIM, Phòng Kỹ thuật...), dùng để nhóm nhân sự trong Báo cáo.
+model Department {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+}
+
 /// Loại hình công trình (Nhà ở, Hạ tầng, TTTM, Công nghiệp...) — dùng cho báo cáo định mức.
 model ConstructionType {
   id        String   @id @default(cuid())
@@ -184,6 +196,7 @@ model User {
   mustChangePassword Boolean   @default(false)
   role               UserRole  @default(LEVEL_2)
   disciplineId       String?
+  departmentId       String?
   isActive           Boolean   @default(true)
   lastLoginAt        DateTime?
   createdAt          DateTime  @default(now())
@@ -191,6 +204,7 @@ model User {
   deletedAt          DateTime?
 
   discipline    Discipline?      @relation(fields: [disciplineId], references: [id])
+  department    Department?      @relation(fields: [departmentId], references: [id])
   assignments   TaskAssignee[]
   approvedTasks        Task[]  @relation("TaskApprover")
   tasksToApprove       Task[]  @relation("TaskStartApprover")
@@ -201,6 +215,7 @@ model User {
   notifications Notification[]   @relation("NotifRecipient")
 
   @@index([disciplineId])
+  @@index([departmentId])
 }
 
 // ---------- Công việc (WBS) ----------

@@ -44,6 +44,7 @@ import {
   Shapes,
   SlidersHorizontal,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -72,6 +73,7 @@ import {
   updateCatalogValue,
 } from "@/server/actions/catalog";
 import { deleteConstructionType, saveConstructionType, upsertConstructionTypeReturnId } from "@/server/actions/construction-types";
+import { deleteDepartment, saveDepartment } from "@/server/actions/departments";
 import { deleteDiscipline, saveDiscipline } from "@/server/actions/disciplines";
 import {
   batchDuplicateCatalogProjects,
@@ -113,9 +115,9 @@ type WorkRow = { id: string; workGroupId: string; value: string; order: number }
 type SimpleRow = { id: string; code: string; name: string; order: number };
 type Row = { id: string; order: number } & Record<string, unknown>;
 
-type TabId = "groups" | "projects" | "bimtools" | "works" | "phases" | "disciplines" | "ctypes";
+type TabId = "groups" | "projects" | "bimtools" | "works" | "phases" | "disciplines" | "departments" | "ctypes";
 type ProjectsScope = "general" | "bimtools";
-type SimpleCatalogModel = "workGroup" | "phase" | "discipline" | "constructionType";
+type SimpleCatalogModel = "workGroup" | "phase" | "discipline" | "department" | "constructionType";
 
 // ---------- Cấu hình cột FilterTable ----------
 type FilterKind = "text" | "multi";
@@ -137,6 +139,7 @@ export function CatalogClient({
   workGroups,
   phases,
   disciplines,
+  departments,
   constructionTypes,
   projectGroups,
   projects,
@@ -146,6 +149,7 @@ export function CatalogClient({
   workGroups: WorkGroupRow[];
   phases: SimpleRow[];
   disciplines: SimpleRow[];
+  departments: SimpleRow[];
   constructionTypes: SimpleRow[];
   projectGroups: ProjectGroupRow[];
   projects: ProjectRow[];
@@ -281,6 +285,7 @@ export function CatalogClient({
     { id: "works", label: "Công việc", Icon: ListChecks, count: works.length },
     { id: "phases", label: "Giai đoạn", Icon: GitBranch, count: phases.length },
     { id: "disciplines", label: "Bộ môn", Icon: Shapes, count: disciplines.length },
+    { id: "departments", label: "Bộ phận", Icon: Users, count: departments.length },
     { id: "ctypes", label: "Loại hình công trình", Icon: Building, count: constructionTypes.length },
   ];
 
@@ -1319,7 +1324,7 @@ export function CatalogClient({
             </p>
           </div>
           <span className="hidden items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500 sm:inline-flex">
-            <Database className="size-3.5" /> 7 danh mục · 7 tab
+            <Database className="size-3.5" /> 8 danh mục · 8 tab
           </span>
         </div>
 
@@ -1397,6 +1402,21 @@ export function CatalogClient({
                 save: saveDiscipline,
                 del: deleteDiscipline,
                 usageMsg: "Bộ môn đang được dùng",
+              })
+            : null}
+          {tab === "departments"
+            ? simpleView({
+                rows: departments,
+                title: "Bộ phận",
+                addLabel: "Thêm bộ phận",
+                reorderModel: "department",
+                infoBar: {
+                  tone: "slate",
+                  text: "Dùng để nhóm nhân sự theo bộ phận trong tab Báo cáo (khác với Bộ môn).",
+                },
+                save: saveDepartment,
+                del: deleteDepartment,
+                usageMsg: "Bộ phận đang được dùng",
               })
             : null}
           {tab === "ctypes"
