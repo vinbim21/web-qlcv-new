@@ -3,6 +3,14 @@ import { effectiveStatus, isOverdue as isOverdueLib } from "@/lib/task-status";
 
 export type EffStatus = "CHUA_LAM" | "DANG_LAM" | "HOAN_THANH" | "TAM_DUNG" | "QUA_HAN";
 
+// Mốc "Cập nhật công việc" (làm tiếp việc đã hoàn thành) — xem báocao-client modal chi tiết.
+export type CompletionHistoryEntry = {
+  plannedStart: string;
+  plannedEnd: string;
+  actualEnd: string;
+  note: string | null;
+};
+
 // 1 dòng = 1 việc lá. Đủ field cho mọi tab báo cáo.
 export type TaskRow = {
   id: string;
@@ -10,6 +18,7 @@ export type TaskRow = {
   duAn: string; // mã Dự án (ProjectGroup), "—" nếu không thuộc dự án
   loaiHinh: string; // mã Loại hình công trình, "" nếu chưa gán
   hangMuc: string; // tên Hạng mục (Project)
+  khoi: string; // Khối/Hệ thống trong hạng mục, "" nếu không có
   congViec: string; // tên công việc (đầu việc)
   giaiDoan: string; // giai đoạn, "" nếu chưa có
   boMon: string; // mã Bộ môn, "" nếu không có
@@ -26,11 +35,13 @@ export type TaskRow = {
   thucTe: string; // actualEnd iso ("")
   result: string; // URL or file path
   hours: number; // giờ công (timesheet)
+  note: string; // nội dung mô tả công việc
+  completionHistory: CompletionHistoryEntry[];
 };
 
 export const STATUS_ORDER: EffStatus[] = ["CHUA_LAM", "DANG_LAM", "HOAN_THANH", "TAM_DUNG", "QUA_HAN"];
 export const STATUS_LABEL: Record<EffStatus, string> = {
-  CHUA_LAM: "Chưa làm",
+  CHUA_LAM: "Chưa thực hiện",
   DANG_LAM: "Đang thực hiện",
   HOAN_THANH: "Hoàn thành",
   TAM_DUNG: "Tạm dừng",
@@ -49,7 +60,7 @@ export function isOverdue(r: TaskRow): boolean {
   return isOverdueLib({ status: r.tinhTrang, plannedEnd: r.ketThuc || null });
 }
 export function effStatus(r: TaskRow): EffStatus {
-  return effectiveStatus({ status: r.tinhTrang, plannedEnd: r.ketThuc || null }) as EffStatus;
+  return effectiveStatus({ status: r.tinhTrang, plannedEnd: r.ketThuc || null, totalHours: r.hours }) as EffStatus;
 }
 
 // Đếm số trạng thái + giờ cho 1 tập việc.

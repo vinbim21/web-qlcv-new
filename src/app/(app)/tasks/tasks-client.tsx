@@ -69,7 +69,7 @@ import {
   setTaskPlannedStart,
   setTaskStartApproval,
 } from "@/server/actions/tasks";
-import { getTaskWeekEntries } from "@/server/actions/timesheet";
+import { getTaskAllEntries } from "@/server/actions/timesheet";
 import { ResultCell } from "@/components/result-cell";
 import { DateInput } from "@/components/ui/date-input";
 
@@ -135,6 +135,7 @@ export type TaskRow = {
   assigneeIds: string[];
   assigneeNames: string[];
   completionHistory: CompletionHistoryEntry[];
+  totalHours: number;
 };
 
 export type CompletionHistoryEntry = {
@@ -223,8 +224,12 @@ function isDueSoon(t: TaskRow): boolean {
 }
 
 // --- lát cắt thời gian ---
-function inPeriod(plannedStart: string, plannedEnd: string, bounds: PeriodBounds | null): boolean {
+// Việc đã hoàn thành (có actualEnd): chỉ tính theo ngày hoàn thành thực tế, bỏ qua Kết thúc kế hoạch —
+// VD hoàn thành ở tuần 25 nhưng Kết thúc kế hoạch rơi vào tuần 26 → lọc tuần 26 sẽ KHÔNG thấy việc này,
+// lọc tuần 25 mới thấy (khớp logic lát cắt ở tab Báo cáo).
+function inPeriod(plannedStart: string, plannedEnd: string, actualEnd: string, bounds: PeriodBounds | null): boolean {
   if (!bounds) return true;
+  if (actualEnd) return actualEnd >= bounds.start && actualEnd <= bounds.end;
   if (!plannedStart && !plannedEnd) return true;
   const startOk = !plannedStart || plannedStart <= bounds.end;
   const endOk = !plannedEnd || plannedEnd >= bounds.start;
@@ -233,13 +238,20 @@ function inPeriod(plannedStart: string, plannedEnd: string, bounds: PeriodBounds
 
 // Trạng thái hiển thị/đếm: status thật + lớp phủ "Quá hạn". Dùng CHUNG với /manage.
 function effOf(t: TaskRow): string {
-  return effectiveStatus({ status: t.status, plannedEnd: t.plannedEnd });
+  return effectiveStatus({ status: t.status, plannedEnd: t.plannedEnd, totalHours: t.totalHours });
 }
 function duAnText(t: TaskRow): string {
   return t.groupCode ?? (t.projectName ?? "");
 }
 function blockSystemText(t: TaskRow): string {
   return t.blockSystem?.trim() ?? "";
+}
+// Nhãn ngữ cảnh cho modal chi tiết: Mã dự án - Mã loại hình - Tên hạng mục - Khối/Hệ thống (nếu có) - Giai đoạn - Bộ môn.
+function taskContextLabel(t: TaskRow): string {
+  const hangMuc = t.projectName ?? t.level3 ?? "";
+  return [t.groupCode, t.loaiHinhCode, hangMuc, t.blockSystem, t.phaseName, t.disciplineCode]
+    .filter((v): v is string => !!v)
+    .join(" - ");
 }
 
 // ---------- pill mềm trạng thái (đồng bộ /manage) ----------
@@ -267,6 +279,7 @@ type SortKey =
   | "batDau"
   | "ketThuc"
   | "thucTe"
+  | "soGio"
   | "ketQua";
 type ColDef = {
   key: SortKey;
@@ -576,7 +589,7 @@ function StatusBody({
       <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Trạng thái</p>
       {renderItem("status", "QUA_HAN", "Quá hạn", "bg-red-500")}
       {renderItem("status", "DANG_LAM", "Đang thực hiện", "bg-blue-500")}
-      {renderItem("status", "CHUA_LAM", "Chưa làm", "bg-slate-400")}
+      {renderItem("status", "CHUA_LAM", "Chưa thực hiện", "bg-slate-400")}
       {renderItem("status", "TAM_DUNG", "Tạm dừng", "bg-amber-500")}
       {renderItem("status", "HOAN_THANH", "Hoàn thành", "bg-emerald-500")}
     </div>
@@ -985,8 +998,8 @@ export function TasksClient({
   // Tree grouping: null = chưa tương tác (mặc định thu tất cả)
   const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(initialQuery ? new Set() : null);
   const [viewMode, setViewMode] = useLocalStorage<"tree" | "flat">("tasks:viewMode", "tree");
-  // Modal chi tiết công việc: note + giờ tuần.
-  type WeekEntry = { id: string; date: string; hours: number; note: string | null };
+  // Modal chi tiết công việc: nội dung + toàn bộ giờ đã ghi (mọi người, mọi thời điểm).
+  type WeekEntry = { id: string; date: string; hours: number; note: string | null; userName: string };
   const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
   const [detailEntries, setDetailEntries] = React.useState<WeekEntry[]>([]);
   const [detailLoading, setDetailLoading] = React.useState(false);
@@ -996,7 +1009,7 @@ export function TasksClient({
     setDetailTask(t);
     setDetailEntries([]);
     setDetailLoading(true);
-    const res = await getTaskWeekEntries(t.id);
+    const res = await getTaskAllEntries(t.id);
     setDetailEntries(res.ok ? (res.data ?? []) : []);
     setDetailLoading(false);
   }
@@ -1053,6 +1066,7 @@ export function TasksClient({
       { key: "batDau", label: "Bắt đầu", w: 112, filter: "date" },
       { key: "ketThuc", label: "Kết thúc", w: 112, filter: "date" },
       { key: "thucTe", label: "Thực tế hoàn thành", w: 188, filter: "date" },
+      { key: "soGio", label: "Thời gian", w: 100 },
       { key: "ketQua", label: "Kết quả", w: 120, filter: "text" },
     ],
     [distinct],
@@ -1092,7 +1106,7 @@ export function TasksClient({
       if (!passL1(t)) return false;
       if (!matchesSearch(haystacks.get(t.id) ?? "", deferredSearch)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
-      if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t)) return false;
+      if (!inPeriod(t.plannedStart, t.plannedEnd, t.actualEnd, periodBounds) && !isOverdue(t)) return false;
       return true;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1119,7 +1133,7 @@ export function TasksClient({
     return tasks.filter((t) => {
       if (!matchesSearch(haystacks.get(t.id) ?? "", deferredSearch)) return false;
       for (const c of cols) if (!rowMatchesCol(t, c, colFilters[c.key])) return false;
-      if (!inPeriod(t.plannedStart, t.plannedEnd, periodBounds) && !isOverdue(t)) return false;
+      if (!inPeriod(t.plannedStart, t.plannedEnd, t.actualEnd, periodBounds) && !isOverdue(t)) return false;
       if (quick === "QUA_HAN" && !isOverdue(t)) return false;
       if (quick === "SAP_HAN" && !isDueSoon(t)) return false;
       if (quick === "DANG_LAM" && !["DANG_LAM", "CHUA_LAM", "QUA_HAN"].includes(effOf(t))) return false;
@@ -1156,6 +1170,8 @@ export function TasksClient({
         return t.plannedEnd || "9999-12-31";
       case "thucTe":
         return t.actualEnd || "9999-12-31";
+      case "soGio":
+        return t.totalHours;
       default:
         return norm(colText(t, key));
     }
@@ -1582,20 +1598,22 @@ export function TasksClient({
               <ChevronsUpDown className="size-3 shrink-0 opacity-25" />
             )}
           </button>
-          <button
-            type="button"
-            title="Lọc cột này"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              setOpenFilter((o) => (o && o.key === col.key ? null : { key: col.key, rect }));
-            }}
-            className={cn(
-              "grid size-5 shrink-0 place-items-center rounded transition",
-              filterOn ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200 hover:text-slate-600",
-            )}
-          >
-            <Filter className="size-3" strokeWidth={filterOn ? 2.5 : 2} />
-          </button>
+          {col.filter && (
+            <button
+              type="button"
+              title="Lọc cột này"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setOpenFilter((o) => (o && o.key === col.key ? null : { key: col.key, rect }));
+              }}
+              className={cn(
+                "grid size-5 shrink-0 place-items-center rounded transition",
+                filterOn ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200 hover:text-slate-600",
+              )}
+            >
+              <Filter className="size-3" strokeWidth={filterOn ? 2.5 : 2} />
+            </button>
+          )}
         </div>
       </th>
     );
@@ -1776,6 +1794,12 @@ export function TasksClient({
             return (
               <td key="thucTe" className="px-2.5 py-1 align-top">
                 <CompletionCell t={t} canEdit={canEditDone} onComplete={(v) => onCompletion(t, v)} />
+              </td>
+            );
+          if (c.key === "soGio")
+            return (
+              <td key="soGio" className="px-2.5 py-2.5 align-top text-center tabular-nums text-slate-600">
+                {t.totalHours > 0 ? `${Number.isInteger(t.totalHours) ? t.totalHours : t.totalHours.toFixed(1)} (h)` : null}
               </td>
             );
           if (c.key === "ketQua")
@@ -2649,7 +2673,7 @@ export function TasksClient({
         >
           <div className="space-y-3">
             <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">
-              Việc sẽ quay về "Chưa làm" và chờ người duyệt xác nhận lại. Bạn vẫn ghi giờ được ngay.
+              Việc sẽ quay về "Chưa thực hiện" và chờ người duyệt xác nhận lại. Bạn vẫn ghi giờ được ngay.
             </p>
             <div className="space-y-1">
               <label className="text-xs font-medium text-slate-600">Ngày bắt đầu mới</label>
@@ -2744,80 +2768,111 @@ export function TasksClient({
       ) : null}
 
       {/* Modal chi tiết công việc */}
-      {detailTask ? (
-        <Modal
-          open
-          onClose={closeDetail}
-          title={
-            <div className="flex items-center gap-2">
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-slate-500">{detailTask.sumId}</span>
-              <span className="text-base font-semibold text-slate-800">{detailTask.name}</span>
-            </div>
-          }
-          className="max-w-xl"
-        >
-          <div className="space-y-4">
-            {/* Nội dung */}
-            <div>
-              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Nội dung công việc</div>
-              {detailTask.note ? (
-                <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{detailTask.note}</p>
-              ) : (
-                <p className="text-sm italic text-slate-400">Chưa có nội dung mô tả.</p>
-              )}
-            </div>
-            {/* Giờ trong tuần */}
-            <div>
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Giờ đã ghi trong tuần này</div>
-              {detailLoading ? (
-                <p className="text-sm text-slate-400">Đang tải…</p>
-              ) : detailEntries.length === 0 ? (
-                <p className="text-sm italic text-slate-400">Chưa có giờ nào trong tuần này.</p>
-              ) : (
-                <div className="overflow-hidden rounded-md border border-slate-200">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50">
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Ngày</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Số giờ</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Nội dung</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {detailEntries.map((e) => (
-                        <tr key={e.id}>
-                          <td className="px-3 py-2 text-slate-600">{fmtDate(e.date)}</td>
-                          <td className="px-3 py-2 font-medium text-slate-700">{e.hours}h</td>
-                          <td className="px-3 py-2 text-slate-500">{e.note || <span className="italic text-slate-300">—</span>}</td>
+      {detailTask ? (() => {
+        const contextLabel = taskContextLabel(detailTask);
+        // Gộp mốc "Cập nhật công việc" (làm tiếp việc đã hoàn thành — không có số giờ) với các dòng
+        // ghi giờ thật, xếp theo ngày để thấy đúng trình tự: hoàn thành lần trước → cập nhật lại → ghi giờ tiếp.
+        const timeline = [
+          ...detailTask.completionHistory.map((h, i) => ({
+            key: `hist-${i}`,
+            date: h.actualEnd || h.plannedEnd || "",
+            content: h.note,
+            hours: null as number | null,
+            person: detailTask.assigneeNames.join(", ") || null,
+            isUpdate: true,
+          })),
+          ...detailEntries.map((e) => ({
+            key: e.id,
+            date: e.date,
+            content: e.note,
+            hours: e.hours as number | null,
+            person: e.userName as string | null,
+            isUpdate: false,
+          })),
+        ].sort((a, b) => a.date.localeCompare(b.date));
+        return (
+          <Modal
+            open
+            onClose={closeDetail}
+            title={
+              <div className="space-y-0.5">
+                {contextLabel ? <div className="text-xs font-medium text-slate-400">{contextLabel}</div> : null}
+                <div className="text-base font-semibold text-slate-800">{detailTask.name}</div>
+              </div>
+            }
+            className="max-w-2xl"
+          >
+            <div className="space-y-4">
+              {/* Nội dung */}
+              <div>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Nội dung công việc</div>
+                {detailTask.note ? (
+                  <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{detailTask.note}</p>
+                ) : (
+                  <p className="text-sm italic text-slate-400">Chưa có nội dung mô tả.</p>
+                )}
+              </div>
+              {/* Giờ đã ghi */}
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Giờ đã ghi (toàn bộ thời gian)</div>
+                {detailLoading ? (
+                  <p className="text-sm text-slate-400">Đang tải…</p>
+                ) : timeline.length === 0 ? (
+                  <p className="text-sm italic text-slate-400">Chưa có giờ nào được ghi.</p>
+                ) : (
+                  <div className="max-h-80 overflow-auto rounded-md border border-slate-200">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50">
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Ngày</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Nội dung công việc</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Số giờ</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Người thực hiện</th>
                         </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 border-slate-200 bg-slate-50">
-                        <td className="px-3 py-2 text-xs font-semibold text-slate-600">Tổng</td>
-                        <td className="px-3 py-2 text-sm font-bold text-blue-600">
-                          {detailEntries.reduce((s, e) => s + e.hours, 0)}h
-                        </td>
-                        <td />
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {timeline.map((row) => (
+                          <tr key={row.key} className={row.isUpdate ? "bg-amber-50/60" : undefined}>
+                            <td className={cn("px-3 py-2 text-slate-600", row.isUpdate && "font-bold text-slate-800")}>{fmtDate(row.date)}</td>
+                            <td className={cn("px-3 py-2 text-slate-500", row.isUpdate && "font-bold text-slate-800")}>
+                              {row.content || <span className="italic text-slate-300">—</span>}
+                            </td>
+                            <td className={cn("px-3 py-2 font-medium text-slate-700", row.isUpdate && "font-bold text-slate-800")}>
+                              {row.hours != null ? `${row.hours}h` : ""}
+                            </td>
+                            <td className={cn("px-3 py-2 text-slate-600", row.isUpdate && "font-bold text-slate-800")}>
+                              {row.person || <span className="italic text-slate-300">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-slate-200 bg-slate-50">
+                          <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-slate-600">Tổng</td>
+                          <td className="px-3 py-2 text-sm font-bold text-blue-600">
+                            {detailEntries.reduce((s, e) => s + e.hours, 0)}h
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+              {/* Action */}
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setLogging(detailTask); closeDetail(); }}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                >
+                  <Clock className="size-4" /> Ghi giờ
+                </button>
+              </div>
             </div>
-            {/* Action */}
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => { setLogging(detailTask); closeDetail(); }}
-                className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700"
-              >
-                <Clock className="size-4" /> Ghi giờ
-              </button>
-            </div>
-          </div>
-        </Modal>
-      ) : null}
+          </Modal>
+        );
+      })() : null}
     </div>
   );
 }

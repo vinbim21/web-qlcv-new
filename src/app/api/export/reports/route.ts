@@ -97,6 +97,12 @@ export async function GET() {
     },
     take: 10000,
   });
+  const hoursByTaskAgg = await prisma.timeSheetEntry.groupBy({
+    by: ["taskId"],
+    where: { taskId: { in: tasks.map((t) => t.id) }, deletedAt: null },
+    _sum: { hours: true },
+  });
+  const hoursMap = new Map(hoursByTaskAgg.map((h) => [h.taskId!, Number(h._sum.hours ?? 0)]));
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "Web QLCV";
@@ -122,6 +128,7 @@ export async function GET() {
       plannedStart: iso(t.plannedStart),
       plannedEnd: iso(t.plannedEnd),
       assigneeCount: t.assignees.length,
+      totalHours: hoursMap.get(t.id) ?? 0,
     });
     // BC1 — nhóm
     bump(group, t.workGroup.name, () => blankAgg(t.workGroup.name, t.workGroup.order), eff, t.priority);
@@ -289,6 +296,7 @@ export async function GET() {
         plannedStart: iso(t.plannedStart),
         plannedEnd: iso(t.plannedEnd),
         assigneeCount: t.assignees.length,
+        totalHours: hoursMap.get(t.id) ?? 0,
       });
       wsList.addRow({
         maDuAn: t.project?.group?.code ?? "",
@@ -363,6 +371,7 @@ export async function GET() {
         plannedStart: iso(t.plannedStart),
         plannedEnd: iso(t.plannedEnd),
         assigneeCount: t.assignees.length,
+        totalHours: agg.hours,
       });
       wsT.addRow({
         maDuAn: t.project?.group?.code ?? "",
