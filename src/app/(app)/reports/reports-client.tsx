@@ -18,7 +18,9 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { Modal } from "@/components/ui/modal";
 import { ResultCell } from "@/components/result-cell";
+import { getTaskAllEntries } from "@/server/actions/timesheet";
 import { Donut, HBars } from "./report-charts";
 import {
   buildKpi,
@@ -62,6 +64,13 @@ function uniq(rows: TaskRow[], pick: (r: TaskRow) => string): string[] {
 }
 
 const NO_DEPARTMENT = "Chưa gán bộ phận";
+
+// Nhãn ngữ cảnh cho modal chi tiết: Mã dự án - Mã loại hình - Tên hạng mục - Khối/Hệ thống (nếu có) - Giai đoạn - Bộ môn.
+function taskContextLabel(r: TaskRow): string {
+  return [r.duAn, r.loaiHinh, r.hangMuc, r.khoi, r.giaiDoan, r.boMon]
+    .filter((v) => !!v && v !== "—")
+    .join(" - ");
+}
 
 // 1 dòng checkbox dùng chung cho cả 2 tab (Nhân sự / Bộ phận).
 function CheckRow({ label, sub, on, onClick }: { label: string; sub?: string; on: boolean; onClick: () => void }) {
@@ -243,6 +252,7 @@ export function ReportsClient({
       { key: "duAn", label: "Dự án", w: 95, filter: "multi", opts: uniq(rows, (r) => r.duAn), lvl: 1 },
       { key: "loaiHinh", label: "Loại hình", w: 120, filter: "multi", opts: uniq(rows, (r) => r.loaiHinh), lvl: 2 },
       { key: "hangMuc", label: "Hạng mục", w: 125, filter: "multi", opts: uniq(rows, (r) => r.hangMuc), lvl: 3 },
+      { key: "khoi", label: "Khối hệ thống", w: 120, filter: "multi", opts: uniq(rows, (r) => r.khoi) },
       { key: "congViec", label: "Công việc", w: 190, filter: "multi", opts: uniq(rows, (r) => r.congViec) },
       { key: "giaiDoan", label: "Giai đoạn", w: 110, filter: "multi", opts: uniq(rows, (r) => r.giaiDoan) },
       { key: "boMon", label: "Bộ môn", w: 110, filter: "multi", opts: uniq(rows, (r) => r.boMon) },
@@ -262,6 +272,23 @@ export function ReportsClient({
   const [colFilters, setColFilters] = React.useState<ColFilters>({});
   const [open, setOpen] = React.useState<{ key: string; rect: DOMRect } | null>(null);
   const [sort, setSort] = React.useState<{ key: string; dir: "asc" | "desc" }>({ key: "duAn", dir: "asc" });
+
+  // Modal chi tiết công việc (click vào tên việc): nội dung + toàn bộ giờ đã ghi (mọi người, mọi thời điểm).
+  type WeekEntry = { id: string; date: string; hours: number; note: string | null; userName: string };
+  const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
+  const [detailEntries, setDetailEntries] = React.useState<WeekEntry[]>([]);
+  const [detailLoading, setDetailLoading] = React.useState(false);
+  async function openDetail(t: TaskRow) {
+    setDetailTask(t);
+    setDetailEntries([]);
+    setDetailLoading(true);
+    const res = await getTaskAllEntries(t.id);
+    setDetailEntries(res.ok ? (res.data ?? []) : []);
+    setDetailLoading(false);
+  }
+  function closeDetail() {
+    setDetailTask(null);
+  }
 
   // Cross-filter: click biểu đồ → lọc toàn bộ data. Click thường thay hẳn bộ lọc (chỉ giữ 1 tiêu chí);
   // giữ Ctrl/Cmd khi click sẽ nối thêm điều kiện (giữ các biểu đồ khác đang chọn, OR trong cùng 1 biểu đồ).
@@ -308,7 +335,7 @@ export function ReportsClient({
     const q = norm(search.trim());
     return rows.filter((r) => {
       if (q) {
-        const hay = norm([r.ma, r.duAn, r.loaiHinh, r.hangMuc, r.congViec, r.giaiDoan, r.boMon, r.thucHien.join(" "), r.result].join(" "));
+        const hay = norm([r.ma, r.duAn, r.loaiHinh, r.hangMuc, r.khoi, r.congViec, r.giaiDoan, r.boMon, r.thucHien.join(" "), r.result].join(" "));
         if (!hay.includes(q)) return false;
       }
       for (const c of cols) if (!rowMatch(r, c, colFilters[c.key])) return false;
@@ -406,6 +433,7 @@ export function ReportsClient({
         { header: "Dự án", key: "duAn", width: 14 },
         { header: "Loại hình", key: "loaiHinh", width: 16 },
         { header: "Hạng mục", key: "hangMuc", width: 20 },
+        { header: "Khối hệ thống", key: "khoi", width: 16 },
         { header: "Công việc", key: "congViec", width: 28 },
         { header: "Giai đoạn", key: "giaiDoan", width: 14 },
         { header: "Bộ môn", key: "boMon", width: 12 },
@@ -424,6 +452,7 @@ export function ReportsClient({
           duAn: r.duAn === "—" ? "" : r.duAn,
           loaiHinh: r.loaiHinh,
           hangMuc: r.hangMuc,
+          khoi: r.khoi,
           congViec: r.congViec,
           giaiDoan: r.giaiDoan,
           boMon: r.boMon,
@@ -637,7 +666,14 @@ export function ReportsClient({
                     </td>
                     <td className="px-3 py-2 align-top text-slate-600">{r.loaiHinh || <span className="text-slate-300">—</span>}</td>
                     <td className="px-3 py-2 align-top text-slate-600">{r.hangMuc || <span className="text-slate-300">—</span>}</td>
-                    <td className="px-3 py-2 align-top font-medium text-slate-800">{r.congViec}</td>
+                    <td className="px-3 py-2 align-top text-slate-600">{r.khoi || <span className="text-slate-300">—</span>}</td>
+                    <td
+                      className="cursor-pointer px-3 py-2 align-top font-medium text-slate-800 hover:underline"
+                      onClick={() => void openDetail(r)}
+                      title="Xem chi tiết công việc"
+                    >
+                      {r.congViec}
+                    </td>
                     <td className="px-3 py-2 align-top text-xs text-slate-600">{r.giaiDoan || <span className="text-slate-300">—</span>}</td>
                     <td className="px-3 py-2 align-top text-xs text-slate-600">{r.boMon || <span className="text-slate-300">—</span>}</td>
                     <td className="px-3 py-2 align-top text-xs">
@@ -758,6 +794,101 @@ export function ReportsClient({
           )}
         </Popover>
       )}
+
+      {/* Modal chi tiết công việc (click vào tên việc trong Danh sách công việc). */}
+      {detailTask ? (() => {
+        const contextLabel = taskContextLabel(detailTask);
+        // Gộp mốc "Cập nhật công việc" (làm tiếp việc đã hoàn thành — không có số giờ) với các dòng
+        // ghi giờ thật, xếp theo ngày để thấy đúng trình tự: hoàn thành lần trước → cập nhật lại → ghi giờ tiếp.
+        const timeline = [
+          ...detailTask.completionHistory.map((h, i) => ({
+            key: `hist-${i}`,
+            date: h.actualEnd || h.plannedEnd || "",
+            content: h.note,
+            hours: null as number | null,
+            person: detailTask.thucHien.join(", ") || null,
+            isUpdate: true,
+          })),
+          ...detailEntries.map((e) => ({
+            key: e.id,
+            date: e.date,
+            content: e.note,
+            hours: e.hours as number | null,
+            person: e.userName as string | null,
+            isUpdate: false,
+          })),
+        ].sort((a, b) => a.date.localeCompare(b.date));
+        return (
+          <Modal
+            open
+            onClose={closeDetail}
+            title={
+              <div className="space-y-0.5">
+                {contextLabel ? <div className="text-xs font-medium text-slate-400">{contextLabel}</div> : null}
+                <div className="text-base font-semibold text-slate-800">{detailTask.congViec}</div>
+              </div>
+            }
+            className="max-w-2xl"
+          >
+            <div className="space-y-4">
+              <div>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Nội dung công việc</div>
+                {detailTask.note ? (
+                  <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{detailTask.note}</p>
+                ) : (
+                  <p className="text-sm italic text-slate-400">Chưa có nội dung mô tả.</p>
+                )}
+              </div>
+              <div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Giờ đã ghi (toàn bộ thời gian)</div>
+                {detailLoading ? (
+                  <p className="text-sm text-slate-400">Đang tải…</p>
+                ) : timeline.length === 0 ? (
+                  <p className="text-sm italic text-slate-400">Chưa có giờ nào được ghi.</p>
+                ) : (
+                  <div className="max-h-80 overflow-auto rounded-md border border-slate-200">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50">
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Ngày</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Nội dung công việc</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Số giờ</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Người thực hiện</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {timeline.map((row) => (
+                          <tr key={row.key} className={row.isUpdate ? "bg-amber-50/60" : undefined}>
+                            <td className={cn("px-3 py-2 text-slate-600", row.isUpdate && "font-bold text-slate-800")}>{fmtDate(row.date)}</td>
+                            <td className={cn("px-3 py-2 text-slate-500", row.isUpdate && "font-bold text-slate-800")}>
+                              {row.content || <span className="italic text-slate-300">—</span>}
+                            </td>
+                            <td className={cn("px-3 py-2 font-medium text-slate-700", row.isUpdate && "font-bold text-slate-800")}>
+                              {row.hours != null ? `${row.hours}h` : ""}
+                            </td>
+                            <td className={cn("px-3 py-2 text-slate-600", row.isUpdate && "font-bold text-slate-800")}>
+                              {row.person || <span className="italic text-slate-300">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-slate-200 bg-slate-50">
+                          <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-slate-600">Tổng</td>
+                          <td className="px-3 py-2 text-sm font-bold text-blue-600">
+                            {detailEntries.reduce((s, e) => s + e.hours, 0)}h
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Modal>
+        );
+      })() : null}
     </div>
   );
 }

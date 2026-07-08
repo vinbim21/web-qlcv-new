@@ -22,7 +22,7 @@ export default async function TasksPage({
   const qv = sp.q;
   const initialQuery = Array.isArray(qv) ? (qv[0] ?? "") : (qv ?? "");
 
-  const [tasks, lookups, catalogL3] = await Promise.all([
+  const [tasks, hoursByTask, lookups, catalogL3] = await Promise.all([
     prisma.task.findMany({
       // "Công việc của tôi" = chỉ việc mình được giao (worklist cá nhân).
       // Quản lý toàn phòng nằm ở /manage.
@@ -45,12 +45,18 @@ export default async function TasksPage({
       orderBy: [{ workGroupId: "asc" }, { createdAt: "asc" }],
       take: 2000,
     }),
+    prisma.timeSheetEntry.groupBy({
+      by: ["taskId"],
+      where: { taskId: { not: null }, deletedAt: null },
+      _sum: { hours: true },
+    }),
     getTaskLookups(),
     prisma.catalogItem.findMany({
       where: { level: 3, projectGroupId: { not: null } },
       select: { workGroupId: true, value: true, projectGroup: { select: { code: true, name: true } } },
     }),
   ]);
+  const hoursMap = new Map(hoursByTask.map((h) => [h.taskId!, Number(h._sum.hours ?? 0)]));
   // Map (workGroupId::level3) → projectGroup để điền mã dự án cho task BIM Tools
   const catalogPgMap = new Map(
     catalogL3.map((c) => [`${c.workGroupId}::${c.value}`, c.projectGroup]),
@@ -123,6 +129,7 @@ export default async function TasksPage({
           approvedByName: h.approvedBy?.fullName ?? null,
           note: h.note,
         })),
+        totalHours: hoursMap.get(t.id) ?? 0,
       }))}
       isAdmin={session.user.role === "ADMIN"}
       workGroups={lookups.workGroups}

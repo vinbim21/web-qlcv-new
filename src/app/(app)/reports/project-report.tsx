@@ -105,7 +105,7 @@ export function ProjectReport({ rows }: { rows: TaskRow[] }) {
                 <th className="px-3 py-2.5 text-left" style={{ width: 150 }}>
                   Tình trạng
                 </th>
-                <th className="px-3 py-2.5 text-center">Chưa làm</th>
+                <th className="px-3 py-2.5 text-center">Chưa thực hiện</th>
                 <th className="px-3 py-2.5 text-center">Đang TH</th>
                 <th className="px-3 py-2.5 text-center">Hoàn thành</th>
                 <th className="px-3 py-2.5 text-center">Quá hạn</th>
