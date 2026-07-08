@@ -14,7 +14,7 @@ type Mode = "group" | "phong" | "person";
 const NONE_KEY = "__none__";
 
 const STATUS_LEGEND = [
-  { label: "Chưa làm", color: STATUS_COLOR.CHUA_LAM },
+  { label: "Chưa thực hiện", color: STATUS_COLOR.CHUA_LAM },
   { label: "Hoàn thành", color: STATUS_COLOR.HOAN_THANH, text: STATUS_COLOR.HOAN_THANH },
   { label: "Quá hạn", color: STATUS_COLOR.QUA_HAN, text: STATUS_COLOR.QUA_HAN },
   { label: "Tạm dừng", color: STATUS_COLOR.TAM_DUNG, text: STATUS_COLOR.TAM_DUNG },
@@ -161,7 +161,7 @@ export function PivotReport({ rows, mode }: { rows: TaskRow[]; mode: Mode }) {
               <tr className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-500">
                 <th className="px-3 py-2.5 text-left">{AXIS_LABEL[mode]}</th>
                 <th className="px-3 py-2.5 text-center">Tổng</th>
-                <th className="px-3 py-2.5 text-center">Chưa làm</th>
+                <th className="px-3 py-2.5 text-center">Chưa thực hiện</th>
                 <th className="px-3 py-2.5 text-center">Đang TH</th>
                 <th className="px-3 py-2.5 text-center">Hoàn thành</th>
                 <th className="px-3 py-2.5 text-center">Tạm dừng</th>

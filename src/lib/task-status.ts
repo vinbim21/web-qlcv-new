@@ -12,6 +12,8 @@ export type StatusInput = {
   // Hai trường dưới chỉ phục vụ shouldAutoStart (lúc lưu/backfill) — effectiveStatus KHÔNG dùng.
   plannedStart?: string | null;
   assigneeCount?: number;
+  // Tổng giờ đã ghi (mọi người) — dùng để hạ "Đang thực hiện" chưa ghi giờ nào về "Chưa thực hiện".
+  totalHours?: number;
 };
 
 /** Đầu ngày hôm nay (local) — mốc so sánh ngày. */
@@ -73,12 +75,17 @@ export function isOverdue(input: { status: string; plannedEnd?: string | null })
   return new Date(input.plannedEnd) < startOfToday();
 }
 
-/** Trạng thái hiển thị/đếm: status thật + lớp phủ Quá hạn (KHÔNG phủ lên việc Tạm dừng). */
+/**
+ * Trạng thái hiển thị/đếm: status thật + lớp phủ Quá hạn (KHÔNG phủ lên việc Tạm dừng)
+ * + hạ "Đang thực hiện" chưa ghi giờ nào về "Chưa thực hiện" (chưa quá hạn thì mới hạ —
+ * quá hạn vẫn ưu tiên hiện Quá hạn để cảnh báo).
+ */
 export function effectiveStatus(input: StatusInput): EffectiveStatus {
   if (input.status === "HOAN_THANH") return "HOAN_THANH";
   // Tạm dừng là chủ đích của quản lý → không tính Quá hạn.
   if (input.status === "TAM_DUNG") return "TAM_DUNG";
   if (isOverdue(input)) return "QUA_HAN";
+  if (input.status === "DANG_LAM" && !input.totalHours) return "CHUA_LAM";
   return input.status as EffectiveStatus;
 }
 

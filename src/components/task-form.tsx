@@ -267,7 +267,7 @@ export function TaskForm({
           {/* Khóa: trạng thái tự suy theo "Thực tế hoàn thành"/Tạm dừng — giữ giá trị cũ qua hidden input. */}
           <input type="hidden" name="status" value={task?.status ?? "CHUA_LAM"} />
           <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm text-muted-foreground">
-            {TASK_STATUS_LABEL[task?.status ?? "CHUA_LAM"] ?? "Chưa làm"}
+            {TASK_STATUS_LABEL[task?.status ?? "CHUA_LAM"] ?? "Chưa thực hiện"}
             <span className="ml-2 text-xs">· tự động theo Thực tế hoàn thành</span>
           </div>
         </div>

@@ -43,6 +43,7 @@ export default async function ReportsPage() {
         id: true,
         sumId: true,
         name: true,
+        note: true,
         level5: true,
         level2: true,
         level3: true,
@@ -59,11 +60,16 @@ export default async function ReportsPage() {
         project: {
           select: {
             name: true,
+            blockSystem: true,
             group: { select: { code: true, name: true } },
             constructionType: { select: { code: true, name: true } },
           },
         },
         assignees: { select: { user: { select: { id: true, fullName: true } } }, orderBy: { roleNo: "asc" } },
+        completionHistory: {
+          orderBy: { createdAt: "desc" },
+          select: { plannedStart: true, plannedEnd: true, actualEnd: true, note: true },
+        },
       },
       take: 10000,
     }),
@@ -120,6 +126,7 @@ export default async function ReportsPage() {
     duAn: t.project?.group?.code ?? "—",
     loaiHinh: t.project?.constructionType?.code ?? "",
     hangMuc: t.project?.name ?? "",
+    khoi: t.project?.blockSystem ?? "",
     congViec: t.level5 || t.name,
     giaiDoan: t.phase?.code ?? "",
     boMon: t.discipline?.code ?? "",
@@ -136,6 +143,13 @@ export default async function ReportsPage() {
     thucTe: iso(t.actualEnd),
     result: t.result ?? "",
     hours: hoursByTask.get(t.id) ?? 0,
+    note: t.note ?? "",
+    completionHistory: t.completionHistory.map((h) => ({
+      plannedStart: iso(h.plannedStart),
+      plannedEnd: iso(h.plannedEnd),
+      actualEnd: iso(h.actualEnd),
+      note: h.note,
+    })),
   }));
   const taskById = new Map(tasks.map((t) => [t.id, t]));
   for (const row of rows) {

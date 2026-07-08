@@ -9,7 +9,7 @@ export const ROLE_LABEL: Record<string, string> = {
 export const ROLE_OPTIONS = ["ADMIN", "LEVEL_1", "LEVEL_2", "LEVEL_3"] as const;
 
 export const TASK_STATUS_LABEL: Record<string, string> = {
-  CHUA_LAM: "Chưa làm",
+  CHUA_LAM: "Chưa thực hiện",
   DANG_LAM: "Đang thực hiện",
   HOAN_THANH: "Hoàn thành",
   TAM_DUNG: "Tạm dừng",
