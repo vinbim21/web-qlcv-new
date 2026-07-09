@@ -495,11 +495,11 @@ const DUYET_LABEL: Record<string, string> = {
 
 // Pill mềm "chấm + chữ" cho cột Tình trạng (nhẹ màu hơn badge tô đặc).
 const STATUS_SOFT: Record<string, { dot: string; pill: string }> = {
-  CHUA_LAM: { dot: "bg-slate-400", pill: "bg-slate-50 text-slate-600 ring-slate-200" },
-  DANG_LAM: { dot: "bg-blue-500", pill: "bg-blue-50 text-blue-700 ring-blue-200" },
-  HOAN_THANH: { dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
-  TAM_DUNG: { dot: "bg-amber-500", pill: "bg-amber-50 text-amber-700 ring-amber-200" },
-  QUA_HAN: { dot: "bg-red-500", pill: "bg-red-50 text-red-700 ring-red-200" },
+  CHUA_LAM: { dot: "bg-slate-400 dark:bg-slate-500", pill: "bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 ring-slate-200 dark:ring-slate-700" },
+  DANG_LAM: { dot: "bg-blue-500", pill: "bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 ring-blue-200 dark:ring-blue-800" },
+  HOAN_THANH: { dot: "bg-emerald-500", pill: "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-800" },
+  TAM_DUNG: { dot: "bg-amber-500", pill: "bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 ring-amber-200 dark:ring-amber-800" },
+  QUA_HAN: { dot: "bg-red-500", pill: "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 ring-red-200 dark:ring-red-800" },
 };
 
 // Bề rộng cột bảng /manage — cố định, khớp /tasks (không cho kéo giãn để tránh lệch cột).
@@ -1633,14 +1633,14 @@ export function ManageClient({
         key={col.key}
         style={headStyle(col.key, MANAGE_COL_W[col.key])}
         className={cn(
-          "group relative select-none border-b border-slate-200 px-2.5 py-2.5 text-left text-xs font-semibold text-slate-500",
-          col.lvl && "border-l border-slate-100",
+          "group relative select-none border-b border-slate-200 dark:border-slate-700 px-2.5 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400",
+          col.lvl && "border-l border-slate-100 dark:border-slate-800",
         )}
       >
         <div className="flex items-center gap-1">
           <button
             type="button"
-            className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-slate-800"
+            className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-slate-800 dark:hover:text-slate-100"
             onClick={() => toggleSort(col.key)}
           >
             <span className="truncate">{col.label}</span>
@@ -1665,7 +1665,7 @@ export function ManageClient({
               "grid size-5 shrink-0 place-items-center rounded transition",
               filterOn
                 ? "bg-slate-800 text-white"
-                : "text-slate-400 hover:bg-slate-200 hover:text-slate-600",
+                : "text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-300",
             )}
           >
             <Filter className="size-3" strokeWidth={filterOn ? 2.5 : 2} />
@@ -1686,17 +1686,17 @@ export function ManageClient({
       <td
         key={col.key}
         style={bodyFrozenStyle(col.key)}
-        className={cn("border-l border-slate-100 align-top", cellPad, isCongViec && "cursor-pointer")}
+        className={cn("border-l border-slate-100 dark:border-slate-800 align-top", cellPad, isCongViec && "cursor-pointer")}
         onClick={isCongViec ? () => void openDetail(t) : undefined}
         title={isCongViec ? "Xem chi tiết công việc" : undefined}
       >
         {blank ? null : !v ? (
-          <span className="text-slate-300">—</span>
+          <span className="text-slate-300 dark:text-slate-600">—</span>
         ) : col.leaf ? (
-          <span className={dim ? "text-slate-400" : "font-medium text-slate-800"}>{v}</span>
+          <span className={dim ? "text-slate-400 dark:text-slate-500" : "font-medium text-slate-800 dark:text-slate-100"}>{v}</span>
         ) : (
           <span
-            className={dim ? "text-slate-300" : col.lvl === 1 ? "font-medium text-slate-700" : "text-slate-600"}
+            className={dim ? "text-slate-300 dark:text-slate-600" : col.lvl === 1 ? "font-medium text-slate-700 dark:text-slate-200" : "text-slate-600 dark:text-slate-300"}
             title={col.key === "duAn" ? (t.groupName ?? undefined) : undefined}
           >
             {v}
@@ -1735,7 +1735,7 @@ export function ManageClient({
               // Việc đã XONG nhưng muộn → chú thích rose mềm (không báo động đỏ), ghi rõ số ngày trễ.
               <span
                 title={`Hoàn thành trễ hạn ${lateDays} ngày (hạn ${fmtDate(t.plannedEnd)} · xong ${fmtDate(t.actualEnd)})`}
-                className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 ring-1 ring-inset ring-rose-200"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-rose-50 dark:bg-rose-950 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:text-rose-300 ring-1 ring-inset ring-rose-200 dark:ring-rose-800"
               >
                 <Flag className="size-2.5 shrink-0" /> Trễ {lateDays} ngày
               </span>
@@ -1746,7 +1746,7 @@ export function ManageClient({
                   type="button"
                   title="Bỏ tạm dừng"
                   onClick={() => togglePause(t, false)}
-                  className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  className="grid size-6 place-items-center rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
                 >
                   <Play className="size-3.5" />
                 </button>
@@ -1755,7 +1755,7 @@ export function ManageClient({
                   type="button"
                   title="Tạm dừng"
                   onClick={() => togglePause(t, true)}
-                  className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  className="grid size-6 place-items-center rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
                 >
                   <Pause className="size-3.5" />
                 </button>
@@ -1774,7 +1774,7 @@ export function ManageClient({
           {t.deleteRequestedAt ? (
             <div className="mt-0.5 flex items-center gap-1">
               <span
-                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-red-600"
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400"
                 title={[t.deleteRequesterName ? `${t.deleteRequesterName} xin xóa` : "Xin xóa", t.deleteRequestNote].filter(Boolean).join(" — ")}
               >
                 <span className="size-1.5 rounded-full bg-red-500" /> Chờ duyệt xóa
@@ -1785,7 +1785,7 @@ export function ManageClient({
                   if (r.ok) { toast.success("Đã xóa công việc"); router.refresh(); }
                   else toast.error(r.error);
                 }}
-                className="grid size-4 place-items-center rounded text-emerald-600 hover:bg-emerald-50">
+                className="grid size-4 place-items-center rounded text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:bg-emerald-950">
                 <Check className="size-3" />
               </button>
               <button type="button" title="Từ chối xóa"
@@ -1794,7 +1794,7 @@ export function ManageClient({
                   if (r.ok) { toast.success("Đã từ chối yêu cầu xóa"); router.refresh(); }
                   else toast.error(r.error);
                 }}
-                className="grid size-4 place-items-center rounded text-red-500 hover:bg-red-50">
+                className="grid size-4 place-items-center rounded text-red-500 hover:bg-red-50 dark:bg-red-950">
                 <X className="size-3" />
               </button>
             </div>
@@ -1804,14 +1804,14 @@ export function ManageClient({
               <button
                 type="button"
                 onClick={() => void toggleStartApproval(t, true)}
-                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600 hover:text-emerald-600"
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 hover:text-emerald-600 dark:text-emerald-400"
                 title="Bấm để duyệt khởi tạo — cho phép nhập thời gian"
               >
                 <Lock className="size-2.5" /> Chờ duyệt
               </button>
             ) : (
               <span
-                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600"
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
                 title={t.approverName ? `Chờ ${t.approverName} duyệt khởi tạo` : "Đang chờ quản lý duyệt khởi tạo"}
               >
                 <Lock className="size-2.5" /> Chờ duyệt
@@ -1822,14 +1822,14 @@ export function ManageClient({
               <button
                 type="button"
                 onClick={() => void approveCompletion(t)}
-                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600 hover:text-emerald-600"
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 hover:text-emerald-600 dark:text-emerald-400"
                 title="Bấm để duyệt hoàn thành"
               >
                 <span className="size-1.5 rounded-full bg-amber-500" /> Chưa duyệt
               </button>
             ) : (
               <span
-                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600"
+                className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
                 title={t.approverName ? `Chờ ${t.approverName} duyệt` : "Chưa duyệt"}
               >
                 <span className="size-1.5 rounded-full bg-amber-500" /> Chưa duyệt
@@ -1838,7 +1838,7 @@ export function ManageClient({
           ) : null}
           {t.completionHistory.length > 0 ? (
             <span
-              className="mt-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200"
+              className="mt-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-200 dark:ring-emerald-800"
               title={formatCompletionHistory(t.completionHistory)}
             >
               <History className="size-2.5 shrink-0" /> {t.completionHistory.length} lần hoàn thành trước
@@ -1919,11 +1919,11 @@ export function ManageClient({
                 <td
                   key={c.key}
                   style={bodyFrozenStyle(c.key)}
-                  className={cn("cursor-pointer border-l border-slate-100 align-top", cellPad)}
+                  className={cn("cursor-pointer border-l border-slate-100 dark:border-slate-800 align-top", cellPad)}
                   onClick={() => void openDetail(t)}
                   title="Xem chi tiết công việc"
                 >
-                  <span className="font-medium text-slate-800">{t.name || <span className="text-slate-300">—</span>}</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{t.name || <span className="text-slate-300 dark:text-slate-600">—</span>}</span>
                 </td>
               );
             }
@@ -1932,28 +1932,28 @@ export function ManageClient({
           if (c.key === "sumId")
             return (
               <td key="sumId" className={cn("align-top", cellPad)}>
-                <span className="font-mono text-[11px] text-slate-500">{t.sumId ?? "—"}</span>
+                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{t.sumId ?? "—"}</span>
               </td>
             );
           if (c.key === "giaiDoan")
             return (
-              <td key="giaiDoan" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
-                {t.phaseName || <span className="text-slate-300">—</span>}
+              <td key="giaiDoan" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+                {t.phaseName || <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
           if (c.key === "boMon")
             return (
-              <td key="boMon" className={cn("align-top text-xs text-slate-600", cellPad)}>
-                {t.disciplineCode || <span className="text-slate-300">—</span>}
+              <td key="boMon" className={cn("align-top text-xs text-slate-600 dark:text-slate-300", cellPad)}>
+                {t.disciplineCode || <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
           if (c.key === "thucHien")
             return (
               <td key="thucHien" className={cn("align-top text-xs", cellPad)}>
                 {t.assigneeNames.length ? (
-                  <span className="text-slate-700">{t.assigneeNames.join(", ")}</span>
+                  <span className="text-slate-700 dark:text-slate-200">{t.assigneeNames.join(", ")}</span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-amber-600">
+                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
                     <UserX className="size-3" /> Chưa giao
                   </span>
                 )}
@@ -1962,13 +1962,13 @@ export function ManageClient({
           if (c.key === "uuTien")
             return (
               <td key="uuTien" className={cn("align-top", cellPad)}>
-                <span className={cn("text-[11px] font-medium whitespace-nowrap", t.priority === "CAO" ? "text-red-600" : t.priority === "TRUNG_BINH" ? "text-amber-500" : "text-slate-400")}>{PRIORITY_LABEL[t.priority]}</span>
+                <span className={cn("text-[11px] font-medium whitespace-nowrap", t.priority === "CAO" ? "text-red-600 dark:text-red-400" : t.priority === "TRUNG_BINH" ? "text-amber-500" : "text-slate-400 dark:text-slate-500")}>{PRIORITY_LABEL[t.priority]}</span>
               </td>
             );
           if (c.key === "tinhTrang") return statusTd(t);
           if (c.key === "batDau")
             return (
-              <td key="batDau" className={cn("align-top text-xs text-slate-500", cellPad)}>
+              <td key="batDau" className={cn("align-top text-xs text-slate-500 dark:text-slate-400", cellPad)}>
                 {t.plannedStart ? fmtDate(t.plannedStart) : "—"}
               </td>
             );
@@ -1976,9 +1976,9 @@ export function ManageClient({
             return (
               <td key="ketThuc" className={cn("align-top text-xs", cellPad)}>
                 {t.plannedEnd ? (
-                  <span className={cn(overdue && "font-medium text-red-600")}>{fmtDate(t.plannedEnd)}</span>
+                  <span className={cn(overdue && "font-medium text-red-600 dark:text-red-400")}>{fmtDate(t.plannedEnd)}</span>
                 ) : (
-                  <span className="text-slate-300">—</span>
+                  <span className="text-slate-300 dark:text-slate-600">—</span>
                 )}
               </td>
             );
@@ -1991,9 +1991,9 @@ export function ManageClient({
                     canEditDone ? "cursor-pointer" : "cursor-default",
                     t.actualEnd
                       ? late
-                        ? "bg-rose-50 text-rose-700 ring-rose-200"
-                        : "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                      : "bg-slate-50 text-slate-500 ring-slate-200",
+                        ? "bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 ring-rose-200 dark:ring-rose-800"
+                        : "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-800"
+                      : "bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 ring-slate-200 dark:ring-slate-700",
                   )}
                   title={
                     pendingApproval
@@ -2024,7 +2024,7 @@ export function ManageClient({
             return (
               <td
                 key="soGio"
-                className={cn(cellPad, "tabular-nums text-center text-slate-600")}
+                className={cn(cellPad, "tabular-nums text-center text-slate-600 dark:text-slate-300")}
                 title={t.hoursBreakdown.length > 0 ? formatHoursBreakdown(t.hoursBreakdown) : undefined}
               >
                 {t.totalHours > 0 ? `${Number.isInteger(t.totalHours) ? t.totalHours : t.totalHours.toFixed(1)} (h)` : null}
@@ -2046,18 +2046,18 @@ export function ManageClient({
   function groupHeaderRow(g: { key: string; name: string; overdue: number; tasks: TaskRow[] }) {
     const Chevron = effectiveCollapsed.has(g.key) ? ChevronRight : ChevronDown;
     return (
-      <tr key={`grp-${g.key}`} className="bg-slate-100">
+      <tr key={`grp-${g.key}`} className="bg-slate-100 dark:bg-slate-800">
         {/* Ô span hết hàng; nội dung bọc trong lớp sticky-left để nhãn nhóm ghim trái khi cuộn ngang. */}
         <td colSpan={totalColsCount} className="p-0">
-          <div className="sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center bg-slate-100 px-2.5 py-2">
+          <div className="sticky left-0 z-[11] inline-flex max-w-[calc(100vw-1rem)] items-center bg-slate-100 dark:bg-slate-800 px-2.5 py-2">
             <button
               type="button"
               onClick={() => toggleGroup(g.key)}
-              className="flex items-center gap-2 text-sm font-medium text-slate-700"
+              className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200"
             >
-              <Chevron className="size-4 text-slate-400" />
+              <Chevron className="size-4 text-slate-400 dark:text-slate-500" />
               {g.name}
-              <span className="font-normal text-slate-400">
+              <span className="font-normal text-slate-400 dark:text-slate-500">
                 ({g.tasks.length} việc{g.overdue ? ` · ${g.overdue} quá hạn` : ""})
               </span>
             </button>
@@ -2081,16 +2081,16 @@ export function ManageClient({
     const { type, key, label, count, overdue, tasks: groupTasks } = node;
     const isCollapsed = effectiveTreeCollapsed.has(key);
     const Chevron = isCollapsed ? ChevronRight : ChevronDown;
-    const bg = type === "g1" ? "bg-slate-100" : "bg-slate-50";
+    const bg = type === "g1" ? "bg-slate-100 dark:bg-slate-800" : "bg-slate-50 dark:bg-slate-900";
     const indent = type === "g1" ? 0 : type === "g2" ? widthOf("duAn") : type === "g3" ? widthOf("duAn") + widthOf("loaiHinh") : widthOf("duAn") + widthOf("loaiHinh") + widthOf("hangMuc");
     const projDates = projectDatesForGroup(groupTasks, type);
     const textCls =
       type === "g1"
-        ? "text-[13px] font-semibold text-slate-700"
+        ? "text-[13px] font-semibold text-slate-700 dark:text-slate-200"
         : type === "g2"
-          ? "text-[13px] font-medium text-slate-600"
-          : "text-xs font-medium text-slate-500";
-    const borderCls = type === "g2" ? "border-t border-slate-200" : type === "g3" ? "border-t border-slate-100" : "";
+          ? "text-[13px] font-medium text-slate-600 dark:text-slate-300"
+          : "text-xs font-medium text-slate-500 dark:text-slate-400";
+    const borderCls = type === "g2" ? "border-t border-slate-200 dark:border-slate-700" : type === "g3" ? "border-t border-slate-100 dark:border-slate-800" : "";
 
     const allSel = groupTasks.length > 0 && groupTasks.every((t) => selected.has(t.id));
 
@@ -2153,9 +2153,9 @@ export function ManageClient({
             onClick={() => toggleTreeNode(key)}
             className={cn("flex items-center gap-1.5", textCls)}
           >
-            <Chevron className="size-3.5 shrink-0 text-slate-400" />
+            <Chevron className="size-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
             <span className="whitespace-nowrap">{label}</span>
-            <span className="whitespace-nowrap font-normal text-slate-400 text-xs">
+            <span className="whitespace-nowrap font-normal text-slate-400 dark:text-slate-500 text-xs">
               {type === "g1"
                 ? `(${count} loại hình)`
                 : type === "g2"
@@ -2166,7 +2166,7 @@ export function ManageClient({
           {canManage && type === "g3" ? (
             <>
               <button type="button" title="Thêm công việc vào hạng mục này" onClick={() => setInsertCtx(parseInsertCtx())}
-                className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200">
                 <Plus className="size-3.5" />
               </button>
               {(() => {
@@ -2177,7 +2177,7 @@ export function ManageClient({
                 if (!ids.length) return null;
                 return (
                   <button type="button" title="Sửa tên hạng mục" onClick={() => setRenameHangMuc({ ids, name: label })}
-                    className="grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                    className="grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200">
                     <Pencil className="size-3.5" />
                   </button>
                 );
@@ -2193,7 +2193,7 @@ export function ManageClient({
                 setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: ctProj?.constructionTypeId || null, constructionTypeCode: lk === "—" ? null : lk, lockCt: true });
                 setAddHmName(""); setAddHmCtId(ctProj?.constructionTypeId ?? "");
               }}
-              className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+              className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200">
               <Plus className="size-3.5" />
             </button>
           ) : canManage && type === "g1" ? (
@@ -2204,7 +2204,7 @@ export function ManageClient({
                 setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: null, constructionTypeCode: null, lockCt: false });
                 setAddHmName(""); setAddHmCtId("");
               }}
-              className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+              className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200">
               <Plus className="size-3.5" />
             </button>
           ) : null}
@@ -2217,12 +2217,12 @@ export function ManageClient({
         {labelCell}
         {/* Ngày dự án đặt trong <td> thực của cột Bắt đầu / Kết thúc → luôn thẳng cột */}
         {batDauIdx >= 0 && (
-          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 whitespace-nowrap">
+          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">
             {projDates?.startDate ? fmtDate(projDates.startDate) : null}
           </td>
         )}
         {ketThucIdx >= 0 && (
-          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 whitespace-nowrap" title={projDates?.packagingDate ? "Đóng gói" : undefined}>
+          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap" title={projDates?.packagingDate ? "Đóng gói" : undefined}>
             {projDates?.packagingDate ? fmtDate(projDates.packagingDate) : null}
           </td>
         )}
@@ -2255,12 +2255,12 @@ export function ManageClient({
         className={cn(
           "rounded-md border bg-card p-2 text-xs shadow-sm",
           canManage && "cursor-grab active:cursor-grabbing",
-          overdue ? "border-red-400 ring-1 ring-red-200" : "",
+          overdue ? "border-red-400 dark:border-red-600 ring-1 ring-red-200 dark:ring-red-800" : "",
         )}
       >
         <div className="flex items-center justify-between gap-1">
           <span className="font-mono text-[11px] text-muted-foreground">{t.sumId ?? "—"}</span>
-          <span className={cn("text-[11px] font-medium whitespace-nowrap", t.priority === "CAO" ? "text-red-600" : t.priority === "TRUNG_BINH" ? "text-amber-500" : "text-slate-400")}>{PRIORITY_LABEL[t.priority]}</span>
+          <span className={cn("text-[11px] font-medium whitespace-nowrap", t.priority === "CAO" ? "text-red-600 dark:text-red-400" : t.priority === "TRUNG_BINH" ? "text-amber-500" : "text-slate-400 dark:text-slate-500")}>{PRIORITY_LABEL[t.priority]}</span>
         </div>
         <div className="mt-1 font-medium leading-snug">{t.name}</div>
         <div className="mt-1 flex flex-wrap items-center gap-x-1 text-[11px] text-muted-foreground">
@@ -2268,11 +2268,11 @@ export function ManageClient({
           {t.assigneeNames.length ? (
             <span>· {t.assigneeNames.join(", ")}</span>
           ) : (
-            <span className="text-amber-600">· chưa giao</span>
+            <span className="text-amber-600 dark:text-amber-400">· chưa giao</span>
           )}
         </div>
         <div
-          className={cn("mt-1 text-[11px]", overdue ? "font-medium text-red-600" : "text-muted-foreground")}
+          className={cn("mt-1 text-[11px]", overdue ? "font-medium text-red-600 dark:text-red-400" : "text-muted-foreground")}
         >
           {deadlineLabel(t)}
         </div>
@@ -2298,7 +2298,7 @@ export function ManageClient({
     return (
       <div className="space-y-2">
         {overflow ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-3 py-2 text-xs text-amber-800">
             Đang hiển thị tối đa {KANBAN_COL_LIMIT} thẻ/cột — lọc Nhóm/Dự án hoặc dùng ô tìm để xem đầy đủ.
           </div>
         ) : null}
@@ -2362,7 +2362,7 @@ export function ManageClient({
         <p className="text-sm text-muted-foreground">
           {filtered.length} / {tasks.length} công việc
           {activeFilterCount > 0 ? (
-            <span className="text-slate-400"> · đang lọc {activeFilterCount} điều kiện</span>
+            <span className="text-slate-400 dark:text-slate-500"> · đang lọc {activeFilterCount} điều kiện</span>
           ) : null}
         </p>
         {canAssign ? (
@@ -2407,11 +2407,11 @@ export function ManageClient({
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {(
           [
-            { key: "DANG_LAM",   label: "Đang làm",              n: kpi.doing,               Icon: Activity,     tone: "border-blue-200   bg-blue-50   text-blue-700",   activeTone: "border-blue-400   bg-blue-200   text-black",   ring: "ring-blue-400" },
-            { key: "HOAN_THANH", label: "Hoàn thành",            n: kpi.done,                Icon: CheckCircle2, tone: "border-green-200  bg-green-50  text-green-700",  activeTone: "border-green-400  bg-green-200  text-black",  ring: "ring-green-400" },
-            { key: "SAP_HAN",    label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon,               Icon: Clock,        tone: "border-amber-200  bg-amber-50  text-amber-700",  activeTone: "border-amber-400  bg-amber-200  text-black",  ring: "ring-amber-400" },
-            { key: "QUA_HAN",    label: "Quá hạn",               n: kpi.overdue,             Icon: AlertTriangle, tone: "border-red-200   bg-red-50    text-red-700",    activeTone: "border-red-400    bg-red-200    text-black",    ring: "ring-red-400" },
-            { key: "CHUA_GIAO",  label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX,        tone: "border-violet-200 bg-violet-50 text-violet-700", activeTone: "border-violet-400 bg-violet-200 text-black", ring: "ring-violet-400" },
+            { key: "DANG_LAM",   label: "Đang làm",              n: kpi.doing,               Icon: Activity,     tone: "border-blue-200 dark:border-blue-800   bg-blue-50 dark:bg-blue-950   text-blue-700 dark:text-blue-300",   activeTone: "border-blue-400 dark:border-blue-600   bg-blue-200 dark:bg-blue-800   text-black dark:text-white",   ring: "ring-blue-400 dark:ring-blue-600" },
+            { key: "HOAN_THANH", label: "Hoàn thành",            n: kpi.done,                Icon: CheckCircle2, tone: "border-green-200 dark:border-green-800  bg-green-50 dark:bg-green-950  text-green-700 dark:text-green-300",  activeTone: "border-green-400 dark:border-green-600  bg-green-200 dark:bg-green-800  text-black dark:text-white",  ring: "ring-green-400 dark:ring-green-600" },
+            { key: "SAP_HAN",    label: "Sắp đến hạn (≤3 ngày)", n: kpi.soon,               Icon: Clock,        tone: "border-amber-200 dark:border-amber-800  bg-amber-50 dark:bg-amber-950  text-amber-700 dark:text-amber-300",  activeTone: "border-amber-400 dark:border-amber-600  bg-amber-200 dark:bg-amber-800  text-black dark:text-white",  ring: "ring-amber-400 dark:ring-amber-600" },
+            { key: "QUA_HAN",    label: "Quá hạn",               n: kpi.overdue,             Icon: AlertTriangle, tone: "border-red-200 dark:border-red-800   bg-red-50 dark:bg-red-950    text-red-700 dark:text-red-300",    activeTone: "border-red-400 dark:border-red-600    bg-red-200 dark:bg-red-800    text-black dark:text-white",    ring: "ring-red-400 dark:ring-red-600" },
+            { key: "CHUA_GIAO",  label: "Chưa giao/Chưa duyệt", n: kpi.unassignedOrPending, Icon: UserX,        tone: "border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950 text-violet-700 dark:text-violet-300", activeTone: "border-violet-400 dark:border-violet-600 bg-violet-200 dark:bg-violet-800 text-black dark:text-white", ring: "ring-violet-400 dark:ring-violet-600" },
           ] as const
         ).map(({ key, label, n, Icon, tone, activeTone, ring }) => (
           <button
@@ -2584,7 +2584,7 @@ export function ManageClient({
                 }
               }}
               placeholder="Từ khóa mới…"
-              className="h-5 w-28 rounded-full border border-input bg-background px-2.5 text-xs outline-none focus:border-slate-400"
+              className="h-5 w-28 rounded-full border border-input bg-background px-2.5 text-xs outline-none focus:border-slate-400 dark:focus:border-slate-500"
             />
           ) : (
             <button
@@ -2635,7 +2635,7 @@ export function ManageClient({
       {/* Thanh chip điều kiện đang lọc (tab nhóm không hiện chip — tab đã tự highlight) */}
       {activeCols.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 dark:text-slate-500">
             <Filter className="size-3.5" /> Lọc:
           </span>
           {activeCols.map((c) => (
@@ -2644,7 +2644,7 @@ export function ManageClient({
           <button
             type="button"
             onClick={clearAllFilters}
-            className="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-400 hover:text-red-600"
+            className="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-slate-400 dark:text-slate-500 hover:text-red-600 dark:text-red-400"
           >
             <RotateCcw className="size-3" /> Xóa tất cả
           </button>
@@ -2717,7 +2717,7 @@ export function ManageClient({
                 {canManage ? (
                   <th
                     style={headStyle("__sel__", MANAGE_SEL_PX)}
-                    className="border-b border-slate-200 px-2 py-2.5"
+                    className="border-b border-slate-200 dark:border-slate-700 px-2 py-2.5"
                   >
                     <input
                       type="checkbox"
@@ -2731,7 +2731,7 @@ export function ManageClient({
                 {cols.map(renderHead)}
               </tr>
             </thead>
-            <tbody className="[&_td]:border-b [&_td]:border-slate-100">
+            <tbody className="[&_td]:border-b [&_td]:border-slate-100 dark:border-slate-800">
               {viewMode === "people"
                 ? groups.flatMap((g) =>
                     effectiveCollapsed.has(g.key)
@@ -2763,7 +2763,7 @@ export function ManageClient({
                   : sorted.map((t, i) => renderRow(t, { meta: rowMeta[i] }))}
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={totalColsCount} className="py-12 text-center text-sm text-slate-400">
+                  <td colSpan={totalColsCount} className="py-12 text-center text-sm text-slate-400 dark:text-slate-500">
                     Không có công việc phù hợp với bộ lọc
                   </td>
                 </tr>
@@ -2845,7 +2845,7 @@ export function ManageClient({
             Thu hồi duyệt
           </Button>
           {tasks.some((t) => selected.has(t.id) && t.deleteRequestedAt) ? (
-            <Button size="sm" variant="outline" className="border-red-300 text-red-700 hover:bg-red-50" onClick={() => void batchApproveDelete()}>
+            <Button size="sm" variant="outline" className="border-red-300 text-red-700 dark:text-red-300 hover:bg-red-50 dark:bg-red-950" onClick={() => void batchApproveDelete()}>
               Duyệt xóa
             </Button>
           ) : null}
@@ -2913,12 +2913,12 @@ export function ManageClient({
           <div className="space-y-4">
             {addHangMucCtx.lockCt ? (
               <div>
-                <p className="mb-1 text-xs font-medium text-slate-500">Loại hình</p>
-                <p className="text-sm text-slate-700">{addHangMucCtx.constructionTypeCode || "— Không phân loại —"}</p>
+                <p className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">Loại hình</p>
+                <p className="text-sm text-slate-700 dark:text-slate-200">{addHangMucCtx.constructionTypeCode || "— Không phân loại —"}</p>
               </div>
             ) : (
               <div>
-                <label htmlFor="add-hm-ct" className="mb-1 block text-xs font-medium text-slate-500">
+                <label htmlFor="add-hm-ct" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
                   Loại hình
                 </label>
                 <Select
@@ -2937,7 +2937,7 @@ export function ManageClient({
               </div>
             )}
             <div>
-              <label htmlFor="add-hm-name" className="mb-1 block text-xs font-medium text-slate-500">
+              <label htmlFor="add-hm-name" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
                 Tên hạng mục *
               </label>
               <Input
@@ -3071,58 +3071,58 @@ export function ManageClient({
             onClose={closeDetail}
             title={
               <div className="space-y-0.5">
-                {contextLabel ? <div className="text-xs font-medium text-slate-400">{contextLabel}</div> : null}
-                <div className="text-base font-semibold text-slate-800">{detailTask.name}</div>
+                {contextLabel ? <div className="text-xs font-medium text-slate-400 dark:text-slate-500">{contextLabel}</div> : null}
+                <div className="text-base font-semibold text-slate-800 dark:text-slate-100">{detailTask.name}</div>
               </div>
             }
             className="max-w-2xl"
           >
             <div className="space-y-4">
               <div>
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Nội dung công việc</div>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Nội dung công việc</div>
                 {detailTask.note ? (
-                  <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{detailTask.note}</p>
+                  <p className="rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{detailTask.note}</p>
                 ) : (
-                  <p className="text-sm italic text-slate-400">Chưa có nội dung mô tả.</p>
+                  <p className="text-sm italic text-slate-400 dark:text-slate-500">Chưa có nội dung mô tả.</p>
                 )}
               </div>
               <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Giờ đã ghi (toàn bộ thời gian)</div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Giờ đã ghi (toàn bộ thời gian)</div>
                 {detailLoading ? (
-                  <p className="text-sm text-slate-400">Đang tải…</p>
+                  <p className="text-sm text-slate-400 dark:text-slate-500">Đang tải…</p>
                 ) : timeline.length === 0 ? (
-                  <p className="text-sm italic text-slate-400">Chưa có giờ nào được ghi.</p>
+                  <p className="text-sm italic text-slate-400 dark:text-slate-500">Chưa có giờ nào được ghi.</p>
                 ) : (
-                  <div className="max-h-80 overflow-auto rounded-md border border-slate-200">
+                  <div className="max-h-80 overflow-auto rounded-md border border-slate-200 dark:border-slate-700">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50">
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Ngày</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Nội dung công việc</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Số giờ</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Người thực hiện</th>
+                        <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Ngày</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Nội dung công việc</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Số giờ</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Người thực hiện</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {timeline.map((row) => (
-                          <tr key={row.key} className={row.isUpdate ? "bg-amber-50/60" : undefined}>
-                            <td className={cn("px-3 py-2 text-slate-600", row.isUpdate && "font-bold text-slate-800")}>{fmtDate(row.date)}</td>
-                            <td className={cn("px-3 py-2 text-slate-500", row.isUpdate && "font-bold text-slate-800")}>
-                              {row.content || <span className="italic text-slate-300">—</span>}
+                          <tr key={row.key} className={row.isUpdate ? "bg-amber-50 dark:bg-amber-950/60" : undefined}>
+                            <td className={cn("px-3 py-2 text-slate-600 dark:text-slate-300", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>{fmtDate(row.date)}</td>
+                            <td className={cn("px-3 py-2 text-slate-500 dark:text-slate-400", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>
+                              {row.content || <span className="italic text-slate-300 dark:text-slate-600">—</span>}
                             </td>
-                            <td className={cn("px-3 py-2 font-medium text-slate-700", row.isUpdate && "font-bold text-slate-800")}>
+                            <td className={cn("px-3 py-2 font-medium text-slate-700 dark:text-slate-200", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>
                               {row.hours != null ? `${row.hours}h` : ""}
                             </td>
-                            <td className={cn("px-3 py-2 text-slate-600", row.isUpdate && "font-bold text-slate-800")}>
-                              {row.person || <span className="italic text-slate-300">—</span>}
+                            <td className={cn("px-3 py-2 text-slate-600 dark:text-slate-300", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>
+                              {row.person || <span className="italic text-slate-300 dark:text-slate-600">—</span>}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
-                        <tr className="border-t-2 border-slate-200 bg-slate-50">
-                          <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-slate-600">Tổng</td>
-                          <td className="px-3 py-2 text-sm font-bold text-blue-600">
+                        <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                          <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Tổng</td>
+                          <td className="px-3 py-2 text-sm font-bold text-blue-600 dark:text-blue-400">
                             {detailEntries.reduce((s, e) => s + e.hours, 0)}h
                           </td>
                           <td />
@@ -3195,31 +3195,31 @@ export function ManageClient({
           className="max-w-sm"
         >
           <div className="space-y-3">
-            <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">
+            <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 rounded px-3 py-2">
               Việc sẽ quay về "Chưa thực hiện" và chờ người duyệt xác nhận lại. Người được giao vẫn ghi giờ được ngay.
             </p>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Ngày bắt đầu mới</label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300">Ngày bắt đầu mới</label>
               <DateInput
                 value={updateTaskDialog.plannedStart}
                 onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, plannedStart: e.target.value })}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+                className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400 dark:focus:border-slate-500"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Ngày kết thúc mới</label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300">Ngày kết thúc mới</label>
               <DateInput
                 value={updateTaskDialog.plannedEnd}
                 onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, plannedEnd: e.target.value })}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+                className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400 dark:focus:border-slate-500"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Người duyệt</label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300">Người duyệt</label>
               <select
                 value={updateTaskDialog.approverId}
                 onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, approverId: e.target.value })}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+                className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-sm outline-none focus:border-slate-400 dark:focus:border-slate-500"
               >
                 <option value="">— Chọn người duyệt —</option>
                 {approvers.map((u) => (
@@ -3232,13 +3232,13 @@ export function ManageClient({
               placeholder="Lý do cập nhật (tùy chọn)…"
               value={updateTaskDialog.note}
               onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, note: e.target.value })}
-              className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-slate-400"
+              className="w-full resize-none rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 text-sm outline-none focus:border-slate-400 dark:focus:border-slate-500"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setUpdateTaskDialog(null)}
-                className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-md border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
               >
                 Hủy
               </button>
@@ -3246,7 +3246,7 @@ export function ManageClient({
                 type="button"
                 disabled={updateTaskPending || !updateTaskDialog.plannedStart || !updateTaskDialog.plannedEnd || !updateTaskDialog.approverId}
                 onClick={runUpdateTaskRequest}
-                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-600"
               >
                 {updateTaskPending ? "Đang gửi…" : "Gửi yêu cầu"}
               </button>
@@ -3379,14 +3379,14 @@ function InlineTaskEditRow({
     }
   }
 
-  const cellCls = "bg-amber-50/50 px-2 py-2 align-top";
-  const inputCls = "h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 outline-none focus:border-blue-400";
-  const dateCls = "h-8 w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400";
+  const cellCls = "bg-amber-50 dark:bg-amber-950/50 px-2 py-2 align-top";
+  const inputCls = "h-8 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-blue-400 dark:border-blue-600";
+  const dateCls = "h-8 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs outline-none focus:border-blue-400 dark:border-blue-600";
   const none = "--";
 
   return (
-    <tr className="bg-amber-50/50">
-      {canManage ? <td className="bg-amber-50/50 px-2 py-2 align-top" /> : null}
+    <tr className="bg-amber-50 dark:bg-amber-950/50">
+      {canManage ? <td className="bg-amber-50 dark:bg-amber-950/50 px-2 py-2 align-top" /> : null}
       {cols.map((col) => {
         if (col.key === "duAn") {
           return (
@@ -3537,7 +3537,7 @@ function Popover({
     <div
       ref={ref}
       style={{ position: "fixed", left: Math.max(8, left), top, width }}
-      className="z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5"
+      className="z-50 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-black/5"
     >
       {children}
     </div>,
@@ -3547,10 +3547,10 @@ function Popover({
 
 function PopHeader({ title, onClear, showClear }: { title: string; onClear: () => void; showClear: boolean }) {
   return (
-    <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-      <span className="text-xs font-semibold text-slate-700">{title}</span>
+    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-3 py-2">
+      <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{title}</span>
       {showClear ? (
-        <button type="button" onClick={onClear} className="text-[11px] font-medium text-slate-400 hover:text-red-600">
+        <button type="button" onClick={onClear} className="text-[11px] font-medium text-slate-400 dark:text-slate-500 hover:text-red-600 dark:text-red-400">
           Xóa
         </button>
       ) : null}
@@ -3566,21 +3566,21 @@ function MultiBody({ col, value, onChange }: { col: ColDef; value: string[]; onC
   return (
     <div>
       {(col.opts?.length ?? 0) >= 5 ? (
-        <div className="relative border-b border-slate-100 p-2">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+        <div className="relative border-b border-slate-100 dark:border-slate-800 p-2">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
           <input
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Tìm…"
-            className="h-7 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-xs outline-none focus:border-slate-400 focus:bg-white"
+            className="h-7 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 pl-7 pr-2 text-xs outline-none focus:border-slate-400 dark:focus:border-slate-500 focus:bg-white dark:focus:bg-slate-900"
           />
         </div>
       ) : null}
-      <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-slate-400">
+      <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-slate-400 dark:text-slate-500">
         <span>{sel.length ? `${sel.length} đã chọn` : "Chọn giá trị"}</span>
         {sel.length > 0 ? (
-          <button type="button" onClick={() => onChange([])} className="hover:text-slate-600">
+          <button type="button" onClick={() => onChange([])} className="hover:text-slate-600 dark:hover:text-slate-300">
             Bỏ chọn
           </button>
         ) : null}
@@ -3593,12 +3593,12 @@ function MultiBody({ col, value, onChange }: { col: ColDef; value: string[]; onC
               <button
                 type="button"
                 onClick={() => toggle(o)}
-                className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+                className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900"
               >
                 <span
                   className={cn(
                     "grid size-4 shrink-0 place-items-center rounded border",
-                    on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+                    on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 dark:border-slate-600",
                   )}
                 >
                   {on ? <Check className="size-3" strokeWidth={3} /> : null}
@@ -3608,7 +3608,7 @@ function MultiBody({ col, value, onChange }: { col: ColDef; value: string[]; onC
             </li>
           );
         })}
-        {opts.length === 0 ? <li className="px-3 py-2 text-xs text-slate-400">Không có kết quả</li> : null}
+        {opts.length === 0 ? <li className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">Không có kết quả</li> : null}
       </ul>
     </div>
   );
@@ -3628,12 +3628,12 @@ function StatusBody({ value, onChange }: { value: StatusFilterVal; onChange: (v:
         key={`${grp}-${code}`}
         type="button"
         onClick={() => tog(grp, code)}
-        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900"
       >
         <span
           className={cn(
             "grid size-4 shrink-0 place-items-center rounded border",
-            on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+            on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 dark:border-slate-600",
           )}
         >
           {on ? <Check className="size-3" strokeWidth={3} /> : null}
@@ -3645,21 +3645,21 @@ function StatusBody({ value, onChange }: { value: StatusFilterVal; onChange: (v:
   };
   return (
     <div className="pb-1">
-      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Trạng thái</p>
+      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Trạng thái</p>
       {item("status", "QUA_HAN", "Quá hạn", "bg-red-500")}
       {item("status", "DANG_LAM", "Đang thực hiện", "bg-blue-500")}
-      {item("status", "CHUA_LAM", "Chưa thực hiện", "bg-slate-400")}
+      {item("status", "CHUA_LAM", "Chưa thực hiện", "bg-slate-400 dark:bg-slate-500")}
       {item("status", "TAM_DUNG", "Tạm dừng", "bg-amber-500")}
       {item("status", "HOAN_THANH", "Hoàn thành", "bg-emerald-500")}
       <button
         type="button"
         onClick={() => onChange({ ...v, tre: !v.tre })}
-        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900"
       >
         <span
           className={cn(
             "grid size-4 shrink-0 place-items-center rounded border",
-            v.tre ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+            v.tre ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 dark:border-slate-600",
           )}
         >
           {v.tre ? <Check className="size-3" strokeWidth={3} /> : null}
@@ -3675,13 +3675,13 @@ function TextBody({ col, value, onChange }: { col: ColDef; value: string; onChan
   return (
     <div className="p-2">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
         <input
           autoFocus
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder={`Lọc theo ${col.label.toLowerCase()}…`}
-          className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-[13px] outline-none focus:border-slate-400 focus:bg-white"
+          className="h-8 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 pl-7 pr-2 text-[13px] outline-none focus:border-slate-400 dark:focus:border-slate-500 focus:bg-white dark:focus:bg-slate-900"
         />
       </div>
     </div>
@@ -3695,14 +3695,14 @@ function DateBody({ col, value, onChange }: { col: ColDef; value: string; onChan
         <button
           type="button"
           onClick={() => onChange("")}
-          className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] hover:bg-slate-50"
+          className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] hover:bg-slate-50 dark:hover:bg-slate-900"
         >
           <span
-            className={cn("grid size-3.5 place-items-center rounded-full border", !value ? "border-slate-800" : "border-slate-300")}
+            className={cn("grid size-3.5 place-items-center rounded-full border", !value ? "border-slate-800" : "border-slate-300 dark:border-slate-600")}
           >
             {!value ? <span className="size-1.5 rounded-full bg-slate-800" /> : null}
           </span>
-          <span className="text-slate-500">Tất cả</span>
+          <span className="text-slate-500 dark:text-slate-400">Tất cả</span>
         </button>
       </li>
       {(DATE_PRESETS[col.key] ?? []).map(([val, label]) => {
@@ -3712,10 +3712,10 @@ function DateBody({ col, value, onChange }: { col: ColDef; value: string; onChan
             <button
               type="button"
               onClick={() => onChange(val)}
-              className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900"
             >
               <span
-                className={cn("grid size-3.5 place-items-center rounded-full border", on ? "border-slate-800" : "border-slate-300")}
+                className={cn("grid size-3.5 place-items-center rounded-full border", on ? "border-slate-800" : "border-slate-300 dark:border-slate-600")}
               >
                 {on ? <span className="size-1.5 rounded-full bg-slate-800" /> : null}
               </span>
@@ -3730,13 +3730,13 @@ function DateBody({ col, value, onChange }: { col: ColDef; value: string; onChan
 
 function Chip({ label, value, onRemove }: { label: string; value: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-xs shadow-sm">
-      <span className="text-slate-400">{label}:</span>
-      <span className="font-medium text-slate-700">{value}</span>
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-1 pl-2.5 pr-1 text-xs shadow-sm">
+      <span className="text-slate-400 dark:text-slate-500">{label}:</span>
+      <span className="font-medium text-slate-700 dark:text-slate-200">{value}</span>
       <button
         type="button"
         onClick={onRemove}
-        className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        className="grid size-4 place-items-center rounded-full text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
       >
         <X className="size-3" />
       </button>
@@ -3908,19 +3908,19 @@ function TreeInsertRow({
     else toast.error(res.error);
   }
 
-  const cellCls = "bg-blue-50/40 px-2 py-2 align-top";
+  const cellCls = "bg-blue-50 dark:bg-blue-950/40 px-2 py-2 align-top";
   const lockedCls =
-    "flex h-8 w-full items-center truncate rounded-md border border-slate-200 bg-slate-100 px-2 text-xs font-medium text-slate-500";
+    "flex h-8 w-full items-center truncate rounded-md border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-2 text-xs font-medium text-slate-500 dark:text-slate-400";
   const lockedField = (value: string, placeholder = "") => (
     <div className={lockedCls} title={value || undefined}>
       {value || placeholder}
     </div>
   );
-  const dateCls = "h-8 w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400";
+  const dateCls = "h-8 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs outline-none focus:border-blue-400 dark:border-blue-600";
 
   return (
-    <tr className="bg-blue-50/40">
-      {canManage ? <td className="bg-blue-50/40 px-2 py-2 align-top" /> : null}
+    <tr className="bg-blue-50 dark:bg-blue-950/40">
+      {canManage ? <td className="bg-blue-50 dark:bg-blue-950/40 px-2 py-2 align-top" /> : null}
       {cols.map((col) => {
         if (col.key === "duAn") {
           return (
@@ -3981,7 +3981,7 @@ function TreeInsertRow({
             <td key={col.key} className={cellCls}>
               <input
                 autoFocus
-                className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-800 outline-none focus:border-blue-400"
+                className="h-8 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs text-slate-800 dark:text-slate-100 outline-none focus:border-blue-400 dark:border-blue-600"
                 placeholder="Ten dau viec..."
                 value={level5}
                 list={`level5-${ctx.groupKey}`}
@@ -4069,13 +4069,13 @@ function TreeInsertRow({
   );
 
   return (
-    <tr className="bg-blue-50/40">
+    <tr className="bg-blue-50 dark:bg-blue-950/40">
       <td colSpan={totalCols} className="p-0">
         {/* sticky left: form ghim vào cạnh trái khi cuộn ngang, không vỡ layout cột */}
-        <div className="sticky left-0 z-[12] inline-flex max-w-[calc(100vw-1rem)] flex-wrap items-end gap-2 border-b border-blue-200 bg-blue-50/60 px-3 py-2">
+        <div className="sticky left-0 z-[12] inline-flex max-w-[calc(100vw-1rem)] flex-wrap items-end gap-2 border-b border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 px-3 py-2">
           {/* Loại hình */}
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-medium text-slate-500">Loại hình</span>
+            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Loại hình</span>
             <div className="w-28">
               <SearchableCombobox creatable={false} placeholder={NONE} value={ctCode}
                 options={[NONE, ...ctCodes]}
@@ -4084,7 +4084,7 @@ function TreeInsertRow({
           </div>
           {/* Hạng mục */}
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-medium text-slate-500">Hạng mục</span>
+            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Hạng mục</span>
             <div className="w-36">
               <SearchableCombobox creatable placeholder="Chọn / nhập mới..." value={hangMuc}
                 options={hangMucOpts} onChange={setHangMuc} />
@@ -4092,7 +4092,7 @@ function TreeInsertRow({
           </div>
           {/* Đầu việc */}
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-medium text-slate-500">Đầu việc</span>
+            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Đầu việc</span>
             <div className="w-48">
               <SearchableCombobox
                 creatable
@@ -4107,7 +4107,7 @@ function TreeInsertRow({
           </div>
           {/* Bộ môn */}
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-medium text-slate-500">Bộ môn</span>
+            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Bộ môn</span>
             <div className="w-36">
               <SearchableCombobox
                 creatable={false}
@@ -4120,14 +4120,14 @@ function TreeInsertRow({
           </div>
           {/* Người thực hiện */}
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-medium text-slate-500">Người thực hiện</span>
+            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Người thực hiện</span>
             <div className="w-52">
               <UserMultiSelect users={users} value={assigneeIds} onChange={setAssigneeIds} />
             </div>
           </div>
           {/* Ưu tiên */}
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-medium text-slate-500">Ưu tiên</span>
+            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Ưu tiên</span>
             <Select className="h-8 w-28 text-xs" value={priority} onChange={(e) => setPriority(e.target.value)}>
               <option value="CAO">Cao</option>
               <option value="TRUNG_BINH">Trung bình</option>
@@ -4136,13 +4136,13 @@ function TreeInsertRow({
           </div>
           {/* Ngày */}
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-medium text-slate-500">Ngày BĐ</span>
-            <DateInput className="h-8 rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
+            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Ngày BĐ</span>
+            <DateInput className="h-8 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs outline-none focus:border-blue-400 dark:border-blue-600"
               value={plannedStart} onChange={(e) => setPlannedStart(e.target.value)} />
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-medium text-slate-500">Ngày KT</span>
-            <DateInput className="h-8 rounded-md border border-slate-200 bg-white px-1.5 text-xs outline-none focus:border-blue-400"
+            <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">Ngày KT</span>
+            <DateInput className="h-8 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 text-xs outline-none focus:border-blue-400 dark:border-blue-600"
               value={plannedEnd} onChange={(e) => setPlannedEnd(e.target.value)} />
           </div>
           {/* Actions */}

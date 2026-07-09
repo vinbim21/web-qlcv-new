@@ -138,7 +138,7 @@ export function TaskForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="workGroupId">Nhóm công việc *</Label>
           <Select
@@ -185,7 +185,7 @@ export function TaskForm({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="level2">Hạng mục (L2)</Label>
           <Input id="level2" name="level2" list="dl-l2" defaultValue={task?.level2 ?? ""} />
@@ -206,7 +206,7 @@ export function TaskForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="level5">Đầu việc (L5)</Label>
           <Input id="level5" name="level5" list="dl-l5" defaultValue={task?.level5 ?? ""} />
@@ -222,7 +222,7 @@ export function TaskForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <Label htmlFor="disciplineId">Bộ môn (L4)</Label>
           <Select id="disciplineId" name="disciplineId" defaultValue={task?.disciplineId ?? ""}>
@@ -251,7 +251,7 @@ export function TaskForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="priority">Ưu tiên</Label>
           <Select id="priority" name="priority" defaultValue={task?.priority ?? "TRUNG_BINH"}>
@@ -273,7 +273,7 @@ export function TaskForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="plannedStart">Bắt đầu</Label>
           <DateInput id="plannedStart" name="plannedStart" defaultValue={task?.plannedStart} />

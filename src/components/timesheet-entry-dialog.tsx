@@ -246,7 +246,7 @@ export function TimesheetEntryDialog({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="date">Ngày</Label>
             <DateInput id="date" name="date" defaultValue={entry?.date ?? defaultDate} required />
