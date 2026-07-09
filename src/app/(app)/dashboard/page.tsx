@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { ClipboardList, Clock, FolderTree, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ROLE_LABEL } from "@/lib/labels";
 import { auth } from "@/server/auth/config";
 import { prisma } from "@/server/db/client";
+import { RecentTasksCard, type RecentTask } from "./recent-tasks-card";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -51,10 +51,19 @@ export default async function DashboardPage() {
     return db - da;
   });
 
-  // "Xem tất cả": OR (dấu "|") giữa từng việc, mỗi việc là AND (dấu ",") của Dự án/Loại hình/Hạng mục/Công việc.
-  const viewAllQuery = assignedTasks
-    .map((t) => [t.project?.group?.code, t.level2, t.level3, t.name].filter(Boolean).join(", "))
-    .join(" | ");
+  const recentTasks: RecentTask[] = assignedTasks.map((t) => {
+    const assignedOn = t.startApprovedAt && t.startApprovedAt > t.createdAt ? t.startApprovedAt : t.createdAt;
+    return {
+      id: t.id,
+      name: t.name,
+      level2: t.level2,
+      level3: t.level3,
+      groupCode: t.project?.group?.code ?? null,
+      disciplineCode: t.discipline?.code ?? null,
+      phaseName: t.phase?.name ?? null,
+      assignedOn: assignedOn.toISOString(),
+    };
+  });
 
   const cards = [
     { label: "Dự án", value: projectCount, icon: FolderTree },
@@ -86,88 +95,7 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle>Việc vừa được giao (7 ngày qua) — {assignedTasks.length} việc</CardTitle>
-          {assignedTasks.length > 0 ? (
-            <Link
-              href={`/tasks?q=${encodeURIComponent(viewAllQuery)}`}
-              className="text-sm font-medium text-primary hover:underline"
-            >
-              Xem tất cả trong Công việc của tôi →
-            </Link>
-          ) : null}
-        </CardHeader>
-        <CardContent>
-          {assignedTasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Không có việc nào mới được giao trong 7 ngày qua.</p>
-          ) : (
-            <div className="max-h-[28rem] overflow-y-auto overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-card">
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="pb-2 pr-3 font-medium">Dự án</th>
-                    <th className="pb-2 pr-3 font-medium">Loại hình</th>
-                    <th className="pb-2 pr-3 font-medium">Hạng mục</th>
-                    <th className="pb-2 pr-3 font-medium">Công việc</th>
-                    <th className="pb-2 pr-3 font-medium">Bộ môn</th>
-                    <th className="pb-2 pr-3 font-medium">Giai đoạn</th>
-                    <th className="pb-2 font-medium">Ngày giao</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {assignedTasks.map((t) => {
-                    // Điền vào ô tìm kiếm của /tasks: Dự án, Loại hình, Hạng mục, Công việc
-                    // (thay vì mã việc) — khớp nhiều điều kiện bằng dấu phẩy (AND).
-                    const q = [t.project?.group?.code, t.level2, t.level3, t.name].filter(Boolean).join(", ");
-                    const href = `/tasks?q=${encodeURIComponent(q)}`;
-                    const assignedOn = t.startApprovedAt && t.startApprovedAt > t.createdAt ? t.startApprovedAt : t.createdAt;
-                    return (
-                      <tr key={t.id} className="border-b last:border-0 hover:bg-muted/50">
-                        <td className="p-0">
-                          <Link href={href} className="block py-1.5 pr-3">
-                            {t.project?.group?.code ?? "—"}
-                          </Link>
-                        </td>
-                        <td className="p-0">
-                          <Link href={href} className="block py-1.5 pr-3">
-                            {t.level2 || "—"}
-                          </Link>
-                        </td>
-                        <td className="p-0">
-                          <Link href={href} className="block py-1.5 pr-3">
-                            {t.level3 || "—"}
-                          </Link>
-                        </td>
-                        <td className="p-0">
-                          <Link href={href} className="block py-1.5 pr-3">
-                            {t.name}
-                          </Link>
-                        </td>
-                        <td className="p-0">
-                          <Link href={href} className="block py-1.5 pr-3">
-                            {t.discipline?.code ?? "—"}
-                          </Link>
-                        </td>
-                        <td className="p-0">
-                          <Link href={href} className="block py-1.5 pr-3">
-                            {t.phase?.name ?? "—"}
-                          </Link>
-                        </td>
-                        <td className="p-0">
-                          <Link href={href} className="block whitespace-nowrap py-1.5 text-muted-foreground">
-                            {assignedOn.toLocaleDateString("vi-VN")}
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <RecentTasksCard tasks={recentTasks} />
 
       <Card>
         <CardHeader>

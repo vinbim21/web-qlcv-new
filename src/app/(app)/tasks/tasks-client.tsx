@@ -256,11 +256,11 @@ function taskContextLabel(t: TaskRow): string {
 
 // ---------- pill mềm trạng thái (đồng bộ /manage) ----------
 const STATUS_SOFT: Record<string, { dot: string; pill: string }> = {
-  CHUA_LAM: { dot: "bg-slate-400", pill: "bg-slate-50 text-slate-600 ring-slate-200" },
-  DANG_LAM: { dot: "bg-blue-500", pill: "bg-blue-50 text-blue-700 ring-blue-200" },
-  HOAN_THANH: { dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
-  TAM_DUNG: { dot: "bg-amber-500", pill: "bg-amber-50 text-amber-700 ring-amber-200" },
-  QUA_HAN: { dot: "bg-red-500", pill: "bg-red-50 text-red-700 ring-red-200" },
+  CHUA_LAM: { dot: "bg-slate-400 dark:bg-slate-500", pill: "bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 ring-slate-200 dark:ring-slate-700" },
+  DANG_LAM: { dot: "bg-blue-500", pill: "bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 ring-blue-200 dark:ring-blue-800" },
+  HOAN_THANH: { dot: "bg-emerald-500", pill: "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-800" },
+  TAM_DUNG: { dot: "bg-amber-500", pill: "bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 ring-amber-200 dark:ring-amber-800" },
+  QUA_HAN: { dot: "bg-red-500", pill: "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 ring-red-200 dark:ring-red-800" },
 };
 
 // ---------- cấu hình cột + lọc ----------
@@ -467,7 +467,7 @@ function Popover({
     <div
       ref={ref}
       style={{ position: "fixed", left: Math.max(8, left), top, width }}
-      className="z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5"
+      className="z-50 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-black/5"
     >
       {children}
     </div>,
@@ -476,10 +476,10 @@ function Popover({
 }
 function PopHeader({ title, onClear, showClear }: { title: string; onClear: () => void; showClear: boolean }) {
   return (
-    <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-      <span className="text-xs font-semibold text-slate-700">{title}</span>
+    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-3 py-2">
+      <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{title}</span>
       {showClear ? (
-        <button type="button" onClick={onClear} className="text-[11px] font-medium text-slate-400 hover:text-red-600">
+        <button type="button" onClick={onClear} className="text-[11px] font-medium text-slate-400 dark:text-slate-500 hover:text-red-600 dark:text-red-400">
           Xóa
         </button>
       ) : null}
@@ -502,21 +502,21 @@ function MultiBody({
   return (
     <div>
       {(col.opts?.length ?? 0) >= 5 ? (
-        <div className="relative border-b border-slate-100 p-2">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+        <div className="relative border-b border-slate-100 dark:border-slate-800 p-2">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
           <input
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Tìm…"
-            className="h-7 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-xs outline-none focus:border-slate-400 focus:bg-white"
+            className="h-7 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 pl-7 pr-2 text-xs outline-none focus:border-slate-400 dark:focus:border-slate-500 focus:bg-white dark:focus:bg-slate-900"
           />
         </div>
       ) : null}
-      <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-slate-400">
+      <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-slate-400 dark:text-slate-500">
         <span>{sel.length ? `${sel.length} đã chọn` : "Chọn giá trị"}</span>
         {sel.length > 0 ? (
-          <button type="button" onClick={() => onChange([])} className="hover:text-slate-600">
+          <button type="button" onClick={() => onChange([])} className="hover:text-slate-600 dark:hover:text-slate-300">
             Bỏ chọn
           </button>
         ) : null}
@@ -529,12 +529,12 @@ function MultiBody({
               <button
                 type="button"
                 onClick={() => toggle(o)}
-                className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+                className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900"
               >
                 <span
                   className={cn(
                     "grid size-4 shrink-0 place-items-center rounded border",
-                    on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+                    on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 dark:border-slate-600",
                   )}
                 >
                   {on ? <Check className="size-3" strokeWidth={3} /> : null}
@@ -544,7 +544,7 @@ function MultiBody({
             </li>
           );
         })}
-        {opts.length === 0 ? <li className="px-3 py-2 text-xs text-slate-400">Không có kết quả</li> : null}
+        {opts.length === 0 ? <li className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">Không có kết quả</li> : null}
       </ul>
     </div>
   );
@@ -569,12 +569,12 @@ function StatusBody({
         key={`${grp}-${code}`}
         type="button"
         onClick={() => tog(grp, code)}
-        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900"
       >
         <span
           className={cn(
             "grid size-4 shrink-0 place-items-center rounded border",
-            on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300",
+            on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 dark:border-slate-600",
           )}
         >
           {on ? <Check className="size-3" strokeWidth={3} /> : null}
@@ -586,10 +586,10 @@ function StatusBody({
   };
   return (
     <div className="pb-1">
-      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Trạng thái</p>
+      <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Trạng thái</p>
       {renderItem("status", "QUA_HAN", "Quá hạn", "bg-red-500")}
       {renderItem("status", "DANG_LAM", "Đang thực hiện", "bg-blue-500")}
-      {renderItem("status", "CHUA_LAM", "Chưa thực hiện", "bg-slate-400")}
+      {renderItem("status", "CHUA_LAM", "Chưa thực hiện", "bg-slate-400 dark:bg-slate-500")}
       {renderItem("status", "TAM_DUNG", "Tạm dừng", "bg-amber-500")}
       {renderItem("status", "HOAN_THANH", "Hoàn thành", "bg-emerald-500")}
     </div>
@@ -607,13 +607,13 @@ function TextBody({
   return (
     <div className="p-2">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
         <input
           autoFocus
           value={(value as string) || ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder={`Lọc theo ${col.label.toLowerCase()}…`}
-          className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-[13px] outline-none focus:border-slate-400 focus:bg-white"
+          className="h-8 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 pl-7 pr-2 text-[13px] outline-none focus:border-slate-400 dark:focus:border-slate-500 focus:bg-white dark:focus:bg-slate-900"
         />
       </div>
     </div>
@@ -634,12 +634,12 @@ function DateBody({
         <button
           type="button"
           onClick={() => onChange("")}
-          className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] hover:bg-slate-50"
+          className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] hover:bg-slate-50 dark:hover:bg-slate-900"
         >
-          <span className={cn("grid size-3.5 place-items-center rounded-full border", !value ? "border-slate-800" : "border-slate-300")}>
+          <span className={cn("grid size-3.5 place-items-center rounded-full border", !value ? "border-slate-800" : "border-slate-300 dark:border-slate-600")}>
             {!value ? <span className="size-1.5 rounded-full bg-slate-800" /> : null}
           </span>
-          <span className="text-slate-500">Tất cả</span>
+          <span className="text-slate-500 dark:text-slate-400">Tất cả</span>
         </button>
       </li>
       {(DATE_PRESETS[col.key] ?? []).map(([val, label]) => {
@@ -649,9 +649,9 @@ function DateBody({
             <button
               type="button"
               onClick={() => onChange(val)}
-              className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+              className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900"
             >
-              <span className={cn("grid size-3.5 place-items-center rounded-full border", on ? "border-slate-800" : "border-slate-300")}>
+              <span className={cn("grid size-3.5 place-items-center rounded-full border", on ? "border-slate-800" : "border-slate-300 dark:border-slate-600")}>
                 {on ? <span className="size-1.5 rounded-full bg-slate-800" /> : null}
               </span>
               <span className="truncate">{label}</span>
@@ -664,13 +664,13 @@ function DateBody({
 }
 function Chip({ label, value, onRemove }: { label: string; value: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-1 pl-2.5 pr-1 text-xs shadow-sm">
-      <span className="text-slate-400">{label}:</span>
-      <span className="font-medium text-slate-700">{value}</span>
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-1 pl-2.5 pr-1 text-xs shadow-sm">
+      <span className="text-slate-400 dark:text-slate-500">{label}:</span>
+      <span className="font-medium text-slate-700 dark:text-slate-200">{value}</span>
       <button
         type="button"
         onClick={onRemove}
-        className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        className="grid size-4 place-items-center rounded-full text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
       >
         <X className="size-3" />
       </button>
@@ -680,7 +680,7 @@ function Chip({ label, value, onRemove }: { label: string; value: string; onRemo
 
 function PrioBadge({ p }: { p: string }) {
   const color =
-    p === "CAO" ? "text-red-600" : p === "TRUNG_BINH" ? "text-amber-500" : "text-slate-400";
+    p === "CAO" ? "text-red-600 dark:text-red-400" : p === "TRUNG_BINH" ? "text-amber-500" : "text-slate-400 dark:text-slate-500";
   return (
     <span className={cn("text-[11px] font-medium whitespace-nowrap", color)}>
       {PRIORITY_LABEL[p] ?? p}
@@ -723,7 +723,7 @@ function StatusCell({
         </span>
         {late ? (
           <span
-            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 ring-1 ring-inset ring-rose-200"
+            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-rose-50 dark:bg-rose-950 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 dark:text-rose-300 ring-1 ring-inset ring-rose-200 dark:ring-rose-800"
             title={`Hoàn thành trễ hạn ${lateDays} ngày (hạn ${fmtDate(t.plannedEnd)} · xong ${fmtDate(t.actualEnd)})`}
           >
             <Flag className="size-2.5 shrink-0" /> Trễ {lateDays} ngày
@@ -735,7 +735,7 @@ function StatusCell({
               type="button"
               title="Bỏ tạm dừng"
               onClick={() => onTogglePause(false)}
-              className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="grid size-6 place-items-center rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
             >
               <Play className="size-3.5" />
             </button>
@@ -744,7 +744,7 @@ function StatusCell({
               type="button"
               title="Tạm dừng"
               onClick={() => onTogglePause(true)}
-              className="grid size-6 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="grid size-6 place-items-center rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
             >
               <Pause className="size-3.5" />
             </button>
@@ -757,14 +757,14 @@ function StatusCell({
             <button
               type="button"
               onClick={onApprove}
-              className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 hover:bg-emerald-50 hover:text-emerald-700 hover:ring-emerald-200"
+              className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-200 dark:ring-amber-800 hover:bg-emerald-50 dark:bg-emerald-950 hover:text-emerald-700 dark:text-emerald-300 hover:ring-emerald-200 dark:ring-emerald-800"
               title="Bấm để duyệt khởi tạo — cho phép nhập thời gian"
             >
               <Lock className="size-2.5" /> Chờ duyệt
             </button>
           ) : (
             <span
-              className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200"
+              className="inline-flex items-center gap-1 rounded bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-200 dark:ring-amber-800"
               title={t.approverName ? `Chờ ${t.approverName} duyệt khởi tạo` : "Đang chờ quản lý duyệt khởi tạo"}
             >
               <Lock className="size-2.5" /> Chờ duyệt
@@ -774,7 +774,7 @@ function StatusCell({
       ) : null}
       {t.completionHistory.length > 0 ? (
         <span
-          className="mt-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200"
+          className="mt-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-200 dark:ring-emerald-800"
           title={formatCompletionHistory(t.completionHistory)}
         >
           <History className="size-2.5 shrink-0" /> {t.completionHistory.length} lần hoàn thành trước
@@ -798,7 +798,7 @@ function CompletionCell({
   const late = isCompletedLate(t);
   if (pending) {
     return (
-      <div className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-300 ring-1 ring-inset ring-slate-200">
+      <div className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-50 dark:bg-slate-900 px-2 py-0.5 text-[11px] font-medium text-slate-300 dark:text-slate-600 ring-1 ring-inset ring-slate-200 dark:ring-slate-700">
         <Lock className="size-3.5 shrink-0" /> Chờ duyệt
       </div>
     );
@@ -817,7 +817,7 @@ function CompletionCell({
         className={cn(
           "group relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
           canEdit ? "cursor-pointer" : "cursor-default",
-          late ? "bg-rose-50 text-rose-700 ring-rose-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200",
+          late ? "bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 ring-rose-200 dark:ring-rose-800" : "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-800",
         )}
       >
         <Check className="size-3.5 shrink-0" strokeWidth={3} />
@@ -841,8 +841,8 @@ function CompletionCell({
       className={cn(
         "group relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset transition",
         canEdit
-          ? "cursor-pointer bg-slate-50 text-slate-500 ring-slate-200 hover:bg-slate-100 hover:text-slate-700"
-          : "cursor-default bg-slate-50 text-slate-300 ring-slate-200",
+          ? "cursor-pointer bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 ring-slate-200 dark:ring-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
+          : "cursor-default bg-slate-50 dark:bg-slate-900 text-slate-300 dark:text-slate-600 ring-slate-200 dark:ring-slate-700",
       )}
     >
       <Calendar className="size-3.5 shrink-0 opacity-60" />
@@ -862,7 +862,7 @@ function CompletionCell({
 
 function CodeChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600">
+    <span className="inline-block rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600 dark:text-slate-300">
       {children}
     </span>
   );
@@ -1558,7 +1558,7 @@ export function TasksClient({
     width,
     position: "sticky",
     top: 0,
-    background: "#f8fafc", // slate-50
+    background: "var(--muted)", // slate-50 (light) / slate-800 (dark) — theo theme.dark ở globals.css
     ...(isFrozen(k)
       ? { left: leftOf(k), zIndex: 30, boxShadow: k === frozenLast ? FROZEN_SHADOW : undefined }
       : { zIndex: 20 }),
@@ -1577,15 +1577,15 @@ export function TasksClient({
         key={col.key}
         style={headStyle(col.key, col.w)}
         className={cn(
-          "border-b border-slate-200 px-2.5 py-2.5 text-left text-xs font-semibold text-slate-500",
-          col.ident && col.key !== "duAn" && "border-l border-slate-100",
+          "border-b border-slate-200 dark:border-slate-700 px-2.5 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400",
+          col.ident && col.key !== "duAn" && "border-l border-slate-100 dark:border-slate-800",
         )}
       >
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => toggleSort(col.key)}
-            className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-slate-800"
+            className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-slate-800 dark:hover:text-slate-100"
           >
             <span className="truncate">{col.label}</span>
             {active ? (
@@ -1608,7 +1608,7 @@ export function TasksClient({
               }}
               className={cn(
                 "grid size-5 shrink-0 place-items-center rounded transition",
-                filterOn ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200 hover:text-slate-600",
+                filterOn ? "bg-slate-800 text-white" : "text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-300",
               )}
             >
               <Filter className="size-3" strokeWidth={filterOn ? 2.5 : 2} />
@@ -1632,8 +1632,10 @@ export function TasksClient({
         key={t.id}
         onDoubleClick={canManage ? () => setEditing(t) : undefined}
         className={cn(
-          "border-b border-slate-100 bg-[var(--row-bg)]",
-          isSel ? "[--row-bg:#eff6ff]" : "[--row-bg:#ffffff] hover:[--row-bg:#f8fafc]",
+          "border-b border-slate-100 dark:border-slate-800 bg-[var(--row-bg)]",
+          isSel
+            ? "[--row-bg:#eff6ff] dark:[--row-bg:#1e3a5f]"
+            : "[--row-bg:#ffffff] hover:[--row-bg:#f8fafc] dark:[--row-bg:var(--card)] dark:hover:[--row-bg:var(--accent)]",
         )}
       >
         <td style={bodyFrozenStyle("__sel__")} className="px-2 py-2.5 align-top">
@@ -1652,8 +1654,8 @@ export function TasksClient({
             return <td key={c.key} style={bodyFrozenStyle(c.key)} className="px-2 py-2.5 align-top" />;
           if (c.key === "duAn")
             return (
-              <td key="duAn" style={bodyFrozenStyle("duAn")} className="px-2 py-2.5 align-top text-xs text-slate-600">
-                {duAnText(t) !== "—" ? duAnText(t) : <span className="text-slate-300">—</span>}
+              <td key="duAn" style={bodyFrozenStyle("duAn")} className="px-2 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+                {duAnText(t) !== "—" ? duAnText(t) : <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
           if (c.key === "congViec")
@@ -1661,48 +1663,48 @@ export function TasksClient({
               <td
                 key="congViec"
                 style={bodyFrozenStyle("congViec")}
-                className="cursor-pointer border-l border-slate-100 px-2 py-2.5 align-top"
+                className="cursor-pointer border-l border-slate-100 dark:border-slate-800 px-2 py-2.5 align-top"
                 onClick={() => void openDetail(t)}
                 title="Xem chi tiết công việc"
               >
-                <span className="font-medium text-slate-800">{t.name}</span>
+                <span className="font-medium text-slate-800 dark:text-slate-100">{t.name}</span>
               </td>
             );
           if (c.key === "loaiHinh")
             return (
-              <td key="loaiHinh" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
-                {t.loaiHinhCode || <span className="text-slate-300">—</span>}
+              <td key="loaiHinh" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+                {t.loaiHinhCode || <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
           if (c.key === "hangMuc")
             return (
-              <td key="hangMuc" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
-                {t.level3 || <span className="text-slate-300">—</span>}
+              <td key="hangMuc" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+                {t.level3 || <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
           if (c.key === "giaiDoan")
             return (
-              <td key="giaiDoan" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
-                {t.phaseName || t.phaseCode || <span className="text-slate-300">—</span>}
+              <td key="giaiDoan" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+                {t.phaseName || t.phaseCode || <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
           if (c.key === "boMon")
             return (
-              <td key="boMon" className="px-2.5 py-2.5 align-top text-xs text-slate-600">
-                {t.disciplineCode || <span className="text-slate-300">—</span>}
+              <td key="boMon" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+                {t.disciplineCode || <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
           if (c.key === "thucHien")
             return (
               <td key="thucHien" className="px-2.5 py-2.5 align-top text-xs">
                 <div className="flex flex-col gap-0.5">
-                  {t.assigneeNames.length === 0 ? <span className="text-slate-300">—</span> : null}
+                  {t.assigneeNames.length === 0 ? <span className="text-slate-300 dark:text-slate-600">—</span> : null}
                   {t.assigneeNames.map((name, i) => {
                     const me = t.assigneeIds[i] === currentUserId;
                     return (
-                      <span key={`${t.id}-${i}`} className={me ? "font-medium text-slate-800" : "text-slate-500"}>
+                      <span key={`${t.id}-${i}`} className={me ? "font-medium text-slate-800 dark:text-slate-100" : "text-slate-500 dark:text-slate-400"}>
                         {name}
-                        {me ? <span className="ml-1 text-[10px] text-slate-400">(tôi)</span> : null}
+                        {me ? <span className="ml-1 text-[10px] text-slate-400 dark:text-slate-500">(tôi)</span> : null}
                       </span>
                     );
                   })}
@@ -1730,16 +1732,16 @@ export function TasksClient({
           if (c.key === "batDau")
             return (
               <td key="batDau" className="px-2.5 py-1 align-top">
-                <span className="text-xs text-slate-500">{fmtDate(t.plannedStart)}</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{fmtDate(t.plannedStart)}</span>
               </td>
             );
           if (c.key === "ketThuc")
             return (
               <td key="ketThuc" className="px-2.5 py-1 align-top text-xs">
-                <span className={overdue ? "font-medium text-red-600" : "text-slate-600"}>{fmtDate(t.plannedEnd)}</span>
+                <span className={overdue ? "font-medium text-red-600 dark:text-red-400" : "text-slate-600 dark:text-slate-300"}>{fmtDate(t.plannedEnd)}</span>
                 {(t.pendingPlannedEnd || t.endChangeRequesterId) ? (
                   <div className="mt-0.5 flex items-center gap-1">
-                    <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                    <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 dark:bg-amber-900 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300"
                           title={[t.endChangeRequesterName ? `${t.endChangeRequesterName} xin dời hạn` : "Xin dời hạn", t.endChangeNote].filter(Boolean).join(" — ")}>
                       {t.pendingPlannedEnd ? `→ ${fmtDate(t.pendingPlannedEnd)}` : "Xin dời hạn (chưa có ngày)"}
                     </span>
@@ -1754,7 +1756,7 @@ export function TasksClient({
                               if (r.ok) { toast.success("Đã duyệt đổi ngày kết thúc"); router.refresh(); }
                               else toast.error(r.error);
                             }}
-                            className="grid size-4 place-items-center rounded text-emerald-600 hover:bg-emerald-50"
+                            className="grid size-4 place-items-center rounded text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:bg-emerald-950"
                           >
                             <Check className="size-3" />
                           </button>
@@ -1767,7 +1769,7 @@ export function TasksClient({
                             if (r.ok) { toast.success("Đã từ chối yêu cầu"); router.refresh(); }
                             else toast.error(r.error);
                           }}
-                          className="grid size-4 place-items-center rounded text-red-500 hover:bg-red-50"
+                          className="grid size-4 place-items-center rounded text-red-500 hover:bg-red-50 dark:bg-red-950"
                         >
                           <X className="size-3" />
                         </button>
@@ -1781,7 +1783,7 @@ export function TasksClient({
                           if (r.ok) { toast.success("Đã hủy yêu cầu"); router.refresh(); }
                           else toast.error(r.error);
                         }}
-                        className="grid size-4 place-items-center rounded text-slate-400 hover:bg-slate-100"
+                        className="grid size-4 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                       >
                         <X className="size-3" />
                       </button>
@@ -1798,7 +1800,7 @@ export function TasksClient({
             );
           if (c.key === "soGio")
             return (
-              <td key="soGio" className="px-2.5 py-2.5 align-top text-center tabular-nums text-slate-600">
+              <td key="soGio" className="px-2.5 py-2.5 align-top text-center tabular-nums text-slate-600 dark:text-slate-300">
                 {t.totalHours > 0 ? `${Number.isInteger(t.totalHours) ? t.totalHours : t.totalHours.toFixed(1)} (h)` : null}
               </td>
             );
@@ -1814,7 +1816,7 @@ export function TasksClient({
         <td className="px-2 py-2 text-center align-top">
           {t.deleteRequestedAt ? (
             <div className="flex flex-col items-center gap-0.5">
-              <span className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-red-600"
+              <span className="inline-flex items-center gap-1 pl-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400"
                     title={[t.deleteRequesterName ? `${t.deleteRequesterName} xin xóa` : "Xin xóa", t.deleteRequestNote].filter(Boolean).join(" — ")}>
                 <span className="size-1.5 rounded-full bg-red-500" /> Chờ duyệt xóa
               </span>
@@ -1826,7 +1828,7 @@ export function TasksClient({
                       if (r.ok) { toast.success("Đã hủy yêu cầu xóa"); router.refresh(); }
                       else toast.error(r.error);
                     }}
-                    className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-100">
+                    className="grid size-5 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
                     <X className="size-3" />
                   </button>
                 )}
@@ -1838,7 +1840,7 @@ export function TasksClient({
                         if (r.ok) { toast.success("Đã xóa công việc"); router.refresh(); }
                         else toast.error(r.error);
                       }}
-                      className="grid size-5 place-items-center rounded text-emerald-600 hover:bg-emerald-50">
+                      className="grid size-5 place-items-center rounded text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:bg-emerald-950">
                       <Check className="size-3" />
                     </button>
                     <button type="button" title="Từ chối xóa"
@@ -1847,7 +1849,7 @@ export function TasksClient({
                         if (r.ok) { toast.success("Đã từ chối yêu cầu xóa"); router.refresh(); }
                         else toast.error(r.error);
                       }}
-                      className="grid size-5 place-items-center rounded text-red-500 hover:bg-red-50">
+                      className="grid size-5 place-items-center rounded text-red-500 hover:bg-red-50 dark:bg-red-950">
                       <X className="size-3" />
                     </button>
                   </>
@@ -1856,7 +1858,7 @@ export function TasksClient({
             </div>
           ) : (
             <button type="button" onClick={() => setLogging(t)} title="Ghi giờ cho công việc này"
-              className="grid size-8 place-items-center rounded-md text-slate-400 hover:bg-blue-50 hover:text-blue-600">
+              className="grid size-8 place-items-center rounded-md text-slate-400 dark:text-slate-500 hover:bg-blue-50 dark:bg-blue-950 hover:text-blue-600 dark:text-blue-400">
               <Clock className="size-4" />
             </button>
           )}
@@ -1882,14 +1884,14 @@ export function TasksClient({
     const { type, key, label, count, overdue, tasks: groupTasks } = node;
     const isCollapsed = effectiveTreeCollapsed.has(key);
     const Chevron = isCollapsed ? ChevronRight : ChevronDown;
-    const bg = type === "g1" ? "bg-slate-100" : "bg-slate-50";
+    const bg = type === "g1" ? "bg-slate-100 dark:bg-slate-800" : "bg-slate-50 dark:bg-slate-900";
     const textCls =
       type === "g1"
-        ? "text-[13px] font-semibold text-slate-700"
+        ? "text-[13px] font-semibold text-slate-700 dark:text-slate-200"
         : type === "g2"
-          ? "text-[13px] font-medium text-slate-600"
-          : "text-xs font-medium text-slate-500";
-    const borderCls = type === "g1" ? "border-t border-slate-200" : type === "g2" ? "border-t border-slate-200" : "border-t border-slate-100";
+          ? "text-[13px] font-medium text-slate-600 dark:text-slate-300"
+          : "text-xs font-medium text-slate-500 dark:text-slate-400";
+    const borderCls = type === "g1" ? "border-t border-slate-200 dark:border-slate-700" : type === "g2" ? "border-t border-slate-200 dark:border-slate-700" : "border-t border-slate-100 dark:border-slate-800";
     const duAnW = cols.find((c) => c.key === "duAn")!.w;
     const loaiHinhW = cols.find((c) => c.key === "loaiHinh")!.w;
     const hangMucW = cols.find((c) => c.key === "hangMuc")!.w;
@@ -1932,9 +1934,9 @@ export function TasksClient({
               onClick={() => toggleTreeNode(key)}
               className={cn("flex items-center gap-1.5", textCls)}
             >
-              <Chevron className="size-3.5 shrink-0 text-slate-400" />
+              <Chevron className="size-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
               <span className="whitespace-nowrap">{label === "—" ? "(Không có)" : label}</span>
-              <span className="text-xs font-normal text-slate-400">
+              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
                 ({count} việc{overdue ? ` · ${overdue} quá hạn` : ""})
               </span>
             </button>
@@ -1942,12 +1944,12 @@ export function TasksClient({
         </td>
         {/* Ngày dự án trong <td> thực của cột Bắt đầu / Kết thúc → luôn thẳng cột */}
         {batDauIdx >= 0 && (
-          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 whitespace-nowrap">
+          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">
             {projDates?.startDate ? fmtDate(projDates.startDate) : null}
           </td>
         )}
         {ketThucIdx >= 0 && (
-          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 whitespace-nowrap" title={projDates?.packagingDate ? "Đóng gói" : undefined}>
+          <td className="px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap" title={projDates?.packagingDate ? "Đóng gói" : undefined}>
             {projDates?.packagingDate ? fmtDate(projDates.packagingDate) : null}
           </td>
         )}
@@ -1962,16 +1964,16 @@ export function TasksClient({
     <div className="flex flex-col gap-3">
       {/* header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
           {sorted.length} / {tasks.length} việc được giao
           {activeFilterCount > 0 ? (
-            <span className="text-slate-400"> · đang lọc {activeFilterCount} điều kiện</span>
+            <span className="text-slate-400 dark:text-slate-500"> · đang lọc {activeFilterCount} điều kiện</span>
           ) : null}
         </p>
         <button
           type="button"
           onClick={() => setAddOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-700"
+          className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-700 dark:hover:bg-slate-200"
         >
           <Plus className="size-4" /> Thêm công việc
         </button>
@@ -1979,13 +1981,13 @@ export function TasksClient({
 
       {/* Lát cắt thời gian */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex overflow-hidden rounded-md border border-slate-200">
+        <div className="inline-flex overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
           {(["week", "month", "quarter", "year", "all"] as const).map((p, i) => {
             const LABEL: Record<string, string> = { week: "Tuần", month: "Tháng", quarter: "Quý", year: "Năm", all: "Tất cả" };
             return (
               <button key={p} type="button" onClick={() => handlePeriodType(p)}
-                className={cn("px-3 py-1.5 text-xs font-medium transition-colors", i > 0 && "border-l border-slate-200",
-                  timePeriod === p ? "bg-slate-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50")}
+                className={cn("px-3 py-1.5 text-xs font-medium transition-colors", i > 0 && "border-l border-slate-200 dark:border-slate-700",
+                  timePeriod === p ? "bg-slate-800 text-white" : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900")}
               >{LABEL[p]}</button>
             );
           })}
@@ -1993,11 +1995,11 @@ export function TasksClient({
         {periodBounds && (
           <>
             <div className="flex items-center gap-1">
-              <button type="button" onClick={handlePeriodPrev} className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white hover:bg-slate-50"><ChevronLeft className="size-3.5" /></button>
-              <span className="min-w-[180px] text-center text-xs font-semibold text-slate-800">{periodBounds.label}</span>
-              <button type="button" onClick={handlePeriodNext} className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white hover:bg-slate-50"><ChevronRight className="size-3.5" /></button>
+              <button type="button" onClick={handlePeriodPrev} className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-900"><ChevronLeft className="size-3.5" /></button>
+              <span className="min-w-[180px] text-center text-xs font-semibold text-slate-800 dark:text-slate-100">{periodBounds.label}</span>
+              <button type="button" onClick={handlePeriodNext} className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-900"><ChevronRight className="size-3.5" /></button>
             </div>
-            {timePeriod === "week" && <span className="text-xs text-slate-400">T2–T7 · <span className="font-medium text-slate-600">{quickFiltered.length}</span> việc</span>}
+            {timePeriod === "week" && <span className="text-xs text-slate-400 dark:text-slate-500">T2–T7 · <span className="font-medium text-slate-600 dark:text-slate-300">{quickFiltered.length}</span> việc</span>}
           </>
         )}
       </div>
@@ -2006,11 +2008,11 @@ export function TasksClient({
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-5">
         {(
           [
-            { key: "DANG_LAM",    n: kpi.doing,           label: "Đang làm",            Icon: Activity,     tone: "border-blue-200   bg-blue-50   text-blue-700",   activeTone: "border-blue-400   bg-blue-200   text-black",   ring: "ring-blue-400" },
-            { key: "HOAN_THANH", n: kpi.done,             label: "Hoàn thành",           Icon: CheckCircle2, tone: "border-green-200  bg-green-50  text-green-700",  activeTone: "border-green-400  bg-green-200  text-black",  ring: "ring-green-400" },
-            { key: "SAP_HAN",    n: kpi.soon,             label: "Sắp đến hạn (≤3 ngày)", Icon: Clock,       tone: "border-amber-200  bg-amber-50  text-amber-700",  activeTone: "border-amber-400  bg-amber-200  text-black",  ring: "ring-amber-400" },
-            { key: "QUA_HAN",    n: kpi.overdue,          label: "Quá hạn",              Icon: AlertTriangle, tone: "border-red-200   bg-red-50    text-red-700",    activeTone: "border-red-400    bg-red-200    text-black",    ring: "ring-red-400" },
-            { key: "CHO_DUYET",  n: kpi.pendingApproval,  label: "Chờ duyệt",            Icon: ShieldCheck,  tone: "border-violet-200 bg-violet-50 text-violet-700", activeTone: "border-violet-400 bg-violet-200 text-black", ring: "ring-violet-400" },
+            { key: "DANG_LAM",    n: kpi.doing,           label: "Đang làm",            Icon: Activity,     tone: "border-blue-200 dark:border-blue-800   bg-blue-50 dark:bg-blue-950   text-blue-700 dark:text-blue-300",   activeTone: "border-blue-400 dark:border-blue-600   bg-blue-200 dark:bg-blue-800   text-black dark:text-white",   ring: "ring-blue-400 dark:ring-blue-600" },
+            { key: "HOAN_THANH", n: kpi.done,             label: "Hoàn thành",           Icon: CheckCircle2, tone: "border-green-200 dark:border-green-800  bg-green-50 dark:bg-green-950  text-green-700 dark:text-green-300",  activeTone: "border-green-400 dark:border-green-600  bg-green-200 dark:bg-green-800  text-black dark:text-white",  ring: "ring-green-400 dark:ring-green-600" },
+            { key: "SAP_HAN",    n: kpi.soon,             label: "Sắp đến hạn (≤3 ngày)", Icon: Clock,       tone: "border-amber-200 dark:border-amber-800  bg-amber-50 dark:bg-amber-950  text-amber-700 dark:text-amber-300",  activeTone: "border-amber-400 dark:border-amber-600  bg-amber-200 dark:bg-amber-800  text-black dark:text-white",  ring: "ring-amber-400 dark:ring-amber-600" },
+            { key: "QUA_HAN",    n: kpi.overdue,          label: "Quá hạn",              Icon: AlertTriangle, tone: "border-red-200 dark:border-red-800   bg-red-50 dark:bg-red-950    text-red-700 dark:text-red-300",    activeTone: "border-red-400 dark:border-red-600    bg-red-200 dark:bg-red-800    text-black dark:text-white",    ring: "ring-red-400 dark:ring-red-600" },
+            { key: "CHO_DUYET",  n: kpi.pendingApproval,  label: "Chờ duyệt",            Icon: ShieldCheck,  tone: "border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950 text-violet-700 dark:text-violet-300", activeTone: "border-violet-400 dark:border-violet-600 bg-violet-200 dark:bg-violet-800 text-black dark:text-white", ring: "ring-violet-400 dark:ring-violet-600" },
           ] as const
         ).map(({ key, n, label, Icon, tone, activeTone, ring }) => (
           <button
@@ -2033,7 +2035,7 @@ export function TasksClient({
 
       {/* tìm kiếm */}
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
         <input
           ref={searchInputRef}
           value={search}
@@ -2042,14 +2044,14 @@ export function TasksClient({
             if (e.key === "Escape" && search) setSearch("");
           }}
           placeholder="Tìm theo tên, mã, bộ môn, người thực hiện..."
-          className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 text-[15px] outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+          className="h-11 w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-9 pr-9 text-[15px] outline-none focus:border-slate-400 dark:focus:border-slate-500 focus:ring-2 focus:ring-slate-200 dark:focus:ring-slate-700"
         />
         {search ? (
           <button
             type="button"
             onClick={() => setSearch("")}
             aria-label="Xóa tìm kiếm"
-            className="absolute right-3 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded-full text-slate-400 hover:bg-slate-100"
+            className="absolute right-3 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded-full text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <X className="size-3.5" />
           </button>
@@ -2057,13 +2059,13 @@ export function TasksClient({
       </div>
 
       {/* tab nhóm — ẩn nhóm 0 việc của user */}
-      <div className="flex flex-wrap gap-1.5 border-b border-slate-200 pb-2">
+      <div className="flex flex-wrap gap-1.5 border-b border-slate-200 dark:border-slate-700 pb-2">
         <button
           type="button"
           onClick={() => setActiveWg("")}
           className={cn(
             "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-            activeWg === "" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-100",
+            activeWg === "" ? "bg-slate-800 text-white" : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800",
           )}
         >
           Tất cả <span className="opacity-70">({quickFiltered.length})</span>
@@ -2078,7 +2080,7 @@ export function TasksClient({
               onClick={() => setActiveWg(w.id)}
               className={cn(
                 "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                activeWg === w.id ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-100",
+                activeWg === w.id ? "bg-slate-800 text-white" : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800",
               )}
             >
               {w.name} <span className="opacity-70">({n})</span>
@@ -2092,7 +2094,7 @@ export function TasksClient({
         const wgAbbr = workGroups.find((w) => w.id === activeWg)?.abbr ?? "";
         return (
           <div className="flex flex-wrap items-center gap-1.5 py-1.5">
-            <span className="text-xs text-slate-400">Lọc:</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">Lọc:</span>
             <button
               type="button"
               onClick={() => setActiveL1("")}
@@ -2100,7 +2102,7 @@ export function TasksClient({
                 "rounded-full px-2.5 py-0.5 text-xs font-medium outline-none transition-colors",
                 !activeL1
                   ? "bg-slate-800 text-white ring-2 ring-slate-800 ring-offset-1"
-                  : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700",
               )}
             >
               Tất cả
@@ -2114,7 +2116,7 @@ export function TasksClient({
                     "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
                     activeL1 === l1
                       ? "bg-slate-800 text-white ring-2 ring-slate-800 ring-offset-1"
-                      : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700",
                   )}
                 >
                   <button type="button" className="outline-none" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
@@ -2145,7 +2147,7 @@ export function TasksClient({
                   "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
                   activeL1 === l1
                     ? "bg-slate-800 text-white ring-2 ring-slate-800 ring-offset-1"
-                    : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700",
                 )}
               >
                 <button type="button" className="outline-none" onClick={() => setActiveL1(activeL1 === l1 ? "" : l1)}>
@@ -2187,14 +2189,14 @@ export function TasksClient({
                   }
                 }}
                 placeholder="Từ khóa mới…"
-                className="h-5 w-28 rounded-full border border-slate-200 bg-white px-2.5 text-xs outline-none focus:border-slate-400"
+                className="h-5 w-28 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-xs outline-none focus:border-slate-400 dark:focus:border-slate-500"
               />
             ) : (
               <button
                 type="button"
                 title="Thêm chip lọc cho nhóm này"
                 onClick={() => setAddingChip(true)}
-                className="grid size-5 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+                className="grid size-5 place-items-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
               >
                 <Plus className="size-3" />
               </button>
@@ -2205,7 +2207,7 @@ export function TasksClient({
               onClick={() => setRemovingChip((v) => !v)}
               className={cn(
                 "grid size-5 place-items-center rounded-full",
-                removingChip ? "bg-red-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200",
+                removingChip ? "bg-red-600 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700",
               )}
             >
               <X className="size-3" />
@@ -2215,11 +2217,11 @@ export function TasksClient({
       })() : null}
 
       {/* BẢNG */}
-      <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
         {/* toolbar: collapse/expand + filter chips */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 dark:border-slate-800 px-3 py-2">
           {/* Toggle Bảng / Dự án */}
-          <div className="inline-flex overflow-hidden rounded-md border border-slate-200">
+          <div className="inline-flex overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
             {(["flat", "tree"] as const).map((m) => (
               <button
                 key={m}
@@ -2227,7 +2229,7 @@ export function TasksClient({
                 onClick={() => setViewMode(m)}
                 className={cn(
                   "px-3 py-1.5 text-xs font-medium transition-colors",
-                  viewMode === m ? "bg-slate-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50",
+                  viewMode === m ? "bg-slate-800 text-white" : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900",
                 )}
               >
                 {m === "flat" ? "Bảng" : "Dự án"}
@@ -2262,8 +2264,8 @@ export function TasksClient({
           {/* Filter chips */}
           {activeCols.length > 0 ? (
             <>
-              <span className="h-4 w-px bg-slate-200" />
-              <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400">
+              <span className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 dark:text-slate-500">
                 <Filter className="size-3" /> Lọc:
               </span>
               {activeCols.map((c) => (
@@ -2272,7 +2274,7 @@ export function TasksClient({
               <button
                 type="button"
                 onClick={clearAll}
-                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-slate-400 hover:text-red-600"
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-slate-400 dark:text-slate-500 hover:text-red-600 dark:text-red-400"
               >
                 <RotateCcw className="size-3" /> Xóa lọc
               </button>
@@ -2291,7 +2293,7 @@ export function TasksClient({
             </colgroup>
             <thead>
               <tr>
-                <th style={headStyle("__sel__", SEL_W)} className="border-b border-slate-200 px-2 py-2.5">
+                <th style={headStyle("__sel__", SEL_W)} className="border-b border-slate-200 dark:border-slate-700 px-2 py-2.5">
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
@@ -2304,7 +2306,7 @@ export function TasksClient({
                 {cols.map((c) => renderHead(c))}
                 <th
                   style={{ ...headStyle("thucTe", GHI_GIO_W), left: undefined, position: "sticky", top: 0, zIndex: 20 }}
-                  className="border-b border-slate-200 px-2 py-2.5 text-center text-xs font-semibold text-slate-500"
+                  className="border-b border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-xs font-semibold text-slate-500 dark:text-slate-400"
                 >
                   Ghi giờ
                 </th>
@@ -2317,7 +2319,7 @@ export function TasksClient({
               }
               {sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={colSpan} className="py-12 text-center text-sm text-slate-400">
+                  <td colSpan={colSpan} className="py-12 text-center text-sm text-slate-400 dark:text-slate-500">
                     Không có công việc phù hợp với bộ lọc
                   </td>
                 </tr>
@@ -2382,8 +2384,8 @@ export function TasksClient({
       {/* Thêm công việc (tự note → chờ duyệt) */}
       {addOpen ? (
         <Modal open onClose={() => setAddOpen(false)} title="Thêm công việc (chờ duyệt)" className="max-w-[96vw]">
-          <p className="mb-2 flex items-center gap-2 text-xs text-slate-500">
-            <Info className="size-3.5 text-slate-400" />
+          <p className="mb-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <Info className="size-3.5 text-slate-400 dark:text-slate-500" />
             {selectedTask
               ? "Dòng đầu đã điền sẵn theo công việc đang chọn — bạn có thể chỉnh trước khi lưu."
               : "Người thực hiện tự gán là chính bạn · nhập ngày bắt đầu/kết thúc nếu đã biết."}
@@ -2457,14 +2459,14 @@ export function TasksClient({
 
       {/* Thanh thao tác hàng loạt */}
       {selected.size > 0 ? (
-        <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-          <span className="px-2 text-sm font-medium text-slate-700">Đã chọn {selected.size}</span>
+        <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-lg">
+          <span className="px-2 text-sm font-medium text-slate-700 dark:text-slate-200">Đã chọn {selected.size}</span>
           {canManage ? (
             <>
               <select
                 value=""
                 onChange={(e) => batchPriority(e.target.value)}
-                className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-slate-400"
+                className="h-8 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs text-slate-700 dark:text-slate-200 outline-none focus:border-slate-400 dark:focus:border-slate-500"
               >
                 <option value="">Đổi ưu tiên…</option>
                 {PRIORITY_OPTIONS.map((p) => (
@@ -2476,14 +2478,14 @@ export function TasksClient({
               <button
                 type="button"
                 onClick={() => setBulkDeadline({ ids: [...selected], date: "" })}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
               >
                 <Calendar className="size-3.5" /> Đổi hạn
               </button>
               <button
                 type="button"
                 onClick={batchDelete}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-red-50 hover:text-red-600"
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-red-50 dark:bg-red-950 hover:text-red-600 dark:text-red-400"
               >
                 <Trash2 className="size-3.5" /> Xóa
               </button>
@@ -2492,21 +2494,21 @@ export function TasksClient({
           <button
             type="button"
             onClick={() => setBulkLogging(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
           >
             Ghi nhận giờ
           </button>
           <button
             type="button"
             onClick={() => setBulkStartDate({ ids: [...selected], date: "" })}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
           >
             <Calendar className="size-3.5" /> Đặt ngày bắt đầu
           </button>
           <button
             type="button"
             onClick={() => setBulkEndDate({ ids: [...selected], date: "", note: "" })}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
           >
             <Calendar className="size-3.5" /> {canManage ? "Đổi ngày kết thúc" : "Đề xuất đổi hạn"}
           </button>
@@ -2514,7 +2516,7 @@ export function TasksClient({
             <button
               type="button"
               onClick={() => setAddOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
             >
               <Plus className="size-3.5" /> Thêm tương tự
             </button>
@@ -2536,7 +2538,7 @@ export function TasksClient({
                     note: "",
                   })
                 }
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
               >
                 <History className="size-3.5" /> Cập nhật công việc
               </button>
@@ -2550,7 +2552,7 @@ export function TasksClient({
             return (
               <button type="button"
                 onClick={() => setDeleteDialog(t)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-200 dark:border-red-800 px-2.5 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-950">
                 <Trash2 className="size-3.5" /> Xóa
               </button>
             );
@@ -2560,7 +2562,7 @@ export function TasksClient({
             onClick={clearSel}
             title="Bỏ chọn"
             aria-label="Bỏ chọn"
-            className="grid size-8 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="grid size-8 place-items-center rounded-md text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
           >
             <X className="size-4" />
           </button>
@@ -2579,13 +2581,13 @@ export function TasksClient({
             <DateInput
               value={bulkDeadline.date}
               onChange={(e) => setBulkDeadline({ ...bulkDeadline, date: e.target.value })}
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+              className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400 dark:focus:border-slate-500"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setBulkDeadline(null)}
-                className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-md border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
               >
                 Hủy
               </button>
@@ -2593,7 +2595,7 @@ export function TasksClient({
                 type="button"
                 disabled={!bulkDeadline.date}
                 onClick={runBulkDeadline}
-                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-600"
               >
                 Áp dụng
               </button>
@@ -2624,14 +2626,14 @@ export function TasksClient({
         >
           <div className="space-y-3">
             {!canManage && (
-              <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">
+              <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 rounded px-3 py-2">
                 Yêu cầu sẽ được gửi cho quản lý duyệt trước khi áp dụng.
               </p>
             )}
             <DateInput
               value={bulkEndDate.date}
               onChange={(e) => setBulkEndDate({ ...bulkEndDate, date: e.target.value })}
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+              className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400 dark:focus:border-slate-500"
             />
             {!canManage && (
               <textarea
@@ -2639,14 +2641,14 @@ export function TasksClient({
                 placeholder="Lý do / ghi chú (tùy chọn)…"
                 value={bulkEndDate.note}
                 onChange={(e) => setBulkEndDate({ ...bulkEndDate, note: e.target.value })}
-                className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-slate-400"
+                className="w-full resize-none rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 text-sm outline-none focus:border-slate-400 dark:focus:border-slate-500"
               />
             )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setBulkEndDate(null)}
-                className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-md border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
               >
                 Hủy
               </button>
@@ -2654,7 +2656,7 @@ export function TasksClient({
                 type="button"
                 disabled={canManage && !bulkEndDate.date}
                 onClick={runBulkEndDate}
-                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-600"
               >
                 {canManage ? "Áp dụng" : "Gửi yêu cầu"}
               </button>
@@ -2672,31 +2674,31 @@ export function TasksClient({
           className="max-w-sm"
         >
           <div className="space-y-3">
-            <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">
+            <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 rounded px-3 py-2">
               Việc sẽ quay về "Chưa thực hiện" và chờ người duyệt xác nhận lại. Bạn vẫn ghi giờ được ngay.
             </p>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Ngày bắt đầu mới</label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300">Ngày bắt đầu mới</label>
               <DateInput
                 value={updateTaskDialog.plannedStart}
                 onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, plannedStart: e.target.value })}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+                className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400 dark:focus:border-slate-500"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Ngày kết thúc mới</label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300">Ngày kết thúc mới</label>
               <DateInput
                 value={updateTaskDialog.plannedEnd}
                 onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, plannedEnd: e.target.value })}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+                className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400 dark:focus:border-slate-500"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Người duyệt</label>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300">Người duyệt</label>
               <select
                 value={updateTaskDialog.approverId}
                 onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, approverId: e.target.value })}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
+                className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-sm outline-none focus:border-slate-400 dark:focus:border-slate-500"
               >
                 <option value="">— Chọn người duyệt —</option>
                 {approvers.map((u) => (
@@ -2709,13 +2711,13 @@ export function TasksClient({
               placeholder="Lý do cập nhật (tùy chọn)…"
               value={updateTaskDialog.note}
               onChange={(e) => setUpdateTaskDialog({ ...updateTaskDialog, note: e.target.value })}
-              className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-slate-400"
+              className="w-full resize-none rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 text-sm outline-none focus:border-slate-400 dark:focus:border-slate-500"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setUpdateTaskDialog(null)}
-                className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-md border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
               >
                 Hủy
               </button>
@@ -2723,7 +2725,7 @@ export function TasksClient({
                 type="button"
                 disabled={updateTaskPending || !updateTaskDialog.plannedStart || !updateTaskDialog.plannedEnd || !updateTaskDialog.approverId}
                 onClick={runUpdateTaskRequest}
-                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-600"
               >
                 {updateTaskPending ? "Đang gửi…" : "Gửi yêu cầu"}
               </button>
@@ -2744,13 +2746,13 @@ export function TasksClient({
             <DateInput
               value={bulkStartDate.date}
               onChange={(e) => setBulkStartDate({ ...bulkStartDate, date: e.target.value })}
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400"
+              className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-slate-400 dark:focus:border-slate-500"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setBulkStartDate(null)}
-                className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                className="rounded-md border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900"
               >
                 Hủy
               </button>
@@ -2758,7 +2760,7 @@ export function TasksClient({
                 type="button"
                 disabled={!bulkStartDate.date}
                 onClick={runBulkStartDate}
-                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-600"
               >
                 Áp dụng
               </button>
@@ -2796,8 +2798,8 @@ export function TasksClient({
             onClose={closeDetail}
             title={
               <div className="space-y-0.5">
-                {contextLabel ? <div className="text-xs font-medium text-slate-400">{contextLabel}</div> : null}
-                <div className="text-base font-semibold text-slate-800">{detailTask.name}</div>
+                {contextLabel ? <div className="text-xs font-medium text-slate-400 dark:text-slate-500">{contextLabel}</div> : null}
+                <div className="text-base font-semibold text-slate-800 dark:text-slate-100">{detailTask.name}</div>
               </div>
             }
             className="max-w-2xl"
@@ -2805,51 +2807,51 @@ export function TasksClient({
             <div className="space-y-4">
               {/* Nội dung */}
               <div>
-                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Nội dung công việc</div>
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Nội dung công việc</div>
                 {detailTask.note ? (
-                  <p className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{detailTask.note}</p>
+                  <p className="rounded-md border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{detailTask.note}</p>
                 ) : (
-                  <p className="text-sm italic text-slate-400">Chưa có nội dung mô tả.</p>
+                  <p className="text-sm italic text-slate-400 dark:text-slate-500">Chưa có nội dung mô tả.</p>
                 )}
               </div>
               {/* Giờ đã ghi */}
               <div>
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Giờ đã ghi (toàn bộ thời gian)</div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Giờ đã ghi (toàn bộ thời gian)</div>
                 {detailLoading ? (
-                  <p className="text-sm text-slate-400">Đang tải…</p>
+                  <p className="text-sm text-slate-400 dark:text-slate-500">Đang tải…</p>
                 ) : timeline.length === 0 ? (
-                  <p className="text-sm italic text-slate-400">Chưa có giờ nào được ghi.</p>
+                  <p className="text-sm italic text-slate-400 dark:text-slate-500">Chưa có giờ nào được ghi.</p>
                 ) : (
-                  <div className="max-h-80 overflow-auto rounded-md border border-slate-200">
+                  <div className="max-h-80 overflow-auto rounded-md border border-slate-200 dark:border-slate-700">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50">
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Ngày</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Nội dung công việc</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Số giờ</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Người thực hiện</th>
+                        <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Ngày</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Nội dung công việc</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Số giờ</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Người thực hiện</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {timeline.map((row) => (
-                          <tr key={row.key} className={row.isUpdate ? "bg-amber-50/60" : undefined}>
-                            <td className={cn("px-3 py-2 text-slate-600", row.isUpdate && "font-bold text-slate-800")}>{fmtDate(row.date)}</td>
-                            <td className={cn("px-3 py-2 text-slate-500", row.isUpdate && "font-bold text-slate-800")}>
-                              {row.content || <span className="italic text-slate-300">—</span>}
+                          <tr key={row.key} className={row.isUpdate ? "bg-amber-50 dark:bg-amber-950/60" : undefined}>
+                            <td className={cn("px-3 py-2 text-slate-600 dark:text-slate-300", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>{fmtDate(row.date)}</td>
+                            <td className={cn("px-3 py-2 text-slate-500 dark:text-slate-400", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>
+                              {row.content || <span className="italic text-slate-300 dark:text-slate-600">—</span>}
                             </td>
-                            <td className={cn("px-3 py-2 font-medium text-slate-700", row.isUpdate && "font-bold text-slate-800")}>
+                            <td className={cn("px-3 py-2 font-medium text-slate-700 dark:text-slate-200", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>
                               {row.hours != null ? `${row.hours}h` : ""}
                             </td>
-                            <td className={cn("px-3 py-2 text-slate-600", row.isUpdate && "font-bold text-slate-800")}>
-                              {row.person || <span className="italic text-slate-300">—</span>}
+                            <td className={cn("px-3 py-2 text-slate-600 dark:text-slate-300", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>
+                              {row.person || <span className="italic text-slate-300 dark:text-slate-600">—</span>}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
-                        <tr className="border-t-2 border-slate-200 bg-slate-50">
-                          <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-slate-600">Tổng</td>
-                          <td className="px-3 py-2 text-sm font-bold text-blue-600">
+                        <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                          <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Tổng</td>
+                          <td className="px-3 py-2 text-sm font-bold text-blue-600 dark:text-blue-400">
                             {detailEntries.reduce((s, e) => s + e.hours, 0)}h
                           </td>
                           <td />
@@ -2864,7 +2866,7 @@ export function TasksClient({
                 <button
                   type="button"
                   onClick={() => { setLogging(detailTask); closeDetail(); }}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3.5 py-2 text-sm font-medium text-white hover:bg-slate-700 dark:hover:bg-slate-200"
                 >
                   <Clock className="size-4" /> Ghi giờ
                 </button>
@@ -2939,29 +2941,29 @@ function BulkTimesheetDialog({
   return (
     <Modal open onClose={onClose} title={`Ghi nhận giờ — ${count} công việc`} className="max-w-sm">
       <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Ngày</label>
             <DateInput name="date" defaultValue={dayjs().format("YYYY-MM-DD")} required
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-blue-400" />
+              className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-sm shadow-none outline-none focus-visible:ring-0 focus:border-blue-400 dark:border-blue-600" />
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Số giờ</label>
             <input name="hours" type="number" step="0.25" min="0.25" max="24" required
-              className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-400" />
+              className="h-9 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-sm outline-none focus:border-blue-400 dark:border-blue-600" />
           </div>
         </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium">Nội dung công việc</label>
           <textarea name="note" rows={3}
-            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-400" />
+            className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-blue-600" />
         </div>
-        <p className="text-xs text-slate-500">Số giờ và nội dung sẽ được ghi cho tất cả {count} công việc đã chọn.</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">Số giờ và nội dung sẽ được ghi cho tất cả {count} công việc đã chọn.</p>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose}
-            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Hủy</button>
+            className="rounded-md border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900">Hủy</button>
           <button type="submit" disabled={pending}
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-50">
+            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 dark:hover:bg-slate-200 disabled:opacity-50">
             {pending ? "Đang lưu..." : "Lưu"}
           </button>
         </div>
@@ -3007,7 +3009,7 @@ function DeleteTaskDialog({
       title={needsApproval ? "Đề xuất xóa công việc" : "Xóa công việc"}
       className="max-w-sm">
       <div className="space-y-4">
-        <p className="text-sm text-slate-700">
+        <p className="text-sm text-slate-700 dark:text-slate-200">
           {needsApproval
             ? <>Công việc <strong>&quot;{task.name}&quot;</strong> đã được quản lý duyệt. Yêu cầu xóa sẽ được gửi tới{task.approverName ? <> <strong>{task.approverName}</strong></> : " quản lý"} để phê duyệt.</>
             : <>Xóa công việc <strong>&quot;{task.name}&quot;</strong>? Hành động này không thể hoàn tác.</>}
@@ -3017,11 +3019,11 @@ function DeleteTaskDialog({
           placeholder={needsApproval ? "Lý do đề xuất xóa (tùy chọn)…" : "Ghi chú (tùy chọn)…"}
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          className="w-full resize-none rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-slate-400"
+          className="w-full resize-none rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 text-sm outline-none focus:border-slate-400 dark:focus:border-slate-500"
         />
-        <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+        <div className="flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800 pt-3">
           <button type="button" onClick={onClose}
-            className="rounded-md border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
+            className="rounded-md border border-slate-200 dark:border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900">
             Hủy
           </button>
           <button type="button" disabled={pending} onClick={handleConfirm}
