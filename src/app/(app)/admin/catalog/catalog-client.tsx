@@ -158,7 +158,6 @@ export function CatalogClient({
 }) {
   const router = useRouter();
   const [tab, setTab] = React.useState<TabId>("groups");
-  const [manageProjectsScope, setManageProjectsScope] = React.useState<string | null>(null);
   const [projectsViewMode, setProjectsViewMode] = React.useState<"table" | "grouped" | "g6">("table");
   const [groupedCollapsed, setGroupedCollapsed] = React.useState<Set<string>>(new Set());
   const [groupedCtCollapsed, setGroupedCtCollapsed] = React.useState<Set<string>>(new Set());
@@ -237,9 +236,8 @@ export function CatalogClient({
 
   // Modal thêm/sửa + xác nhận xóa (dùng chung).
   const [addItemsScope, setAddItemsScope] = React.useState<string | null>(null);
-  const [addBimtoolsItems, setAddBimtoolsItems] = React.useState(false);
+  const [addBimtoolsItemsCtx, setAddBimtoolsItemsCtx] = React.useState<{ id: string; code: string; name: string } | null>(null);
   const [manageBimtoolsL2, setManageBimtoolsL2] = React.useState(false);
-  const [managePtProjects, setManagePtProjects] = React.useState(false);
 
   const [record, setRecord] = React.useState<{
     title: string;
@@ -474,9 +472,14 @@ export function CatalogClient({
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       setGroupedOpenFilter(o => o?.key === key ? null : { key, label, opts, rect });
     };
-    const groupsWithItems = [...byGroupF.values()].filter(e =>
-      !q || e.group.code.toLowerCase().includes(q) || e.group.name.toLowerCase().includes(q)
-    );
+    const groupsWithItems = [...byGroupF.values()].filter(e => {
+      if (q && !(e.group.code.toLowerCase().includes(q) || e.group.name.toLowerCase().includes(q))) return false;
+      if (!hasColFilter) return true;
+      // Lọc đích danh cột "Dự án" → vẫn hiện dự án đó dù chưa có hạng mục nào (để còn thêm mới).
+      if (gcfGroup.length && gcfGroup.includes(e.group.code)) return true;
+      // Lọc theo cột khác (Loại hình/Hạng mục/Khối-Hệ thống) → chỉ hiện dự án có hạng mục khớp.
+      return e.items.length > 0;
+    });
     const toggleBlock = (key: string) => setGroupedBlockCollapsed(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
     const expandSelectedPaths = (ids: string[]) => {
       const targets = new Set(ids);
@@ -734,6 +737,40 @@ export function CatalogClient({
                           <button type="button" title="Thêm loại hình / hạng mục" onClick={() => setAddLoaiHinhCtx(group)} className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
                             <Plus className="size-3" />
                           </button>
+                          {group.code !== "—" && (
+                            <>
+                              <button
+                                type="button"
+                                title="Sửa dự án"
+                                onClick={() =>
+                                  setRecord({
+                                    title: "Sửa dự án",
+                                    fields: GROUP_FIELDS_PROJECT,
+                                    initial: { code: group.code, name: group.name, order: String(group.order) },
+                                    existingCodes: projectGroups.filter((x) => x.id !== group.id).map((x) => x.code),
+                                    submit: (v) => saveProjectGroup({ id: group.id, code: v.code, name: v.name, order: Number(v.order || 0) }),
+                                  })
+                                }
+                                className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                              >
+                                <Pencil className="size-3" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Xóa dự án"
+                                onClick={() =>
+                                  setConfirm({
+                                    name: group.name,
+                                    blockMsg: group.itemCount > 0 ? `Dự án đang có ${group.itemCount} hạng mục. Hãy gỡ/chuyển hạng mục trước khi xóa.` : undefined,
+                                    run: () => deleteProjectGroup(group.id),
+                                  })
+                                }
+                                className="grid size-5 place-items-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 className="size-3" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -953,13 +990,33 @@ export function CatalogClient({
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <button type="button" onClick={() => setManageProjectsScope("general")}
-            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
-            <Building2 className="size-4 text-slate-400" /> Quản lý dự án
-            <span className="rounded-full bg-slate-100 px-1.5 text-xs">{generalProjectGroups.length}</span>
-          </button>
-          <button type="button" onClick={() => setRecord({ title: "Thêm dự án", fields: GROUP_FIELDS_PROJECT, initial: { code: "", name: "", order: "0" }, submit: (v) => saveProjectGroup({ code: v.code, name: v.name, order: Number(v.order) || 0 }) })}
-            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
+          <button
+            type="button"
+            onClick={() =>
+              setRecord({
+                title: "Thêm dự án",
+                fields: GROUP_FIELDS_PROJECT,
+                initial: { code: "", name: "", order: "0" },
+                existingCodes: projectGroups.map((g) => g.code),
+                submit: async (v) => {
+                  const res = await createProjectGroupReturnId({ code: v.code, name: v.name, workGroupId: null });
+                  // Tạo xong → mở luôn modal thêm Loại hình/Hạng mục cho dự án vừa tạo (bỏ qua được nếu chưa muốn thêm ngay).
+                  if (res.ok && res.data) {
+                    setAddLoaiHinhCtx({
+                      id: res.data.id,
+                      code: v.code.trim().toUpperCase(),
+                      name: v.name.trim(),
+                      order: Number(v.order || 0),
+                      workGroupId: null,
+                      itemCount: 0,
+                    });
+                  }
+                  return res;
+                },
+              })
+            }
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+          >
             <Plus className="size-4" /> Thêm dự án
           </button>
         </div>
@@ -1086,7 +1143,7 @@ export function CatalogClient({
       <FilterTable
         title="Dự án BIM Tools · Hạng mục"
         rows={ptLevel3 as unknown as Row[]}
-        addLabel="Thêm hạng mục"
+        addLabel="Thêm dự án"
         minWidth={720}
         selectable
         bulkBar={(ids, clear) => (
@@ -1106,14 +1163,6 @@ export function CatalogClient({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setManagePtProjects(true)}
-              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-            >
-              <Building2 className="size-4 text-slate-400" /> Quản lý dự án
-              <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptProjectGroups.length}</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setManageBimtoolsL2(true)}
               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
             >
@@ -1127,7 +1176,23 @@ export function CatalogClient({
             toast.error('Chưa có Loại hình nào — hãy tạo ở "Quản lý loại hình" trước.');
             return;
           }
-          setAddBimtoolsItems(true);
+          setRecord({
+            title: "Thêm dự án",
+            fields: [
+              { key: "code", label: "Mã dự án", required: true, span: 2, autoFocus: true },
+              { key: "name", label: "Tên dự án", required: true, span: 3 },
+            ],
+            initial: { code: "", name: "" },
+            existingCodes: projectGroups.map((g) => g.code),
+            submit: async (v) => {
+              const res = await createProjectGroupReturnId({ code: v.code, name: v.name, workGroupId: ptWorkGroupId ?? null });
+              // Tạo xong → mở luôn modal thêm Loại hình/Hạng mục cho dự án BIM Tools vừa tạo.
+              if (res.ok && res.data) {
+                setAddBimtoolsItemsCtx({ id: res.data.id, code: v.code.trim().toUpperCase(), name: v.name.trim() });
+              }
+              return res;
+            },
+          });
         }}
         onEdit={(r) => {
           const item = r as unknown as { id: string; value: string; parentId: string | null; projectGroupId: string | null; order: number };
@@ -1154,9 +1219,45 @@ export function CatalogClient({
             },
             cell: (r) => {
               const pg = ptPgById.get((r as unknown as { projectGroupId: string | null }).projectGroupId ?? "");
-              return pg ? (
-                <span className="font-mono text-xs text-slate-600" title={pg.name}>{pg.code}</span>
-              ) : <Dash />;
+              if (!pg) return <Dash />;
+              return (
+                <span className="group/pg inline-flex items-center gap-1">
+                  <span className="font-mono text-xs text-slate-600" title={pg.name}>{pg.code}</span>
+                  <button
+                    type="button"
+                    title="Sửa dự án"
+                    onClick={() =>
+                      setRecord({
+                        title: "Sửa dự án",
+                        fields: [
+                          { key: "code", label: "Mã dự án", required: true, span: 2, autoFocus: true },
+                          { key: "name", label: "Tên dự án", required: true, span: 3 },
+                        ],
+                        initial: { code: pg.code, name: pg.name },
+                        existingCodes: projectGroups.filter((x) => x.id !== pg.id).map((x) => x.code),
+                        submit: (v) => saveProjectGroup({ id: pg.id, code: v.code, name: v.name }),
+                      })
+                    }
+                    className="grid size-4 shrink-0 place-items-center rounded text-slate-300 opacity-0 transition group-hover/pg:opacity-100 hover:bg-slate-200 hover:text-slate-700"
+                  >
+                    <Pencil className="size-2.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Xóa dự án"
+                    onClick={() =>
+                      setConfirm({
+                        name: `${pg.code} — ${pg.name}`,
+                        blockMsg: pg.itemCount > 0 ? `Dự án này có ${pg.itemCount} hạng mục. Xóa hạng mục trước khi xóa dự án.` : undefined,
+                        run: () => deleteProjectGroup(pg.id),
+                      })
+                    }
+                    className="grid size-4 shrink-0 place-items-center rounded text-slate-300 opacity-0 transition group-hover/pg:opacity-100 hover:bg-red-50 hover:text-red-600"
+                  >
+                    <Trash2 className="size-2.5" />
+                  </button>
+                </span>
+              );
             },
           },
           {
@@ -1456,19 +1557,19 @@ export function CatalogClient({
         />
       ) : null}
 
-      {/* Modal thêm nhiều hạng mục BIM Tools */}
-      {addBimtoolsItems ? (
+      {/* Modal thêm nhiều hạng mục BIM Tools cho dự án vừa tạo */}
+      {addBimtoolsItemsCtx ? (
         <AddMultipleBimtoolsModal
           workGroupId={ptWorkGroupId ?? ""}
           level2Items={ptLevel2}
-          projectGroups={ptProjectGroups}
-          onClose={() => setAddBimtoolsItems(false)}
+          group={addBimtoolsItemsCtx}
+          onClose={() => setAddBimtoolsItemsCtx(null)}
           onSubmit={async (parentId, values, projectGroupId) => {
             const res = await batchSaveCatalogItems(ptWorkGroupId ?? "", 3, parentId, values, projectGroupId || null);
             if (res.ok) {
               toast.success(`Đã thêm ${values.length} hạng mục`);
               router.refresh();
-              setAddBimtoolsItems(false);
+              setAddBimtoolsItemsCtx(null);
             } else {
               toast.error(res.error);
             }
@@ -1499,34 +1600,6 @@ export function CatalogClient({
             const res = await run(confirm.run(), "Đã xóa");
             if (res.ok) setConfirm(null);
           }}
-        />
-      ) : null}
-
-      {/* Quản lý Dự án BIM Tools (PT ProjectGroups) */}
-      {managePtProjects ? (
-        <ManagePtProjectsModal
-          projects={ptProjectGroups}
-          workGroupId={ptWorkGroupId ?? ""}
-          onClose={() => setManagePtProjects(false)}
-          onEdit={(g) =>
-            setRecord({
-              title: "Sửa dự án BIM Tools",
-              fields: [
-                { key: "code", label: "Mã dự án", required: true, span: 2, autoFocus: true },
-                { key: "name", label: "Tên dự án", required: true, span: 3 },
-              ],
-              initial: { code: g.code, name: g.name },
-              submit: (v) => saveProjectGroup({ id: g.id, code: v.code, name: v.name }),
-            })
-          }
-          onDelete={(g) =>
-            setConfirm({
-              name: `${g.code} — ${g.name}`,
-              warnMsg: g.itemCount > 0 ? `Dự án này có ${g.itemCount} hạng mục.` : undefined,
-              blockMsg: g.itemCount > 0 ? "Xóa hạng mục trước khi xóa dự án." : undefined,
-              run: () => deleteProjectGroup(g.id),
-            })
-          }
         />
       ) : null}
 
@@ -1684,45 +1757,6 @@ export function CatalogClient({
           {...addHangMucCtx}
           onClose={() => setAddHangMucCtx(null)}
           onSuccess={() => { setAddHangMucCtx(null); router.refresh(); }}
-        />
-      ) : null}
-
-      {/* Quản lý dự án (cấp cha) */}
-      {manageProjectsScope ? (
-        <ManageProjectsModal
-          groups={generalProjectGroups}
-          onClose={() => setManageProjectsScope(null)}
-          onBatchReorder={(ids) => reorder("projectGroup", ids)}
-          onAdd={() =>
-            setRecord({
-              title: "Thêm dự án",
-              fields: GROUP_FIELDS_PROJECT,
-              initial: { code: "", name: "", order: "0" },
-              existingCodes: projectGroups.map((g) => g.code),
-              submit: (v) =>
-                saveProjectGroup({ code: v.code, name: v.name, order: Number(v.order || 0), workGroupId: null }),
-            })
-          }
-          onEdit={(g) =>
-            setRecord({
-              title: "Sửa dự án",
-              fields: GROUP_FIELDS_PROJECT,
-              initial: { code: g.code, name: g.name, order: String(g.order) },
-              existingCodes: projectGroups.filter((x) => x.id !== g.id).map((x) => x.code),
-              submit: (v) =>
-                saveProjectGroup({ id: g.id, code: v.code, name: v.name, order: Number(v.order || 0) }),
-            })
-          }
-          onDelete={(g) =>
-            setConfirm({
-              name: g.name,
-              blockMsg:
-                g.itemCount > 0
-                  ? `Dự án đang có ${g.itemCount} hạng mục. Hãy gỡ/chuyển hạng mục trước khi xóa.`
-                  : undefined,
-              run: () => deleteProjectGroup(g.id),
-            })
-          }
         />
       ) : null}
     </div>
@@ -2433,122 +2467,6 @@ function ConfirmDialog({
   );
 }
 
-// ===================================================================
-//  ManageProjectsModal — quản lý danh sách Dự án (cấp cha) + DnD
-// ===================================================================
-function ManageProjectsModal({
-  groups,
-  onAdd,
-  onEdit,
-  onDelete,
-  onBatchReorder,
-  onClose,
-}: {
-  groups: ProjectGroupRow[];
-  onAdd: () => void;
-  onEdit: (g: ProjectGroupRow) => void;
-  onDelete: (g: ProjectGroupRow) => void;
-  onBatchReorder?: (ids: string[]) => Promise<void>;
-  onClose: () => void;
-}) {
-  const [q, setQ] = React.useState("");
-  const [localIds, setLocalIds] = React.useState<string[]>(() => groups.map((g) => g.id));
-  React.useEffect(() => { setLocalIds(groups.map((g) => g.id)); }, [groups]);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  const byId = React.useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups]);
-  const orderedGroups = localIds.map((id) => byId.get(id)).filter(Boolean) as ProjectGroupRow[];
-  const shown = q ? orderedGroups.filter((g) => norm(g.name).includes(norm(q)) || norm(g.code).includes(norm(q))) : orderedGroups;
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      const oldIndex = localIds.indexOf(active.id as string);
-      const newIndex = localIds.indexOf(over.id as string);
-      if (oldIndex !== -1 && newIndex !== -1) {
-        const next = arrayMove(localIds, oldIndex, newIndex);
-        setLocalIds(next);
-        onBatchReorder?.(next);
-      }
-    }
-  }
-
-  return (
-    <Modal open onClose={onClose} title="Quản lý dự án" className="max-w-xl">
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm dự án…"
-              className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-sm outline-none focus:border-slate-400 focus:bg-white" />
-          </div>
-          <button type="button" onClick={onAdd}
-            className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700">
-            <Plus className="size-4" /> Thêm dự án
-          </button>
-        </div>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={localIds} strategy={verticalListSortingStrategy}>
-            <div className="max-h-[52vh] divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
-              {shown.map((g) => (
-                <SortableProjectGroupItem key={g.id} group={g} onEdit={onEdit} onDelete={onDelete}
-                  showHandle={!!onBatchReorder && !q} />
-              ))}
-              {shown.length === 0 ? (
-                <p className="py-8 text-center text-sm text-slate-400">
-                  {groups.length ? "Không có dự án khớp tìm kiếm" : "Chưa có dự án nào"}
-                </p>
-              ) : null}
-            </div>
-          </SortableContext>
-        </DndContext>
-        <div className="flex justify-end border-t border-slate-100 pt-3">
-          <Button onClick={onClose}>Xong</Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ---------- Sortable item cho ManageProjectsModal ----------
-function SortableProjectGroupItem({
-  group, onEdit, onDelete, showHandle,
-}: {
-  group: ProjectGroupRow; onEdit: (g: ProjectGroupRow) => void; onDelete: (g: ProjectGroupRow) => void; showHandle: boolean;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: group.id });
-  return (
-    <div ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={cn("group flex items-center gap-2 px-3 py-2", isDragging && "opacity-40 bg-slate-50")}
-      {...attributes}
-    >
-      {showHandle ? (
-        <button {...listeners} tabIndex={-1}
-          className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 transition-colors shrink-0">
-          <GripVertical className="size-4" />
-        </button>
-      ) : null}
-      <Code>{group.code}</Code>
-      <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{group.name}</span>
-      <span className="whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{group.itemCount} hạng mục</span>
-      <div className="flex gap-0.5 opacity-60 transition group-hover:opacity-100">
-        <button type="button" title="Sửa" onClick={() => onEdit(group)}
-          className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-          <Pencil className="size-4" />
-        </button>
-        <button type="button" title="Xóa" onClick={() => onDelete(group)}
-          className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600">
-          <Trash2 className="size-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ===================================================================
 //  WorksPanel — Tab 3 Công việc: tabs nhóm ngang + list DnD + thêm inline
@@ -3098,18 +3016,17 @@ type BimtoolsItemRow = { id: string; name: string };
 function AddMultipleBimtoolsModal({
   workGroupId,
   level2Items,
-  projectGroups,
+  group,
   onClose,
   onSubmit,
 }: {
   workGroupId: string;
   level2Items: { id: string; value: string }[];
-  projectGroups: { id: string; code: string; name: string }[];
+  group: { id: string; code: string; name: string };
   onClose: () => void;
   onSubmit: (parentId: string, values: string[], projectGroupId: string) => Promise<void>;
 }) {
   const [parentId, setParentId] = React.useState(level2Items[0]?.id ?? "");
-  const [projectGroupId, setProjectGroupId] = React.useState("");
   const [rows, setRows] = React.useState<BimtoolsItemRow[]>([{ id: crypto.randomUUID(), name: "" }]);
   const [err, setErr] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
@@ -3137,23 +3054,13 @@ function AddMultipleBimtoolsModal({
     if (!valid.length) { setErr("Nhập ít nhất 1 hạng mục."); return; }
     setErr(null);
     setPending(true);
-    await onSubmit(parentId, valid, projectGroupId);
+    await onSubmit(parentId, valid, group.id);
     setPending(false);
   }
 
   return (
-    <Modal open onClose={onClose} title="Thêm hạng mục BIM Tools" className="max-w-lg">
+    <Modal open onClose={onClose} title={`Thêm loại hình — ${group.code} · ${group.name}`} className="max-w-lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-slate-600">Dự án</label>
-          <Select value={projectGroupId} onChange={(e) => setProjectGroupId(e.target.value)} className="h-9">
-            <option value="">— Không gắn dự án —</option>
-            {projectGroups.map((g) => (
-              <option key={g.id} value={g.id}>{g.code} — {g.name}</option>
-            ))}
-          </Select>
-          <p className="text-[11px] text-slate-400">tạo/đổi dự án ở nút "Quản lý dự án"</p>
-        </div>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-slate-600">
             Loại hình <span className="text-red-500">*</span>
@@ -3218,114 +3125,6 @@ function AddMultipleBimtoolsModal({
           </Button>
         </div>
       </form>
-    </Modal>
-  );
-}
-
-// ===================================================================
-//  ManagePtProjectsModal — quản lý Dự án BIM Tools (PT ProjectGroups)
-// ===================================================================
-function ManagePtProjectsModal({
-  projects,
-  workGroupId,
-  onClose,
-  onEdit,
-  onDelete,
-}: {
-  projects: { id: string; code: string; name: string; order: number; itemCount: number }[];
-  workGroupId: string;
-  onClose: () => void;
-  onEdit: (g: { id: string; code: string; name: string }) => void;
-  onDelete: (g: { id: string; code: string; name: string; itemCount: number }) => void;
-}) {
-  const router = useRouter();
-  const [code, setCode] = React.useState("");
-  const [name, setName] = React.useState("");
-  const [adding, setAdding] = React.useState(false);
-  const [err, setErr] = React.useState("");
-  const codeRef = React.useRef<HTMLInputElement>(null);
-
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
-    const c = code.trim().toUpperCase();
-    const n = name.trim();
-    if (!c) { setErr("Nhập mã dự án"); return; }
-    if (!n) { setErr("Nhập tên dự án"); return; }
-    setErr("");
-    setAdding(true);
-    const res = await saveProjectGroup({ code: c, name: n, workGroupId });
-    setAdding(false);
-    if (res.ok) {
-      setCode(""); setName("");
-      toast.success("Đã thêm dự án");
-      router.refresh();
-      codeRef.current?.focus();
-    } else {
-      setErr(res.error ?? "Lỗi không xác định");
-    }
-  }
-
-  return (
-    <Modal open onClose={onClose} title="Quản lý dự án BIM Tools" className="max-w-lg">
-      <div className="space-y-3">
-        {/* Danh sách */}
-        <div className="max-h-[45vh] divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
-          {projects.map((g) => (
-            <div key={g.id} className="group flex items-center gap-3 px-3 py-2">
-              <span className="w-20 shrink-0 font-mono text-xs font-medium text-slate-500">{g.code}</span>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{g.name}</span>
-              <div className="flex gap-0.5 opacity-60 transition group-hover:opacity-100">
-                <button
-                  type="button"
-                  title="Sửa"
-                  onClick={() => onEdit(g)}
-                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                >
-                  <Pencil className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  title="Xóa"
-                  onClick={() => onDelete(g)}
-                  className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-          {projects.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">Chưa có dự án nào</p>
-          ) : null}
-        </div>
-
-        {/* Form thêm */}
-        <form onSubmit={handleAdd} className="space-y-2">
-          <div className="flex gap-2">
-            <input
-              ref={codeRef}
-              value={code}
-              onChange={(e) => { setCode(e.target.value.toUpperCase()); setErr(""); }}
-              placeholder="Mã dự án"
-              className="h-9 w-28 shrink-0 rounded-md border border-slate-200 bg-white px-2.5 font-mono text-sm uppercase outline-none focus:border-slate-400"
-            />
-            <input
-              value={name}
-              onChange={(e) => { setName(e.target.value); setErr(""); }}
-              placeholder="Tên dự án…"
-              className="h-9 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-slate-400"
-            />
-            <button
-              type="submit"
-              disabled={adding}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-slate-800 px-3 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              <Plus className="size-4" /> Thêm
-            </button>
-          </div>
-          {err ? <p className="text-xs text-red-500">{err}</p> : null}
-        </form>
-      </div>
     </Modal>
   );
 }
