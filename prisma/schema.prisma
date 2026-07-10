@@ -345,6 +345,7 @@ model TimeSheetEntry {
   date      DateTime  @db.Date
   hours     Decimal   @db.Decimal(4, 2)
   note      String?
+  result    String? // Link/đường dẫn kết quả gắn theo ngày ghi giờ này (khác với Task.result — kết quả cuối cùng).
   lockedAt  DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

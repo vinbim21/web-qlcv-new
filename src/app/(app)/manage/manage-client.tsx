@@ -35,7 +35,7 @@ import { useRouter } from "next/navigation";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskRowEditor } from "@/components/task-row-editor";
-import { ResultCell } from "@/components/result-cell";
+import { EntryResultCell, ResultCell } from "@/components/result-cell";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -607,7 +607,7 @@ export function ManageClient({
   const deferredSearch = React.useDeferredValue(search);
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
   // Modal chi tiết công việc (click 1 lần vào tên việc): nội dung + toàn bộ giờ đã ghi (mọi người, mọi thời điểm).
-  type WeekEntry = { id: string; date: string; hours: number; note: string | null; userName: string };
+  type WeekEntry = { id: string; date: string; hours: number; note: string | null; result: string | null; userName: string };
   const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
   const [detailEntries, setDetailEntries] = React.useState<WeekEntry[]>([]);
   const [detailLoading, setDetailLoading] = React.useState(false);
@@ -3055,6 +3055,8 @@ export function ManageClient({
             hours: null as number | null,
             person: detailTask.assigneeNames.join(", ") || null,
             isUpdate: true,
+            entryId: null as string | null,
+            result: null as string | null,
           })),
           ...detailEntries.map((e) => ({
             key: e.id,
@@ -3063,8 +3065,11 @@ export function ManageClient({
             hours: e.hours as number | null,
             person: e.userName as string | null,
             isUpdate: false,
+            entryId: e.id as string | null,
+            result: e.result,
           })),
         ].sort((a, b) => a.date.localeCompare(b.date));
+        const canEditResult = canManage || detailTask.assigneeIds.includes(currentUserId);
         return (
           <Modal
             open
@@ -3101,6 +3106,7 @@ export function ManageClient({
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Nội dung công việc</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Số giờ</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Người thực hiện</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Kết quả</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -3116,6 +3122,18 @@ export function ManageClient({
                             <td className={cn("px-3 py-2 text-slate-600 dark:text-slate-300", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>
                               {row.person || <span className="italic text-slate-300 dark:text-slate-600">—</span>}
                             </td>
+                            <td className="px-3 py-2">
+                              {row.entryId ? (
+                                <EntryResultCell
+                                  entryId={row.entryId}
+                                  value={row.result}
+                                  canEdit={canEditResult}
+                                  onSaved={(v) => setDetailEntries((arr) => arr.map((x) => (x.id === row.entryId ? { ...x, result: v } : x)))}
+                                />
+                              ) : (
+                                <span className="text-slate-300 dark:text-slate-600 text-xs">—</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -3125,7 +3143,7 @@ export function ManageClient({
                           <td className="px-3 py-2 text-sm font-bold text-blue-600 dark:text-blue-400">
                             {detailEntries.reduce((s, e) => s + e.hours, 0)}h
                           </td>
-                          <td />
+                          <td colSpan={2} />
                         </tr>
                       </tfoot>
                     </table>
