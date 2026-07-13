@@ -42,6 +42,7 @@ import {
   RotateCcw,
   Search,
   Shapes,
+  ShieldCheck,
   SlidersHorizontal,
   Trash2,
   Users,
@@ -85,6 +86,16 @@ import {
   saveCatalogProject,
   saveProjectGroup,
 } from "@/server/actions/projects";
+import {
+  grantCatalogColumnPermission,
+  listCatalogColumnPermissions,
+  revokeCatalogColumnPermission,
+} from "@/server/actions/catalog-permissions";
+import {
+  CATALOG_PERMISSION_COLUMNS,
+  CATALOG_PERMISSION_COLUMN_LABEL,
+  type CatalogPermissionColumn,
+} from "@/lib/catalog-permission-columns";
 import { LevelColumn } from "./[workGroupId]/catalog-detail";
 import { CatalogG6Graph } from "@/components/catalog-g6-graph";
 import type { Result } from "@/server/actions/_helpers";
@@ -109,6 +120,7 @@ type ProjectRow = {
   constructionTypeId: string | null;
   startDate: string | null;
   packagingDate: string | null;
+  description: string | null;
   taskCount: number;
 };
 type WorkRow = { id: string; workGroupId: string; value: string; order: number };
@@ -145,6 +157,9 @@ export function CatalogClient({
   projects,
   works,
   ptItems,
+  isAdmin,
+  editableColumns,
+  users,
 }: {
   workGroups: WorkGroupRow[];
   phases: SimpleRow[];
@@ -155,8 +170,20 @@ export function CatalogClient({
   projects: ProjectRow[];
   works: WorkRow[];
   ptItems: { id: string; level: number; value: string; parentId: string | null; projectGroupId: string | null; order: number }[];
+  /** ADMIN sửa toàn quyền; member chỉ xem, trừ các cột trong editableColumns được cấp quyền sửa. */
+  isAdmin: boolean;
+  editableColumns: CatalogPermissionColumn[];
+  users: { id: string; fullName: string; departmentId: string | null }[];
 }) {
+  // Chỉ ADMIN mới thấy/dùng được các control tạo/sửa/xóa; các cột trong editableColumns
+  // (Bắt đầu/Đóng gói/Quy mô/Mô tả của Hạng mục) member được cấp quyền vẫn bấm sửa được riêng.
+  const readOnly = !isAdmin;
+  const canEditCol = React.useCallback(
+    (col: CatalogPermissionColumn) => isAdmin || editableColumns.includes(col),
+    [isAdmin, editableColumns],
+  );
   const router = useRouter();
+  const [showColumnPermissions, setShowColumnPermissions] = React.useState(false);
   const [tab, setTab] = React.useState<TabId>("groups");
   const [projectsViewMode, setProjectsViewMode] = React.useState<"table" | "grouped" | "g6">("table");
   const [groupedCollapsed, setGroupedCollapsed] = React.useState<Set<string>>(new Set());
@@ -208,7 +235,7 @@ export function CatalogClient({
   // Bulk edit state
   const [bulkProjectEdit, setBulkProjectEdit] = React.useState<{
     ids: string[];
-    field: "groupId" | "constructionTypeId" | "name" | "blockSystem" | "startDate" | "packagingDate";
+    field: "groupId" | "constructionTypeId" | "name" | "blockSystem" | "startDate" | "packagingDate" | "scale" | "description";
   } | null>(null);
   const [bulkBimtoolsEdit, setBulkBimtoolsEdit] = React.useState<{
     ids: string[];
@@ -294,6 +321,7 @@ export function CatalogClient({
       rows={workGroups as unknown as Row[]}
       addLabel="Thêm nhóm"
       minWidth={620}
+      readOnly={readOnly}
       selectable
       bulkBar={(ids, clear) => (
         <CatalogBulkBar
@@ -422,6 +450,7 @@ export function CatalogClient({
     { key: "scale", label: "Quy mô (m² sàn)", span: 1, placeholder: "vd 12.000 m²" },
     { key: "startDate", label: "Bắt đầu", type: "date" as const, span: 1 },
     { key: "packagingDate", label: "Đóng gói", type: "date" as const, span: 1 },
+    { key: "description", label: "Mô tả", type: "textarea" as const, span: 3, hint: "hiện khi hover vào tên hạng mục ở /manage và /tasks" },
   ];
   // ---- View gom nhóm theo Dự án → Loại hình → Hạng mục → Khối/Hệ thống ----
   const groupedProjectsView = () => {
@@ -552,11 +581,11 @@ export function CatalogClient({
       return n;
       });
     };
-    const rowActions = (p: ProjectRow) => (
+    const rowActions = (p: ProjectRow) => !isAdmin ? null : (
       <div className="flex justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
         <button type="button" title="Sửa" onClick={() => {
-          setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "" },
-            submit: (v) => saveCatalogProject({ id: p.id, groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null, startDate: v.startDate || null, packagingDate: v.packagingDate || null }) });
+          setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "", description: p.description ?? "" },
+            submit: (v) => saveCatalogProject({ id: p.id, groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null, startDate: v.startDate || null, packagingDate: v.packagingDate || null, description: v.description || null }) });
         }} className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
           <Pencil className="size-4" />
         </button>
@@ -620,15 +649,15 @@ export function CatalogClient({
           </div>
         </div>
         {/* Bulk bar khi có chọn */}
-        {groupedSelectedIds.size > 0 && (
+        {isAdmin && groupedSelectedIds.size > 0 && (
           <CatalogBulkBar
-            variant="floatingBlue"
             count={groupedSelectedIds.size}
             onClear={() => setGroupedSelectedIds(new Set())}
             actions={[
               { label: "Đổi Dự án", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "groupId" }) },
               { label: "Đổi Loại hình", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "constructionTypeId" }) },
               { label: "Đổi Hạng mục", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "name" }) },
+              { label: "Đổi mô tả hạng mục", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "description" }) },
               { label: "Đổi Khối/Hệ thống", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "blockSystem" }) },
               { label: "Đổi Bắt đầu", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "startDate" }) },
               { label: "Đổi Đóng gói", onClick: () => setBulkProjectEdit({ ids: [...groupedSelectedIds], field: "packagingDate" }) },
@@ -664,15 +693,17 @@ export function CatalogClient({
             <thead className="sticky top-0 z-20 bg-card">
               <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500">
                 <th className="w-9 px-3 py-2">
-                  <input
-                    type="checkbox"
-                    className="size-3.5 accent-slate-700"
-                    checked={allVisibleSelected}
-                    ref={(el) => { if (el) el.indeterminate = someVisibleSelected; }}
-                    onChange={() => selectIds(allVisibleIds, allVisibleSelected)}
-                    title={allVisibleSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
-                    aria-label={allVisibleSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
-                  />
+                  {isAdmin ? (
+                    <input
+                      type="checkbox"
+                      className="size-3.5 accent-slate-700"
+                      checked={allVisibleSelected}
+                      ref={(el) => { if (el) el.indeterminate = someVisibleSelected; }}
+                      onChange={() => selectIds(allVisibleIds, allVisibleSelected)}
+                      title={allVisibleSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                      aria-label={allVisibleSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                    />
+                  ) : null}
                 </th>
                 <th className="w-[12%] px-3 py-2">
                   <div className="flex items-center gap-1">Dự án
@@ -719,13 +750,15 @@ export function CatalogClient({
                   <React.Fragment key={projectKey}>
                     <tr className="border-b border-slate-200 bg-slate-100">
                       <td className="px-3 py-2 align-middle">
-                        <input
-                          type="checkbox"
-                          className="size-3.5 accent-slate-700"
-                          checked={allGroupSel}
-                          ref={(el) => { if (el) el.indeterminate = someGroupSel; }}
-                          onChange={() => selectIds(allGroupIds, allGroupSel)}
-                        />
+                        {isAdmin ? (
+                          <input
+                            type="checkbox"
+                            className="size-3.5 accent-slate-700"
+                            checked={allGroupSel}
+                            ref={(el) => { if (el) el.indeterminate = someGroupSel; }}
+                            onChange={() => selectIds(allGroupIds, allGroupSel)}
+                          />
+                        ) : null}
                       </td>
                       <td className="px-3 py-2" colSpan={8}>
                         <div className="flex items-center gap-2">
@@ -734,10 +767,12 @@ export function CatalogClient({
                             <span className="font-mono text-[13px] font-semibold text-slate-700" title={group.name}>{group.code}</span>
                             <span className="text-xs font-normal text-slate-400">({ctMap.size} loại hình)</span>
                           </button>
+                          {isAdmin ? (
                           <button type="button" title="Thêm loại hình / hạng mục" onClick={() => setAddLoaiHinhCtx(group)} className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
                             <Plus className="size-3" />
                           </button>
-                          {group.code !== "—" && (
+                          ) : null}
+                          {isAdmin && group.code !== "—" && (
                             <>
                               <button
                                 type="button"
@@ -792,13 +827,15 @@ export function CatalogClient({
                         <React.Fragment key={ctKey}>
                           <tr className="border-b border-slate-100 bg-slate-50">
                             <td className="px-3 py-2 align-middle">
-                              <input
-                                type="checkbox"
-                                className="size-3.5 accent-slate-700"
-                                checked={allCtSel}
-                                ref={(el) => { if (el) el.indeterminate = someCtSel; }}
-                                onChange={() => selectIds(ctIds, allCtSel)}
-                              />
+                              {isAdmin ? (
+                                <input
+                                  type="checkbox"
+                                  className="size-3.5 accent-slate-700"
+                                  checked={allCtSel}
+                                  ref={(el) => { if (el) el.indeterminate = someCtSel; }}
+                                  onChange={() => selectIds(ctIds, allCtSel)}
+                                />
+                              ) : null}
                             </td>
                             <td className="px-3 py-2" />
                             <td className="px-3 py-2" colSpan={7}>
@@ -812,9 +849,11 @@ export function CatalogClient({
                                   )}
                                   <span className="text-xs font-normal text-slate-400">({hmMap.size} hạng mục)</span>
                                 </button>
+                                {isAdmin ? (
                                 <button type="button" title="Thêm hạng mục" onClick={() => setAddHangMucCtx({ title: `Thêm hạng mục — ${ct?.code ?? "Chưa có loại hình"}`, groupId: group.id, constructionTypeId: ctId !== "__none__" ? ctId : null })} className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                                   <Plus className="size-3" />
                                 </button>
+                                ) : null}
                               </div>
                             </td>
                           </tr>
@@ -832,32 +871,84 @@ export function CatalogClient({
                               <React.Fragment key={hmKey}>
                                 <tr className="border-b border-slate-100 bg-white">
                                   <td className="px-3 py-2 align-middle">
-                                    <input
-                                      type="checkbox"
-                                      className="size-3.5 accent-slate-700"
-                                      checked={allHmSel}
-                                      ref={(el) => { if (el) el.indeterminate = someHmSel; }}
-                                      onChange={() => selectIds(hmIds, allHmSel)}
-                                    />
+                                    {isAdmin ? (
+                                      <input
+                                        type="checkbox"
+                                        className="size-3.5 accent-slate-700"
+                                        checked={allHmSel}
+                                        ref={(el) => { if (el) el.indeterminate = someHmSel; }}
+                                        onChange={() => selectIds(hmIds, allHmSel)}
+                                      />
+                                    ) : null}
                                   </td>
                                   <td className="px-3 py-2" />
                                   <td className="px-3 py-2" />
                                   <td className="px-3 py-2">
-                                    <div className="flex items-center gap-2">
-                                      <button type="button" onClick={() => toggleHm(hmKey)} className="inline-flex items-center gap-1.5 text-left">
+                                    <div className="flex items-center gap-1.5">
+                                      <button type="button" onClick={() => toggleHm(hmKey)} className="grid size-5 shrink-0 place-items-center">
                                         {hmCollapsed ? <ChevronRight className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
-                                        <span className="text-xs font-medium text-slate-700">{hmName}</span>
-                                        <span className="text-xs font-normal text-slate-400">({hmItems.length} khối)</span>
                                       </button>
-                                      <button type="button" title="Thêm hạng mục / khối" onClick={() => setAddHangMucCtx({ title: `Thêm hạng mục / khối — ${hmName}`, defaultHangMuc: hmName, groupId: group.id, constructionTypeId: ctId !== "__none__" ? ctId : null, hmDateSource })} className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-                                        <Plus className="size-3" />
-                                      </button>
+                                      {canEditCol("description") ? (
+                                        <InlineEditProjectCell
+                                          ids={hmIds}
+                                          field="description"
+                                          value={hmDateSource.description ?? ""}
+                                          type="text"
+                                          placeholder="Nhập mô tả hạng mục…"
+                                          display={<span className="text-xs font-medium text-slate-700">{hmName}</span>}
+                                        />
+                                      ) : (
+                                        <span className="text-xs font-medium text-slate-700" title={hmDateSource.description || undefined}>{hmName}</span>
+                                      )}
+                                      <button type="button" onClick={() => toggleHm(hmKey)} className="text-xs font-normal text-slate-400">({hmItems.length} khối)</button>
+                                      {isAdmin ? (
+                                        <button type="button" title="Thêm hạng mục / khối" onClick={() => setAddHangMucCtx({ title: `Thêm hạng mục / khối — ${hmName}`, defaultHangMuc: hmName, groupId: group.id, constructionTypeId: ctId !== "__none__" ? ctId : null, hmDateSource })} className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                                          <Plus className="size-3" />
+                                        </button>
+                                      ) : null}
                                     </div>
                                   </td>
                                   <td className="px-3 py-2" />
-                                  <td className="px-3 py-2 tabular-nums text-xs font-medium text-slate-600">{hmDateSource.startDate ? fmtProjectDate(hmDateSource.startDate) : <span className="text-slate-300">—</span>}</td>
-                                  <td className="px-3 py-2 tabular-nums text-xs font-medium text-slate-600">{hmDateSource.packagingDate ? fmtProjectDate(hmDateSource.packagingDate) : <span className="text-slate-300">—</span>}</td>
-                                  <td className="px-3 py-2 text-right tabular-nums text-slate-600">{singleNoBlockItem?.scale ?? <span className="text-slate-300">—</span>}</td>
+                                  <td className="px-3 py-2 tabular-nums text-xs font-medium text-slate-600">
+                                    {canEditCol("startDate") ? (
+                                      <InlineEditProjectCell
+                                        ids={hmIds}
+                                        field="startDate"
+                                        value={hmDateSource.startDate ?? ""}
+                                        type="date"
+                                        display={hmDateSource.startDate ? fmtProjectDate(hmDateSource.startDate) : <span className="text-slate-300">—</span>}
+                                      />
+                                    ) : (
+                                      hmDateSource.startDate ? fmtProjectDate(hmDateSource.startDate) : <span className="text-slate-300">—</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 tabular-nums text-xs font-medium text-slate-600">
+                                    {canEditCol("packagingDate") ? (
+                                      <InlineEditProjectCell
+                                        ids={hmIds}
+                                        field="packagingDate"
+                                        value={hmDateSource.packagingDate ?? ""}
+                                        type="date"
+                                        display={hmDateSource.packagingDate ? fmtProjectDate(hmDateSource.packagingDate) : <span className="text-slate-300">—</span>}
+                                      />
+                                    ) : (
+                                      hmDateSource.packagingDate ? fmtProjectDate(hmDateSource.packagingDate) : <span className="text-slate-300">—</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                                    {singleNoBlockItem && canEditCol("scale") ? (
+                                      <InlineEditProjectCell
+                                        ids={[singleNoBlockItem.id]}
+                                        field="scale"
+                                        value={singleNoBlockItem.scale ?? ""}
+                                        type="text"
+                                        placeholder="vd 12.000 m²"
+                                        display={singleNoBlockItem?.scale ?? <span className="text-slate-300">—</span>}
+                                      />
+                                    ) : (
+                                      singleNoBlockItem?.scale ?? <span className="text-slate-300">—</span>
+                                    )}
+                                  </td>
                                   <td className="px-3 py-2">{singleNoBlockItem ? rowActions(singleNoBlockItem) : null}</td>
                                 </tr>
                                 {!hmCollapsed && hasBlockRows && hmItems.map((p) => {
@@ -867,12 +958,14 @@ export function CatalogClient({
                                   return (
                                     <tr key={blockKey} className={cn("group border-b border-slate-100 hover:bg-slate-50", isSel && "bg-slate-50")}>
                                       <td className="px-3 py-2 align-middle">
-                                        <input
-                                          type="checkbox"
-                                          className="size-3.5 accent-slate-700"
-                                          checked={isSel}
-                                          onChange={() => toggleSel(p.id)}
-                                        />
+                                        {isAdmin ? (
+                                          <input
+                                            type="checkbox"
+                                            className="size-3.5 accent-slate-700"
+                                            checked={isSel}
+                                            onChange={() => toggleSel(p.id)}
+                                          />
+                                        ) : null}
                                       </td>
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2" />
@@ -885,7 +978,20 @@ export function CatalogClient({
                                       </td>
                                       <td className="px-3 py-2" />
                                       <td className="px-3 py-2" />
-                                      <td className="px-3 py-2 text-right tabular-nums text-slate-600">{p.scale ?? <span className="text-slate-300">—</span>}</td>
+                                      <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                                        {canEditCol("scale") ? (
+                                          <InlineEditProjectCell
+                                            ids={[p.id]}
+                                            field="scale"
+                                            value={p.scale ?? ""}
+                                            type="text"
+                                            placeholder="vd 12.000 m²"
+                                            display={p.scale ?? <span className="text-slate-300">—</span>}
+                                          />
+                                        ) : (
+                                          p.scale ?? <span className="text-slate-300">—</span>
+                                        )}
+                                      </td>
                                       <td className="px-3 py-2">
                                         {rowActions(p)}
                                       </td>
@@ -989,37 +1095,39 @@ export function CatalogClient({
             </button>
           </>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              setRecord({
-                title: "Thêm dự án",
-                fields: GROUP_FIELDS_PROJECT,
-                initial: { code: "", name: "", order: "0" },
-                existingCodes: projectGroups.map((g) => g.code),
-                submit: async (v) => {
-                  const res = await createProjectGroupReturnId({ code: v.code, name: v.name, workGroupId: null });
-                  // Tạo xong → mở luôn modal thêm Loại hình/Hạng mục cho dự án vừa tạo (bỏ qua được nếu chưa muốn thêm ngay).
-                  if (res.ok && res.data) {
-                    setAddLoaiHinhCtx({
-                      id: res.data.id,
-                      code: v.code.trim().toUpperCase(),
-                      name: v.name.trim(),
-                      order: Number(v.order || 0),
-                      workGroupId: null,
-                      itemCount: 0,
-                    });
-                  }
-                  return res;
-                },
-              })
-            }
-            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
-          >
-            <Plus className="size-4" /> Thêm dự án
-          </button>
-        </div>
+        {isAdmin ? (
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setRecord({
+                  title: "Thêm dự án",
+                  fields: GROUP_FIELDS_PROJECT,
+                  initial: { code: "", name: "", order: "0" },
+                  existingCodes: projectGroups.map((g) => g.code),
+                  submit: async (v) => {
+                    const res = await createProjectGroupReturnId({ code: v.code, name: v.name, workGroupId: null });
+                    // Tạo xong → mở luôn modal thêm Loại hình/Hạng mục cho dự án vừa tạo (bỏ qua được nếu chưa muốn thêm ngay).
+                    if (res.ok && res.data) {
+                      setAddLoaiHinhCtx({
+                        id: res.data.id,
+                        code: v.code.trim().toUpperCase(),
+                        name: v.name.trim(),
+                        order: Number(v.order || 0),
+                        workGroupId: null,
+                        itemCount: 0,
+                      });
+                    }
+                    return res;
+                  },
+                })
+              }
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+            >
+              <Plus className="size-4" /> Thêm dự án
+            </button>
+          </div>
+        ) : null}
       </div>
       {projectsViewMode === "g6" ? (
         <CatalogG6Graph
@@ -1032,6 +1140,7 @@ export function CatalogClient({
       title="Dự án · Hạng mục"
       rows={(groupedFilter.trim() ? generalProjects.filter(p => { const g = pgById.get(p.groupId ?? ""); const q2 = groupedFilter.trim().toLowerCase(); return g ? g.code.toLowerCase().includes(q2) || g.name.toLowerCase().includes(q2) : false; }) : generalProjects) as unknown as Row[]}
       minWidth={720}
+      readOnly={readOnly}
       selectable
       bulkBar={(ids, clear) => (
         <CatalogBulkBar
@@ -1041,6 +1150,7 @@ export function CatalogClient({
             { label: "Đổi Dự án", onClick: () => setBulkProjectEdit({ ids, field: "groupId" }) },
             { label: "Đổi Loại hình", onClick: () => setBulkProjectEdit({ ids, field: "constructionTypeId" }) },
             { label: "Đổi Hạng mục", onClick: () => setBulkProjectEdit({ ids, field: "name" }) },
+            { label: "Đổi mô tả hạng mục", onClick: () => setBulkProjectEdit({ ids, field: "description" }) },
             { label: "Đổi Khối/Hệ thống", onClick: () => setBulkProjectEdit({ ids, field: "blockSystem" }) },
             { label: "Đổi Bắt đầu", onClick: () => setBulkProjectEdit({ ids, field: "startDate" }) },
             { label: "Đổi Đóng gói", onClick: () => setBulkProjectEdit({ ids, field: "packagingDate" }) },
@@ -1085,13 +1195,13 @@ export function CatalogClient({
       }
       onEdit={(r) => {
         const p = r as unknown as ProjectRow;
-        setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "" },
-          submit: (v) => saveCatalogProject({ id: p.id, groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null, startDate: v.startDate || null, packagingDate: v.packagingDate || null }) });
+        setRecord({ title: "Sửa hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "", description: p.description ?? "" },
+          submit: (v) => saveCatalogProject({ id: p.id, groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null, startDate: v.startDate || null, packagingDate: v.packagingDate || null, description: v.description || null }) });
       }}
       onDuplicate={(r) => {
         const p = r as unknown as ProjectRow;
-        setRecord({ title: "Nhân bản hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "" },
-          submit: (v) => saveCatalogProject({ groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null, startDate: v.startDate || null, packagingDate: v.packagingDate || null }) });
+        setRecord({ title: "Nhân bản hạng mục", fields: generalItemFields, initial: { groupId: p.groupId ?? "", constructionTypeId: p.constructionTypeId ?? "", name: p.name, blockSystem: p.blockSystem ?? "", scale: p.scale ?? "", startDate: p.startDate ?? "", packagingDate: p.packagingDate ?? "", description: p.description ?? "" },
+          submit: (v) => saveCatalogProject({ groupId: v.groupId, name: v.name, blockSystem: v.blockSystem || null, constructionTypeId: v.constructionTypeId || null, scale: v.scale || null, startDate: v.startDate || null, packagingDate: v.packagingDate || null, description: v.description || null }) });
       }}
       onDelete={(r) => {
         const p = r as unknown as ProjectRow;
@@ -1104,15 +1214,53 @@ export function CatalogClient({
         { key: "ct", label: "Loại hình", thClass: "w-52", filter: "multi",
           text: (r) => ctById.get((r.constructionTypeId as string) ?? "")?.name ?? "",
           cell: (r) => { const ct = ctById.get((r.constructionTypeId as string) ?? ""); return ct ? <span className="font-mono text-xs text-slate-600" title={ct.name}>{ct.code}</span> : <Dash />; } },
-        { key: "name", label: "Hạng mục", thClass: "w-72", filter: "text", text: (r) => String(r.name ?? ""), cell: (r) => <strong className="font-medium text-slate-800">{String(r.name)}</strong> },
+        { key: "name", label: "Hạng mục", thClass: "w-72", filter: "text", text: (r) => String(r.name ?? ""),
+          cell: (r) => canEditCol("description") ? (
+            <InlineEditProjectCell
+              ids={[r.id]}
+              field="description"
+              value={(r.description as string | null) ?? ""}
+              type="text"
+              placeholder="Nhập mô tả hạng mục…"
+              display={<span className="font-medium text-slate-800">{String(r.name)}</span>}
+              className="font-medium text-slate-800"
+            />
+          ) : (
+            <span className="font-medium text-slate-800" title={(r.description as string | null) || undefined}>{String(r.name)}</span>
+          ) },
         { key: "blockSystem", label: "Khối/Hệ thống", thClass: "w-44", filter: "text", text: (r) => String(r.blockSystem ?? ""),
           cell: (r) => r.blockSystem ? <span className="text-slate-700">{String(r.blockSystem)}</span> : <Dash /> },
         { key: "startDate", label: "Bắt đầu", thClass: "w-32", filter: "text", text: (r) => fmtProjectDate(r.startDate as string | null),
-          cell: (r) => r.startDate ? <span className="tabular-nums text-slate-600">{fmtProjectDate(r.startDate as string)}</span> : <Dash /> },
+          cell: (r) => canEditCol("startDate") ? (
+            <InlineEditProjectCell
+              ids={[r.id]}
+              field="startDate"
+              value={(r.startDate as string | null) ?? ""}
+              type="date"
+              display={r.startDate ? <span className="tabular-nums text-slate-600">{fmtProjectDate(r.startDate as string)}</span> : <Dash />}
+            />
+          ) : r.startDate ? <span className="tabular-nums text-slate-600">{fmtProjectDate(r.startDate as string)}</span> : <Dash /> },
         { key: "packagingDate", label: "Đóng gói", thClass: "w-32", filter: "text", text: (r) => fmtProjectDate(r.packagingDate as string | null),
-          cell: (r) => r.packagingDate ? <span className="tabular-nums text-slate-600">{fmtProjectDate(r.packagingDate as string)}</span> : <Dash /> },
+          cell: (r) => canEditCol("packagingDate") ? (
+            <InlineEditProjectCell
+              ids={[r.id]}
+              field="packagingDate"
+              value={(r.packagingDate as string | null) ?? ""}
+              type="date"
+              display={r.packagingDate ? <span className="tabular-nums text-slate-600">{fmtProjectDate(r.packagingDate as string)}</span> : <Dash />}
+            />
+          ) : r.packagingDate ? <span className="tabular-nums text-slate-600">{fmtProjectDate(r.packagingDate as string)}</span> : <Dash /> },
         { key: "scale", label: "Quy mô (m² sàn)", thClass: "w-44", align: "right", filter: "text", text: (r) => String(r.scale ?? ""),
-          cell: (r) => r.scale ? <span className="font-medium tabular-nums text-slate-700">{String(r.scale)}</span> : <Dash /> },
+          cell: (r) => canEditCol("scale") ? (
+            <InlineEditProjectCell
+              ids={[r.id]}
+              field="scale"
+              value={(r.scale as string | null) ?? ""}
+              type="text"
+              placeholder="vd 12.000 m²"
+              display={r.scale ? <span className="font-medium tabular-nums text-slate-700">{String(r.scale)}</span> : <Dash />}
+            />
+          ) : r.scale ? <span className="font-medium tabular-nums text-slate-700">{String(r.scale)}</span> : <Dash /> },
       ]}
     />}
     </>
@@ -1145,6 +1293,7 @@ export function CatalogClient({
         rows={ptLevel3 as unknown as Row[]}
         addLabel="Thêm dự án"
         minWidth={720}
+        readOnly={readOnly}
         selectable
         bulkBar={(ids, clear) => (
           <CatalogBulkBar
@@ -1158,18 +1307,20 @@ export function CatalogClient({
           />
         )}
         infoBar={{ tone: "slate", text: 'Danh mục Hạng mục của nhóm Phát triển BIM Tools — nguồn gợi ý khi tạo công việc. Quản lý Loại hình ở nút "Quản lý loại hình".' }}
-        onBatchReorder={(ids) => reorder("catalogItem", ids)}
+        onBatchReorder={readOnly ? undefined : (ids) => reorder("catalogItem", ids)}
         headerExtra={
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setManageBimtoolsL2(true)}
-              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-            >
-              <SlidersHorizontal className="size-4 text-slate-400" /> Quản lý loại hình
-              <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptLevel2.length}</span>
-            </button>
-          </div>
+          !readOnly ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setManageBimtoolsL2(true)}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                <SlidersHorizontal className="size-4 text-slate-400" /> Quản lý loại hình
+                <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptLevel2.length}</span>
+              </button>
+            </div>
+          ) : null
         }
         onAdd={() => {
           if (ptLevel2.length === 0) {
@@ -1295,6 +1446,7 @@ export function CatalogClient({
     <WorksPanel
       workGroups={workGroups}
       works={works}
+      readOnly={readOnly}
       onBatchReorder={(ids) => reorder("catalogItem", ids)}
       onAdd={(workGroupId, value) => run(addCatalogValue(workGroupId, 5, value), "Đã thêm công việc")}
       onBulkEdit={(ids, field) => setBulkWorksEdit({ ids, field })}
@@ -1365,6 +1517,7 @@ export function CatalogClient({
         rows={opts.rows as unknown as Row[]}
         addLabel={opts.addLabel}
         infoBar={opts.infoBar}
+        readOnly={readOnly}
         selectable
         bulkBar={(ids, clear) => (
           <CatalogBulkBar
@@ -1416,17 +1569,38 @@ export function CatalogClient({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">Khai báo thông tin</h1>
-              <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
-                <Lock className="size-3" /> Chỉ Admin
-              </span>
+              {isAdmin ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+                  <Lock className="size-3" /> Admin — toàn quyền
+                </span>
+              ) : editableColumns.length > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                  <Pencil className="size-3" /> Chỉ xem — sửa được {editableColumns.length} cột ở tab Dự án
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+                  <Lock className="size-3" /> Chỉ xem
+                </span>
+              )}
             </div>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
               Danh mục nền (master data) — nguồn dữ liệu dùng chung cho Giao việc, Công việc và Báo cáo.
             </p>
           </div>
-          <span className="hidden items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500 sm:inline-flex">
-            <Database className="size-3.5" /> 8 danh mục · 8 tab
-          </span>
+          <div className="flex items-center gap-2">
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => setShowColumnPermissions(true)}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                <ShieldCheck className="size-4 text-slate-400" /> Phân quyền cột
+              </button>
+            ) : null}
+            <span className="hidden items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-500 sm:inline-flex">
+              <Database className="size-3.5" /> 8 danh mục · 8 tab
+            </span>
+          </div>
         </div>
 
         {/* Tab bar — sticky bên dưới app header */}
@@ -1603,6 +1777,15 @@ export function CatalogClient({
         />
       ) : null}
 
+      {/* Phân quyền cột (chỉ ADMIN) */}
+      {showColumnPermissions ? (
+        <CatalogColumnPermissionsModal
+          users={users}
+          departments={departments}
+          onClose={() => setShowColumnPermissions(false)}
+        />
+      ) : null}
+
       {/* Quản lý Loại hình BIM Tools (Level 2) */}
       {manageBimtoolsL2 ? (
         <ManageBimtoolsL2Modal
@@ -1674,6 +1857,8 @@ export function CatalogClient({
           projectGroups={generalProjectGroups}
           constructionTypes={constructionTypes}
           projects={generalProjects}
+          isAdmin={isAdmin}
+          editableColumns={editableColumns}
           onClose={() => setBulkProjectEdit(null)}
           onSubmit={async (patch) => {
             const res = await batchUpdateCatalogProjects(bulkProjectEdit.ids, patch);
@@ -1782,6 +1967,7 @@ function FilterTable({
   minWidth,
   selectable,
   bulkBar,
+  readOnly,
 }: {
   title: string;
   rows: Row[];
@@ -1798,6 +1984,8 @@ function FilterTable({
   minWidth?: number;
   selectable?: boolean;
   bulkBar?: (selectedIds: string[], clearSel: () => void) => React.ReactNode;
+  /** Chỉ xem — ẩn Thêm/Sửa/Xóa/Nhân bản/kéo sắp xếp/checkbox chọn hàng loạt (dùng cho member không có quyền). */
+  readOnly?: boolean;
 }) {
   const [sort, setSort] = React.useState<{ key: string; dir: "asc" | "desc" } | null>(null);
   const [colFilters, setColFilters] = React.useState<Record<string, string | string[]>>({});
@@ -1907,7 +2095,9 @@ function FilterTable({
     }
   }
 
-  const canDrag = !!onBatchReorder && !sort && activeCols.length === 0;
+  const canDrag = !readOnly && !!onBatchReorder && !sort && activeCols.length === 0;
+  const showReorderCol = !readOnly && !!onBatchReorder;
+  const showSelectCol = !readOnly && !!selectable;
 
   const toggleSort = (k: string) =>
     setSort((s) => (s && s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: "asc" }));
@@ -1928,7 +2118,7 @@ function FilterTable({
     }
   };
 
-  const colCount = columns.length + (onBatchReorder ? 2 : 1) + (selectable ? 1 : 0);
+  const colCount = columns.length + (showReorderCol ? 1 : 0) + (showSelectCol ? 1 : 0) + (readOnly ? 0 : 1);
   const openCol = openFilter ? colByKey.get(openFilter.key) : null;
   const stickyHeadClass = "sticky top-0 z-20 bg-slate-50 shadow-[0_1px_0_0_theme(colors.slate.200)]";
 
@@ -1945,7 +2135,7 @@ function FilterTable({
         </span>
         <div className="ml-auto flex items-center gap-2">
           {headerExtra}
-          {addLabel && onAdd && (
+          {!readOnly && addLabel && onAdd && (
             <button
               type="button"
               onClick={onAdd}
@@ -1991,7 +2181,7 @@ function FilterTable({
       ) : null}
 
       {/* Bulk action bar */}
-      {selectable && bulkBar && selArr.length > 0 ? (
+      {showSelectCol && bulkBar && selArr.length > 0 ? (
         <div className="bg-card px-4 pt-3">{bulkBar(selArr, clearSel)}</div>
       ) : null}
       </div>{/* /sticky header block */}
@@ -2001,8 +2191,8 @@ function FilterTable({
         <table className="w-full border-collapse text-sm" style={minWidth ? { minWidth } : undefined}>
           <thead>
             <tr className="text-left text-xs font-semibold text-slate-400">
-              {onBatchReorder ? <th className={cn("w-8 px-2 py-2", stickyHeadClass)} /> : null}
-              {selectable ? (
+              {showReorderCol ? <th className={cn("w-8 px-2 py-2", stickyHeadClass)} /> : null}
+              {showSelectCol ? (
                 <th className={cn("w-9 px-2 py-2", stickyHeadClass)}>
                   <input
                     type="checkbox"
@@ -2035,7 +2225,7 @@ function FilterTable({
                   </th>
                 );
               })}
-              <th className={cn("w-24 px-3 py-2 text-right", stickyHeadClass)}>Thao tác</th>
+              {!readOnly ? <th className={cn("w-24 px-3 py-2 text-right", stickyHeadClass)}>Thao tác</th> : null}
             </tr>
           </thead>
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -2043,34 +2233,36 @@ function FilterTable({
               <tbody>
                 {filtered.map((r) => (
                   <SortableTableRow
-                    key={r.id} id={r.id} showHandle={!!onBatchReorder} canDrag={canDrag}
-                    checked={selectable ? selectedIds.has(r.id) : undefined}
-                    onCheck={selectable ? (shiftKey) => toggleRow(r.id, shiftKey) : undefined}
+                    key={r.id} id={r.id} showHandle={showReorderCol} canDrag={canDrag}
+                    checked={showSelectCol ? selectedIds.has(r.id) : undefined}
+                    onCheck={showSelectCol ? (shiftKey) => toggleRow(r.id, shiftKey) : undefined}
                   >
                     {columns.map((c) => (
                       <td key={c.key} className={cn("px-3 py-2.5", c.align === "right" && "text-right")}>
                         {c.cell(r)}
                       </td>
                     ))}
-                    <td className="px-3 py-2.5">
-                      <div className="flex justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
-                        {rowExtra ? rowExtra(r) : null}
-                        {onDuplicate ? (
-                          <button type="button" title="Nhân bản" onClick={() => onDuplicate(r)}
+                    {!readOnly ? (
+                      <td className="px-3 py-2.5">
+                        <div className="flex justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
+                          {rowExtra ? rowExtra(r) : null}
+                          {onDuplicate ? (
+                            <button type="button" title="Nhân bản" onClick={() => onDuplicate(r)}
+                              className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                              <Copy className="size-4" />
+                            </button>
+                          ) : null}
+                          <button type="button" title="Sửa" onClick={() => onEdit(r)}
                             className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-                            <Copy className="size-4" />
+                            <Pencil className="size-4" />
                           </button>
-                        ) : null}
-                        <button type="button" title="Sửa" onClick={() => onEdit(r)}
-                          className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-                          <Pencil className="size-4" />
-                        </button>
-                        <button type="button" title="Xóa" onClick={() => onDelete(r)}
-                          className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600">
-                          <Trash2 className="size-4" />
-                        </button>
-                      </div>
-                    </td>
+                          <button type="button" title="Xóa" onClick={() => onDelete(r)}
+                            className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600">
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </td>
+                    ) : null}
                   </SortableTableRow>
                 ))}
                 {filtered.length === 0 ? (
@@ -2283,7 +2475,7 @@ type Field = {
   required?: boolean;
   mono?: boolean;
   uppercase?: boolean;
-  type?: "text" | "number" | "select" | "combobox" | "date";
+  type?: "text" | "number" | "select" | "combobox" | "date" | "textarea";
   placeholder?: string;
   hint?: string;
   span?: 1 | 2 | 3;
@@ -2375,6 +2567,15 @@ function RecordModal({
                 <DateInput
                   className={cn(inputCls, "tabular-nums")}
                   value={values[f.key] ?? ""}
+                  autoFocus={f.autoFocus}
+                  onChange={(e) => set(f.key, e.target.value)}
+                />
+              ) : f.type === "textarea" ? (
+                <textarea
+                  className={cn(inputCls, "h-20 resize-none py-2")}
+                  value={values[f.key] ?? ""}
+                  placeholder={f.placeholder}
+                  maxLength={f.maxLength}
                   autoFocus={f.autoFocus}
                   onChange={(e) => set(f.key, e.target.value)}
                 />
@@ -2479,6 +2680,7 @@ function WorksPanel({
   onEdit,
   onDelete,
   onBatchReorder,
+  readOnly,
 }: {
   workGroups: WorkGroupRow[];
   works: WorkRow[];
@@ -2487,6 +2689,7 @@ function WorksPanel({
   onEdit: (r: WorkRow) => void;
   onDelete: (r: WorkRow) => void;
   onBatchReorder?: (ids: string[]) => Promise<void>;
+  readOnly?: boolean;
 }) {
   const [activeWg, setActiveWg] = React.useState<string>(workGroups[0]?.id ?? "");
   const [newValue, setNewValue] = React.useState("");
@@ -2606,7 +2809,7 @@ function WorksPanel({
 
       {/* Danh sách công việc của nhóm đang chọn */}
       <div className="px-4 py-3">
-        {selectedArr.length > 0 ? (
+        {!readOnly && selectedArr.length > 0 ? (
           <CatalogBulkBar
             count={selectedArr.length}
             onClear={() => setSelectedIds(new Set())}
@@ -2622,18 +2825,20 @@ function WorksPanel({
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={localIds} strategy={verticalListSortingStrategy}>
-              <div className={cn("mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200", selectedArr.length === 0 && "mt-0")}>
-                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
-                  <input
-                    type="checkbox"
-                    className="size-4 cursor-pointer rounded border-slate-300 accent-slate-800"
-                    checked={allSelected}
-                    ref={(el) => { if (el) el.indeterminate = someSelected; }}
-                    onChange={toggleAll}
-                    title={allSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
-                  />
-                  <span>Chọn dòng</span>
-                </div>
+              <div className={cn("mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200", (readOnly || selectedArr.length === 0) && "mt-0")}>
+                {!readOnly ? (
+                  <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
+                    <input
+                      type="checkbox"
+                      className="size-4 cursor-pointer rounded border-slate-300 accent-slate-800"
+                      checked={allSelected}
+                      ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                      onChange={toggleAll}
+                      title={allSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                    />
+                    <span>Chọn dòng</span>
+                  </div>
+                ) : null}
                 {displayItems.map((w) => (
                   <SortableWorkItem
                     key={w.id}
@@ -2642,7 +2847,8 @@ function WorksPanel({
                     onCheck={(shiftKey) => toggleItem(w.id, shiftKey)}
                     onEdit={onEdit}
                     onDelete={onDelete}
-                    showHandle={!!onBatchReorder}
+                    showHandle={!readOnly && !!onBatchReorder}
+                    readOnly={readOnly}
                   />
                 ))}
               </div>
@@ -2651,33 +2857,35 @@ function WorksPanel({
         )}
 
         {/* Form thêm mới inline */}
-        <form onSubmit={handleAdd} className="mt-3 flex items-start gap-2">
-          <div className="flex-1 space-y-1">
-            <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 focus-within:border-slate-500 focus-within:bg-white">
-              <Plus className="size-4 shrink-0 text-slate-400" />
-              <input
-                ref={inputRef}
-                value={newValue}
-                onChange={(e) => { setNewValue(e.target.value); setErr(""); }}
-                placeholder={`Thêm công việc mới vào "${activeGroup?.name ?? ""}"…`}
-                className="flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
-              />
-              {newValue && (
-                <button type="button" onClick={() => { setNewValue(""); setErr(""); }} className="text-slate-400 hover:text-slate-600">
-                  <X className="size-3.5" />
-                </button>
-              )}
+        {!readOnly ? (
+          <form onSubmit={handleAdd} className="mt-3 flex items-start gap-2">
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 focus-within:border-slate-500 focus-within:bg-white">
+                <Plus className="size-4 shrink-0 text-slate-400" />
+                <input
+                  ref={inputRef}
+                  value={newValue}
+                  onChange={(e) => { setNewValue(e.target.value); setErr(""); }}
+                  placeholder={`Thêm công việc mới vào "${activeGroup?.name ?? ""}"…`}
+                  className="flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                />
+                {newValue && (
+                  <button type="button" onClick={() => { setNewValue(""); setErr(""); }} className="text-slate-400 hover:text-slate-600">
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+              {err ? <p className="flex items-center gap-1 text-[11px] text-red-600"><AlertCircle className="size-3" />{err}</p> : null}
             </div>
-            {err ? <p className="flex items-center gap-1 text-[11px] text-red-600"><AlertCircle className="size-3" />{err}</p> : null}
-          </div>
-          <button
-            type="submit"
-            disabled={adding || !newValue.trim()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            <Check className="size-4" />{adding ? "Đang lưu…" : "Thêm"}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={adding || !newValue.trim()}
+              className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              <Check className="size-4" />{adding ? "Đang lưu…" : "Thêm"}
+            </button>
+          </form>
+        ) : null}
       </div>
     </div>
   );
@@ -2685,9 +2893,9 @@ function WorksPanel({
 
 // ---------- Sortable list item cho WorksPanel ----------
 function SortableWorkItem({
-  item, checked, onCheck, onEdit, onDelete, showHandle,
+  item, checked, onCheck, onEdit, onDelete, showHandle, readOnly,
 }: {
-  item: WorkRow; checked: boolean; onCheck: (shiftKey: boolean) => void; onEdit: (r: WorkRow) => void; onDelete: (r: WorkRow) => void; showHandle: boolean;
+  item: WorkRow; checked: boolean; onCheck: (shiftKey: boolean) => void; onEdit: (r: WorkRow) => void; onDelete: (r: WorkRow) => void; showHandle: boolean; readOnly?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
   return (
@@ -2703,27 +2911,31 @@ function SortableWorkItem({
           <GripVertical className="size-4" />
         </button>
       ) : null}
-      <input
-        type="checkbox"
-        className="size-4 cursor-pointer rounded border-slate-300 accent-slate-800"
-        checked={checked}
-        onChange={() => undefined}
-        onClick={(e) => {
-          e.stopPropagation();
-          onCheck(e.shiftKey);
-        }}
-      />
+      {!readOnly ? (
+        <input
+          type="checkbox"
+          className="size-4 cursor-pointer rounded border-slate-300 accent-slate-800"
+          checked={checked}
+          onChange={() => undefined}
+          onClick={(e) => {
+            e.stopPropagation();
+            onCheck(e.shiftKey);
+          }}
+        />
+      ) : null}
       <span className="min-w-0 flex-1 text-sm font-medium text-slate-800">{item.value}</span>
-      <div className="flex gap-0.5 opacity-0 transition group-hover:opacity-100">
-        <button type="button" title="Sửa" onClick={() => onEdit(item)}
-          className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
-          <Pencil className="size-3.5" />
-        </button>
-        <button type="button" title="Xóa" onClick={() => onDelete(item)}
-          className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600">
-          <Trash2 className="size-3.5" />
-        </button>
-      </div>
+      {!readOnly ? (
+        <div className="flex gap-0.5 opacity-0 transition group-hover:opacity-100">
+          <button type="button" title="Sửa" onClick={() => onEdit(item)}
+            className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+            <Pencil className="size-3.5" />
+          </button>
+          <button type="button" title="Xóa" onClick={() => onDelete(item)}
+            className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-red-600">
+            <Trash2 className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -3136,24 +3348,16 @@ function CatalogBulkBar({
   count,
   onClear,
   actions,
-  variant = "default",
 }: {
   count: number;
   onClear: () => void;
   actions: { label: string; onClick: () => void; tone?: "default" | "danger" }[];
-  variant?: "default" | "floatingBlue";
 }) {
-  const floating = variant === "floatingBlue";
   return (
-    <div className={cn(
-      "flex flex-wrap items-center gap-2 text-sm",
-      floating
-        ? "fixed bottom-4 left-1/2 z-40 max-w-[95vw] -translate-x-1/2 rounded-xl border border-blue-200 bg-blue-50/95 px-3 py-2 text-blue-950 shadow-lg backdrop-blur"
-        : "rounded-lg border border-slate-300 bg-slate-800 px-3 py-2 text-white",
-    )}>
-      <Check className={cn("size-4 shrink-0", floating ? "text-blue-500" : "text-slate-400")} />
+    <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 shadow-lg">
+      <Check className="size-4 shrink-0 text-emerald-500" />
       <span className="font-medium">{count} dòng đã chọn</span>
-      <span className={floating ? "text-blue-300" : "text-slate-500"}>·</span>
+      <span className="text-slate-300 dark:text-slate-600">·</span>
       {actions.map((a) => (
         <button
           key={a.label}
@@ -3161,13 +3365,9 @@ function CatalogBulkBar({
           onClick={a.onClick}
           className={cn(
             "rounded-md px-2.5 py-1 text-xs font-medium",
-            floating
-              ? a.tone === "danger"
-                ? "border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                : "border border-blue-200 bg-white/80 text-blue-800 hover:bg-blue-100"
-              : a.tone === "danger"
-                ? "bg-red-500/20 text-red-100 hover:bg-red-500/30"
-                : "bg-white/15 hover:bg-white/25",
+            a.tone === "danger"
+              ? "border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900"
+              : "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800",
           )}
         >
           {a.label}
@@ -3176,15 +3376,177 @@ function CatalogBulkBar({
       <button
         type="button"
         onClick={onClear}
-        className={cn(
-          "ml-auto grid size-6 place-items-center rounded",
-          floating ? "text-blue-500 hover:bg-blue-100 hover:text-blue-800" : "text-slate-400 hover:text-white",
-        )}
+        className="ml-auto grid size-6 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200"
         title="Bỏ chọn"
       >
         <X className="size-4" />
       </button>
     </div>
+  );
+}
+
+// ===================================================================
+//  CatalogColumnPermissionsModal — cấp/thu quyền sửa cột "vận hành" của
+//  Hạng mục (Bắt đầu/Đóng gói/Quy mô/Mô tả) cho user hoặc cả Bộ phận.
+// ===================================================================
+type ColumnGrant = {
+  id: string;
+  column: string;
+  userId: string | null;
+  userName: string | null;
+  departmentId: string | null;
+  departmentName: string | null;
+};
+
+function CatalogColumnPermissionsModal({
+  users,
+  departments,
+  onClose,
+}: {
+  users: { id: string; fullName: string; departmentId: string | null }[];
+  departments: SimpleRow[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [grants, setGrants] = React.useState<ColumnGrant[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [column, setColumn] = React.useState<CatalogPermissionColumn>(CATALOG_PERMISSION_COLUMNS[0]);
+  const [targetType, setTargetType] = React.useState<"user" | "department">("user");
+  const [targetId, setTargetId] = React.useState("");
+  const [pending, setPending] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    const res = await listCatalogColumnPermissions();
+    if (res.ok && res.data) setGrants(res.data);
+    setLoading(false);
+  }, []);
+  React.useEffect(() => { void load(); }, [load]);
+
+  async function handleGrant(e: React.FormEvent) {
+    e.preventDefault();
+    if (!targetId) { setErr(targetType === "user" ? "Chọn người dùng" : "Chọn bộ phận"); return; }
+    setErr(null);
+    setPending(true);
+    const res = await grantCatalogColumnPermission({
+      column,
+      userId: targetType === "user" ? targetId : null,
+      departmentId: targetType === "department" ? targetId : null,
+    });
+    setPending(false);
+    if (res.ok) {
+      toast.success("Đã cấp quyền");
+      setTargetId("");
+      await load();
+      router.refresh();
+    } else {
+      setErr(res.error);
+    }
+  }
+
+  async function handleRevoke(id: string) {
+    const res = await revokeCatalogColumnPermission(id);
+    if (res.ok) {
+      toast.success("Đã thu quyền");
+      await load();
+      router.refresh();
+    } else {
+      toast.error(res.error);
+    }
+  }
+
+  const inputCls =
+    "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+
+  return (
+    <Modal open onClose={onClose} title="Phân quyền cột" className="max-w-2xl">
+      <div className="space-y-4">
+        <p className="text-xs text-slate-500">
+          Cấp quyền sửa riêng từng cột "vận hành" của Hạng mục (không đụng cấu trúc Dự án/Loại hình/Hạng mục/Khối)
+          cho user đích danh hoặc cả một Bộ phận. Người được cấp sẽ bấm trực tiếp vào ô ở tab Dự án để sửa.
+        </p>
+
+        <form onSubmit={handleGrant} className="grid grid-cols-4 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-600">Cột</label>
+            <Select value={column} onChange={(e) => setColumn(e.target.value as CatalogPermissionColumn)} className="h-9">
+              {CATALOG_PERMISSION_COLUMNS.map((c) => (
+                <option key={c} value={c}>{CATALOG_PERMISSION_COLUMN_LABEL[c]}</option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-600">Cấp cho</label>
+            <Select value={targetType} onChange={(e) => { setTargetType(e.target.value as "user" | "department"); setTargetId(""); }} className="h-9">
+              <option value="user">Người dùng</option>
+              <option value="department">Bộ phận</option>
+            </Select>
+          </div>
+          <div className="col-span-2 space-y-1">
+            <label className="text-xs font-medium text-slate-600">{targetType === "user" ? "Người dùng" : "Bộ phận"}</label>
+            <div className="flex gap-1.5">
+              <Select value={targetId} onChange={(e) => { setTargetId(e.target.value); setErr(null); }} className="h-9 flex-1">
+                <option value="">— Chọn —</option>
+                {(targetType === "user" ? users : departments).map((o) => (
+                  <option key={o.id} value={o.id}>{"fullName" in o ? o.fullName : o.name}</option>
+                ))}
+              </Select>
+              <button type="submit" disabled={pending} className={cn(inputCls, "w-auto shrink-0 bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50")}>
+                {pending ? "Đang cấp…" : "Cấp quyền"}
+              </button>
+            </div>
+          </div>
+          {err ? <p className="col-span-4 text-xs text-red-600">{err}</p> : null}
+        </form>
+
+        <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
+          {loading ? (
+            <p className="p-4 text-center text-sm text-slate-400">Đang tải…</p>
+          ) : grants.length === 0 ? (
+            <p className="p-4 text-center text-sm text-slate-400">Chưa cấp quyền cột nào.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs font-medium text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Cột</th>
+                  <th className="px-3 py-2">Cấp cho</th>
+                  <th className="w-10 px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {grants.map((g) => (
+                  <tr key={g.id}>
+                    <td className="px-3 py-2 font-medium text-slate-700">
+                      {CATALOG_PERMISSION_COLUMN_LABEL[g.column as CatalogPermissionColumn] ?? g.column}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">
+                      {g.userName ? (
+                        <span>{g.userName}</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-slate-500">
+                          <Users className="size-3.5" /> {g.departmentName} <span className="text-[11px] text-slate-400">(cả bộ phận)</span>
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button type="button" title="Thu quyền" onClick={() => handleRevoke(g.id)}
+                        className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500">
+                        <Trash2 className="size-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="flex justify-end border-t border-slate-100 pt-3">
+          <Button type="button" variant="outline" onClick={onClose}>Đóng</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -3438,9 +3800,84 @@ function BulkDuplicateProjectsModal({
 }
 
 // ===================================================================
-//  BulkEditProjectsModal — Tab 2 Dự án · Hạng mục
+//  InlineEditProjectCell — sửa 1 cột "vận hành" (Bắt đầu/Đóng gói/Quy mô/Mô tả)
+//  trực tiếp trên dòng (không mở modal). Bấm vào ô → hiện input tại chỗ,
+//  Enter/rời ô để lưu, Esc để hủy.
 // ===================================================================
-type ProjectsPatch = { groupId?: string; constructionTypeId?: string | null; name?: string; blockSystem?: string | null; startDate?: string | null; packagingDate?: string | null };
+function InlineEditProjectCell({
+  ids,
+  field,
+  value,
+  type,
+  placeholder,
+  display,
+  className,
+}: {
+  ids: string[];
+  field: "startDate" | "packagingDate" | "scale" | "description";
+  value: string;
+  type: "text" | "date";
+  placeholder?: string;
+  /** Nội dung hiển thị khi KHÔNG sửa (mặc định = value, hoặc "—" nếu rỗng) */
+  display?: React.ReactNode;
+  className?: string;
+}) {
+  const router = useRouter();
+  const [editing, setEditing] = React.useState(false);
+  const [val, setVal] = React.useState(value);
+  const [pending, setPending] = React.useState(false);
+  const savedRef = React.useRef(false);
+
+  async function save() {
+    if (savedRef.current) return;
+    savedRef.current = true;
+    if (val === value) { setEditing(false); return; }
+    setPending(true);
+    const patch: ProjectsPatch = { [field]: val.trim() || null };
+    const res = await batchUpdateCatalogProjects(ids, patch);
+    setPending(false);
+    setEditing(false);
+    if (res.ok) router.refresh();
+    else toast.error(res.error);
+  }
+
+  if (editing) {
+    const inputCls = cn(
+      "h-7 w-full rounded border border-slate-300 bg-white px-1.5 text-xs text-slate-800 outline-none focus:border-slate-500",
+      pending && "opacity-50",
+    );
+    const commonProps = {
+      autoFocus: true,
+      disabled: pending,
+      onBlur: () => void save(),
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === "Enter") { e.preventDefault(); void save(); }
+        else if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
+      },
+    };
+    return type === "date" ? (
+      <DateInput className={cn(inputCls, "tabular-nums")} value={val} onChange={(e) => setVal(e.target.value)} {...commonProps} />
+    ) : (
+      <input className={inputCls} value={val} placeholder={placeholder} onChange={(e) => setVal(e.target.value)} {...commonProps} />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      title={value || placeholder}
+      onClick={(e) => { e.stopPropagation(); savedRef.current = false; setVal(value); setEditing(true); }}
+      className={cn("text-left hover:underline decoration-dotted underline-offset-2", className)}
+    >
+      {display ?? (value || <Dash />)}
+    </button>
+  );
+}
+
+// ===================================================================
+//  BulkEditProjectsModal — Tab 2 Dự án · Hạng mục (sửa hàng loạt nhiều dòng)
+// ===================================================================
+type ProjectsPatch = { groupId?: string; constructionTypeId?: string | null; name?: string; blockSystem?: string | null; startDate?: string | null; packagingDate?: string | null; scale?: string | null; description?: string | null };
 
 function BulkEditProjectsModal({
   ids,
@@ -3448,14 +3885,19 @@ function BulkEditProjectsModal({
   projectGroups,
   constructionTypes,
   projects,
+  isAdmin,
+  editableColumns,
   onClose,
   onSubmit,
 }: {
   ids: string[];
-  field: "groupId" | "constructionTypeId" | "name" | "blockSystem" | "startDate" | "packagingDate";
+  field: "groupId" | "constructionTypeId" | "name" | "blockSystem" | "startDate" | "packagingDate" | "scale" | "description";
   projectGroups: ProjectGroupRow[];
   constructionTypes: SimpleRow[];
   projects: ProjectRow[];
+  /** ADMIN thấy đủ mọi tab; member chỉ thấy tab của các cột mình được cấp quyền. */
+  isAdmin: boolean;
+  editableColumns: CatalogPermissionColumn[];
   onClose: () => void;
   onSubmit: (patch: ProjectsPatch) => Promise<void>;
 }) {
@@ -3463,10 +3905,14 @@ function BulkEditProjectsModal({
   const [activeField, setActiveField] = React.useState(field);
   const [groupId, setGroupId] = React.useState(projectGroups[0]?.id ?? "");
   const [ctCode, setCtCode] = React.useState("");
-  const [name, setName] = React.useState("");
-  const [blockSystem, setBlockSystem] = React.useState("");
-  const [startDate, setStartDate] = React.useState("");
-  const [packagingDate, setPackagingDate] = React.useState("");
+  // Nạp sẵn giá trị hiện tại của dòng đầu tiên (click sửa 1 ô, hoặc nhóm ô đồng bộ cùng giá trị).
+  const singleProject = projects.find((p) => p.id === ids[0]) ?? null;
+  const [name, setName] = React.useState(singleProject?.name ?? "");
+  const [blockSystem, setBlockSystem] = React.useState(singleProject?.blockSystem ?? "");
+  const [startDate, setStartDate] = React.useState(singleProject?.startDate ?? "");
+  const [packagingDate, setPackagingDate] = React.useState(singleProject?.packagingDate ?? "");
+  const [scale, setScale] = React.useState(singleProject?.scale ?? "");
+  const [description, setDescription] = React.useState(singleProject?.description ?? "");
   const [err, setErr] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
 
@@ -3492,14 +3938,18 @@ function BulkEditProjectsModal({
   const inputCls =
     "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
 
-  const FIELDS = [
-    { key: "groupId" as const, label: "Dự án" },
-    { key: "constructionTypeId" as const, label: "Loại hình" },
-    { key: "name" as const, label: "Hạng mục" },
-    { key: "blockSystem" as const, label: "Khối/Hệ thống" },
-    { key: "startDate" as const, label: "Bắt đầu" },
-    { key: "packagingDate" as const, label: "Đóng gói" },
+  const ALL_FIELDS = [
+    { key: "groupId" as const, label: "Dự án", structural: true },
+    { key: "constructionTypeId" as const, label: "Loại hình", structural: true },
+    { key: "name" as const, label: "Hạng mục", structural: true },
+    { key: "description" as const, label: "Mô tả", structural: false },
+    { key: "blockSystem" as const, label: "Khối/Hệ thống", structural: true },
+    { key: "startDate" as const, label: "Bắt đầu", structural: false },
+    { key: "packagingDate" as const, label: "Đóng gói", structural: false },
+    { key: "scale" as const, label: "Quy mô", structural: false },
   ];
+  // Member: chỉ thấy tab của cột mình được cấp quyền (không có cột cấu trúc).
+  const FIELDS = isAdmin ? ALL_FIELDS : ALL_FIELDS.filter((f) => !f.structural && editableColumns.includes(f.key as CatalogPermissionColumn));
 
   async function handleCreateGroup() {
     const c = newGroupCode.trim().toUpperCase();
@@ -3559,8 +4009,12 @@ function BulkEditProjectsModal({
       patch.blockSystem = blockSystem.trim() || null;
     } else if (activeField === "startDate") {
       patch.startDate = startDate || null;
-    } else {
+    } else if (activeField === "packagingDate") {
       patch.packagingDate = packagingDate || null;
+    } else if (activeField === "scale") {
+      patch.scale = scale.trim() || null;
+    } else {
+      patch.description = description.trim() || null;
     }
     setPending(true);
     await onSubmit(patch);
@@ -3724,6 +4178,21 @@ function BulkEditProjectsModal({
           </div>
         )}
 
+        {activeField === "description" && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">Mô tả</label>
+            <textarea
+              autoFocus
+              className={cn(inputCls, "h-24 resize-none py-2")}
+              value={description}
+              onChange={(e) => { setDescription(e.target.value); setErr(null); }}
+              placeholder="Ghi chú / mô tả hạng mục…"
+            />
+            <p className="text-[11px] text-slate-400">Hiện khi hover vào tên hạng mục ở /manage và /tasks.</p>
+            <p className="text-[11px] text-amber-500">Sẽ đổi mô tả cho tất cả {ids.length} dòng đã chọn. Để trống để xóa mô tả.</p>
+          </div>
+        )}
+
         {activeField === "blockSystem" && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-slate-600">Khối/Hệ thống</label>
@@ -3754,6 +4223,20 @@ function BulkEditProjectsModal({
             <DateInput autoFocus className={inputCls} value={packagingDate}
               onChange={(e) => { setPackagingDate(e.target.value); setErr(null); }} />
             <p className="text-[11px] text-amber-500">Sẽ đặt ngày đóng gói cho {ids.length} hạng mục đã chọn. Để trống để xóa ngày.</p>
+          </div>
+        )}
+
+        {activeField === "scale" && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-600">Quy mô (m² sàn)</label>
+            <input
+              autoFocus
+              className={inputCls}
+              value={scale}
+              placeholder="vd 12.000 m²"
+              onChange={(e) => { setScale(e.target.value); setErr(null); }}
+            />
+            <p className="text-[11px] text-amber-500">Sẽ đổi quy mô cho tất cả {ids.length} dòng đã chọn. Để trống để xóa.</p>
           </div>
         )}
 

@@ -1,8 +1,14 @@
+import { auth } from "@/server/auth/config";
 import { prisma } from "@/server/db/client";
+import { getEditableCatalogColumns } from "@/server/data/catalog-permissions";
 import { CatalogClient } from "./catalog-client";
 
 export default async function CatalogPage() {
-  const [workGroups, phases, constructionTypes, disciplines, departments, projectGroups, projects, level5, ptItems] = await Promise.all([
+  const session = await auth();
+  if (!session?.user) return null;
+  const isAdmin = session.user.role === "ADMIN";
+
+  const [workGroups, phases, constructionTypes, disciplines, departments, projectGroups, projects, level5, ptItems, users, editableColumns] = await Promise.all([
     prisma.workGroup.findMany({
       orderBy: { order: "asc" },
       include: { _count: { select: { tasks: true } } },
@@ -31,6 +37,12 @@ export default async function CatalogPage() {
       orderBy: [{ order: "asc" }, { value: "asc" }],
       select: { id: true, level: true, value: true, parentId: true, projectGroupId: true, order: true },
     }),
+    prisma.user.findMany({
+      where: { deletedAt: null, isActive: true },
+      orderBy: { fullName: "asc" },
+      select: { id: true, fullName: true, departmentId: true },
+    }),
+    getEditableCatalogColumns(session.user.id, session.user.role),
   ]);
 
   return (
@@ -70,10 +82,14 @@ export default async function CatalogPage() {
         constructionTypeId: p.constructionTypeId,
         startDate: p.startDate ? p.startDate.toISOString().slice(0, 10) : null,
         packagingDate: p.packagingDate ? p.packagingDate.toISOString().slice(0, 10) : null,
+        description: p.description,
         taskCount: p._count.tasks,
       }))}
       works={level5.map((i) => ({ id: i.id, workGroupId: i.workGroupId, value: i.value, order: i.order }))}
       ptItems={ptItems.map((i) => ({ id: i.id, level: i.level, value: i.value, parentId: i.parentId, projectGroupId: i.projectGroupId, order: i.order }))}
+      isAdmin={isAdmin}
+      editableColumns={editableColumns}
+      users={users}
     />
   );
 }
