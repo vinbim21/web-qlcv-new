@@ -1,7 +1,12 @@
+import { redirect } from "next/navigation";
+import { auth } from "@/server/auth/config";
 import { prisma } from "@/server/db/client";
 import { UsersManager } from "./users-manager";
 
 export default async function UsersPage() {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") redirect("/dashboard");
+
   const [users, disciplines, departments] = await Promise.all([
     prisma.user.findMany({
       where: { deletedAt: null },

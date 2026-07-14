@@ -39,6 +39,9 @@ export async function saveTimesheetEntry(input: unknown) {
       if (t) task = { id: t.id, status: t.status, isAssignee: t.assignees.length > 0 };
     }
 
+    // Ghi kèm link kết quả vào chính entry này (lịch sử theo ngày) — độc lập với task.result bên dưới.
+    const entryResult = data.result !== undefined ? data.result.trim() || null : undefined;
+
     if (data.id) {
       const existing = await prisma.timeSheetEntry.findUnique({ where: { id: data.id } });
       if (!existing || existing.userId !== user.id) {
@@ -46,7 +49,14 @@ export async function saveTimesheetEntry(input: unknown) {
       }
       await prisma.timeSheetEntry.update({
         where: { id: data.id },
-        data: { taskId: data.taskId || null, projectId, date, hours: data.hours, note: data.note || null },
+        data: {
+          taskId: data.taskId || null,
+          projectId,
+          date,
+          hours: data.hours,
+          note: data.note || null,
+          ...(entryResult !== undefined ? { result: entryResult } : {}),
+        },
       });
     } else {
       await prisma.timeSheetEntry.create({
@@ -57,6 +67,7 @@ export async function saveTimesheetEntry(input: unknown) {
           date,
           hours: data.hours,
           note: data.note || null,
+          result: entryResult || null,
         },
       });
     }
@@ -155,13 +166,14 @@ export async function getTaskWeekEntries(taskId: string) {
     const entries = await prisma.timeSheetEntry.findMany({
       where: { userId: user.id, taskId, deletedAt: null, date: { gte: monday, lte: sunday } },
       orderBy: { date: "asc" },
-      select: { id: true, date: true, hours: true, note: true },
+      select: { id: true, date: true, hours: true, note: true, result: true },
     });
     return entries.map((e) => ({
       id: e.id,
       date: e.date.toISOString().slice(0, 10),
       hours: Number(e.hours),
       note: e.note,
+      result: e.result,
     }));
   });
 }
@@ -173,13 +185,47 @@ export async function getTaskAllEntries(taskId: string) {
     const entries = await prisma.timeSheetEntry.findMany({
       where: { taskId, deletedAt: null },
       orderBy: { date: "asc" },
-      select: { id: true, date: true, hours: true, note: true, user: { select: { fullName: true } } },
+      select: { id: true, date: true, hours: true, note: true, result: true, user: { select: { fullName: true } } },
     });
     return entries.map((e) => ({
       id: e.id,
       date: e.date.toISOString().slice(0, 10),
       hours: Number(e.hours),
       note: e.note,
+      result: e.result,
+      userName: e.user.fullName,
+    }));
+  });
+}
+
+/** Sửa link kết quả gắn theo 1 entry ghi giờ cụ thể (sửa inline ở bảng chi tiết công việc). */
+export async function setTimesheetEntryResult(id: string, result: string | null) {
+  return runAction(async () => {
+    const user = await requireUser();
+    const isAdmin = user.role === "ADMIN";
+    const existing = await prisma.timeSheetEntry.findUnique({ where: { id } });
+    if (!existing) throw new Error("Không tìm thấy");
+    if (existing.userId !== user.id && !isAdmin && !canManage(user.role)) throw new Error("Không có quyền");
+    await prisma.timeSheetEntry.update({ where: { id }, data: { result: result?.trim() || null } });
+    revalidatePath("/reports");
+    revalidatePath("/tasks");
+    revalidatePath("/manage");
+  });
+}
+
+/** Lấy các link kết quả đã ghi theo từng ngày (entry) cho 1 task — hiện danh sách ở cột Kết quả bảng chính. */
+export async function getTaskResultEntries(taskId: string) {
+  return runAction(async () => {
+    await requireUser();
+    const entries = await prisma.timeSheetEntry.findMany({
+      where: { taskId, deletedAt: null, result: { not: null } },
+      orderBy: { date: "desc" },
+      select: { id: true, date: true, result: true, user: { select: { fullName: true } } },
+    });
+    return entries.map((e) => ({
+      id: e.id,
+      date: e.date.toISOString().slice(0, 10),
+      result: e.result as string,
       userName: e.user.fullName,
     }));
   });

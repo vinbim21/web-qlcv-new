@@ -33,9 +33,10 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { ColResizeHandle } from "@/components/col-resize-handle";
 import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskRowEditor } from "@/components/task-row-editor";
-import { ResultCell } from "@/components/result-cell";
+import { EntryResultCell, ResultCell } from "@/components/result-cell";
 import { UserMultiSelect } from "@/components/user-multi-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -502,9 +503,9 @@ const STATUS_SOFT: Record<string, { dot: string; pill: string }> = {
   QUA_HAN: { dot: "bg-red-500", pill: "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 ring-red-200 dark:ring-red-800" },
 };
 
-// Bề rộng cột bảng /manage — cố định, khớp /tasks (không cho kéo giãn để tránh lệch cột).
-const MANAGE_SEL_PX = 36; // cột checkbox (ghim trái)
-const MANAGE_COL_W: Record<string, number> = {
+// Bề rộng cột bảng /manage — mặc định, khớp /tasks. Người dùng kéo giãn được (lưu localStorage).
+const MANAGE_SEL_PX = 36; // cột checkbox (ghim trái, cố định)
+const DEFAULT_MANAGE_COL_W: Record<string, number> = {
   sumId: 150,
   duAn: 95,
   loaiHinh: 120,
@@ -521,6 +522,9 @@ const MANAGE_COL_W: Record<string, number> = {
   soGio: 110,
   ketQua: 120,
 };
+const MANAGE_COL_W_KEY = "manage:colWidths";
+const MANAGE_COL_W_MIN = 60;
+const MANAGE_COL_W_MAX = 500;
 
 // Nhãn gọn cho khoảng Hạn đến từ deep-link Báo cáo (năm trọn / tất cả thời gian / khoảng tùy ý).
 function rangeLabel(from: string, to: string): string {
@@ -607,7 +611,7 @@ export function ManageClient({
   const deferredSearch = React.useDeferredValue(search);
   const [editing, setEditing] = React.useState<TaskRow | null>(null);
   // Modal chi tiết công việc (click 1 lần vào tên việc): nội dung + toàn bộ giờ đã ghi (mọi người, mọi thời điểm).
-  type WeekEntry = { id: string; date: string; hours: number; note: string | null; userName: string };
+  type WeekEntry = { id: string; date: string; hours: number; note: string | null; result: string | null; userName: string };
   const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
   const [detailEntries, setDetailEntries] = React.useState<WeekEntry[]>([]);
   const [detailLoading, setDetailLoading] = React.useState(false);
@@ -850,6 +854,54 @@ export function ManageClient({
       thucHien: uniq(tasks.flatMap((t) => t.assigneeNames)),
     };
   }, [tasks, catalogSeed]);
+
+  // Tra tên đầy đủ theo mã — dùng cho tooltip hover ở cột Dự án / Loại hình (cây + bảng phẳng).
+  const groupNameByCode = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of projects) if (p.groupCode) m.set(p.groupCode, p.groupName);
+    return m;
+  }, [projects]);
+  const ctNameByCode = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const ct of constructionTypes) m.set(ct.code, ct.name);
+    return m;
+  }, [constructionTypes]);
+  // Mô tả hạng mục (Project.description) theo id — dùng cho tooltip hover ở cột Hạng mục.
+  const projectDescById = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of projects) if (p.description) m.set(p.id, p.description);
+    return m;
+  }, [projects]);
+
+  // Bề rộng cột kéo giãn được — nhớ theo localStorage, nạp sau mount để tránh lệch hydrate.
+  const [colWidths, setColWidths] = React.useState<Record<string, number>>(() => ({ ...DEFAULT_MANAGE_COL_W }));
+  const colWidthsRef = React.useRef(colWidths);
+  React.useEffect(() => {
+    colWidthsRef.current = colWidths;
+  }, [colWidths]);
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(MANAGE_COL_W_KEY);
+      if (raw) setColWidths((w) => ({ ...w, ...(JSON.parse(raw) as Record<string, number>) }));
+    } catch {
+      /* bỏ qua localStorage lỗi */
+    }
+  }, []);
+  const persistColWidths = (w: Record<string, number>) => {
+    try {
+      window.localStorage.setItem(MANAGE_COL_W_KEY, JSON.stringify(w));
+    } catch {
+      /* bỏ qua localStorage lỗi */
+    }
+  };
+  const setColWidth = (k: string, px: number) => setColWidths((w) => ({ ...w, [k]: px }));
+  const endResizeColWidth = () => persistColWidths(colWidthsRef.current);
+  const resetColWidth = (k: string) => {
+    const nw = { ...colWidthsRef.current, [k]: DEFAULT_MANAGE_COL_W[k] ?? 120 };
+    setColWidths(nw);
+    persistColWidths(nw);
+  };
+  const resizeDraggingRef = React.useRef(false);
 
   // Danh sách cột (ẩn cột Mã mặc định).
   const cols = React.useMemo<ColDef[]>(() => {
@@ -1577,7 +1629,7 @@ export function ManageClient({
   // ---- Ghim cột (freeze) + bố cục ----
   const dens = DENSITY === "compact" ? "py-1" : DENSITY === "comfy" ? "py-3" : "py-1.5";
   const cellPad = `px-2.5 ${dens}`;
-  const widthOf = (k: string) => (k === "__sel__" ? MANAGE_SEL_PX : (MANAGE_COL_W[k] ?? 120));
+  const widthOf = (k: string) => (k === "__sel__" ? MANAGE_SEL_PX : (colWidths[k] ?? DEFAULT_MANAGE_COL_W[k] ?? 120));
   const frozenKeys = FREEZE
     ? ["__sel__", ...cols.filter((c) => c.lvl).map((c) => c.key)]
     : ([] as string[]);
@@ -1631,7 +1683,7 @@ export function ManageClient({
     return (
       <th
         key={col.key}
-        style={headStyle(col.key, MANAGE_COL_W[col.key])}
+        style={headStyle(col.key, widthOf(col.key))}
         className={cn(
           "group relative select-none border-b border-slate-200 dark:border-slate-700 px-2.5 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400",
           col.lvl && "border-l border-slate-100 dark:border-slate-800",
@@ -1671,6 +1723,15 @@ export function ManageClient({
             <Filter className="size-3" strokeWidth={filterOn ? 2.5 : 2} />
           </button>
         </div>
+        <ColResizeHandle
+          width={widthOf(col.key)}
+          minW={MANAGE_COL_W_MIN}
+          maxW={MANAGE_COL_W_MAX}
+          onResize={(px) => setColWidth(col.key, px)}
+          onResizeEnd={endResizeColWidth}
+          onReset={() => resetColWidth(col.key)}
+          draggingRef={resizeDraggingRef}
+        />
       </th>
     );
   }
@@ -1697,7 +1758,17 @@ export function ManageClient({
         ) : (
           <span
             className={dim ? "text-slate-300 dark:text-slate-600" : col.lvl === 1 ? "font-medium text-slate-700 dark:text-slate-200" : "text-slate-600 dark:text-slate-300"}
-            title={col.key === "duAn" ? (t.groupName ?? undefined) : undefined}
+            title={
+              col.key === "duAn"
+                ? (t.groupName ?? undefined)
+                : col.key === "loaiHinh"
+                  ? (ctNameByCode.get(v) ?? undefined)
+                  : col.key === "hangMuc"
+                    ? (projectDescById.get(t.projectId ?? "") ?? undefined)
+                    : col.key === "boMon"
+                      ? (t.disciplineName ?? undefined)
+                      : undefined
+            }
           >
             {v}
           </span>
@@ -2091,6 +2162,15 @@ export function ManageClient({
           ? "text-[13px] font-medium text-slate-600 dark:text-slate-300"
           : "text-xs font-medium text-slate-500 dark:text-slate-400";
     const borderCls = type === "g2" ? "border-t border-slate-200 dark:border-slate-700" : type === "g3" ? "border-t border-slate-100 dark:border-slate-800" : "";
+    // Hover vào mã (Dự án/Loại hình) hiện tên đầy đủ; Hạng mục hiện Mô tả (nếu có khai báo).
+    const labelTitle =
+      type === "g1"
+        ? (groupNameByCode.get(label) ?? groupTasks[0]?.groupName ?? undefined)
+        : type === "g2"
+          ? (ctNameByCode.get(label) ?? undefined)
+          : type === "g3"
+            ? (projectDescById.get(groupTasks[0]?.projectId ?? "") ?? undefined)
+            : undefined;
 
     const allSel = groupTasks.length > 0 && groupTasks.every((t) => selected.has(t.id));
 
@@ -2154,7 +2234,7 @@ export function ManageClient({
             className={cn("flex items-center gap-1.5", textCls)}
           >
             <Chevron className="size-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
-            <span className="whitespace-nowrap">{label}</span>
+            <span className="whitespace-nowrap" title={labelTitle}>{label}</span>
             <span className="whitespace-nowrap font-normal text-slate-400 dark:text-slate-500 text-xs">
               {type === "g1"
                 ? `(${count} loại hình)`
@@ -3055,6 +3135,8 @@ export function ManageClient({
             hours: null as number | null,
             person: detailTask.assigneeNames.join(", ") || null,
             isUpdate: true,
+            entryId: null as string | null,
+            result: null as string | null,
           })),
           ...detailEntries.map((e) => ({
             key: e.id,
@@ -3063,8 +3145,11 @@ export function ManageClient({
             hours: e.hours as number | null,
             person: e.userName as string | null,
             isUpdate: false,
+            entryId: e.id as string | null,
+            result: e.result,
           })),
         ].sort((a, b) => a.date.localeCompare(b.date));
+        const canEditResult = canManage || detailTask.assigneeIds.includes(currentUserId);
         return (
           <Modal
             open
@@ -3101,6 +3186,7 @@ export function ManageClient({
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Nội dung công việc</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Số giờ</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Người thực hiện</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Kết quả</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -3116,6 +3202,18 @@ export function ManageClient({
                             <td className={cn("px-3 py-2 text-slate-600 dark:text-slate-300", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>
                               {row.person || <span className="italic text-slate-300 dark:text-slate-600">—</span>}
                             </td>
+                            <td className="px-3 py-2">
+                              {row.entryId ? (
+                                <EntryResultCell
+                                  entryId={row.entryId}
+                                  value={row.result}
+                                  canEdit={canEditResult}
+                                  onSaved={(v) => setDetailEntries((arr) => arr.map((x) => (x.id === row.entryId ? { ...x, result: v } : x)))}
+                                />
+                              ) : (
+                                <span className="text-slate-300 dark:text-slate-600 text-xs">—</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -3125,7 +3223,7 @@ export function ManageClient({
                           <td className="px-3 py-2 text-sm font-bold text-blue-600 dark:text-blue-400">
                             {detailEntries.reduce((s, e) => s + e.hours, 0)}h
                           </td>
-                          <td />
+                          <td colSpan={2} />
                         </tr>
                       </tfoot>
                     </table>

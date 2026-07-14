@@ -100,6 +100,7 @@ export async function getTaskLookups() {
       constructionTypeCode: p.constructionType?.code ?? "",
       startDate: p.startDate ? p.startDate.toISOString().slice(0, 10) : "",
       packagingDate: p.packagingDate ? p.packagingDate.toISOString().slice(0, 10) : "",
+      description: p.description ?? "",
     })),
     users: users.map((u) => ({ id: u.id, fullName: u.fullName })),
     // Người duyệt (luồng "Thêm công việc"): chỉ tài khoản ADMIN / Cấp 1 / Cấp 2.
