@@ -3828,12 +3828,13 @@ function InlineEditProjectCell({
   const [pending, setPending] = React.useState(false);
   const savedRef = React.useRef(false);
 
-  async function save() {
+  async function save(overrideVal?: string) {
     if (savedRef.current) return;
+    const v = overrideVal ?? val;
     savedRef.current = true;
-    if (val === value) { setEditing(false); return; }
+    if (v === value) { setEditing(false); return; }
     setPending(true);
-    const patch: ProjectsPatch = { [field]: val.trim() || null };
+    const patch: ProjectsPatch = { [field]: v.trim() || null };
     const res = await batchUpdateCatalogProjects(ids, patch);
     setPending(false);
     setEditing(false);
@@ -3849,16 +3850,33 @@ function InlineEditProjectCell({
     const commonProps = {
       autoFocus: true,
       disabled: pending,
-      onBlur: () => void save(),
       onKeyDown: (e: React.KeyboardEvent) => {
         if (e.key === "Enter") { e.preventDefault(); void save(); }
         else if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
       },
     };
     return type === "date" ? (
-      <DateInput className={cn(inputCls, "tabular-nums")} value={val} onChange={(e) => setVal(e.target.value)} {...commonProps} />
+      <DateInput
+        className={cn(inputCls, "tabular-nums")}
+        value={val}
+        onChange={(e) => {
+          const next = e.target.value;
+          setVal(next);
+          // Chọn qua icon lịch (hoặc gõ đủ ngày) → lưu ngay, không chờ rời ô — bấm icon lịch
+          // làm ô mất focus mà không phải Tab/click-ra-ngoài thật, chờ blur sẽ đóng ô trước khi kịp chọn.
+          if (/^\d{4}-\d{2}-\d{2}$/.test(next)) void save(next);
+        }}
+        onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+          // Bấm icon lịch = focus chuyển sang input[type=date] ẩn NẰM TRONG CÙNG DateInput
+          // (để mở lịch chọn) — KHÔNG phải rời ô thật, nên bỏ qua, không lưu/đóng vội.
+          const related = e.relatedTarget as HTMLElement | null;
+          if (related?.getAttribute("type") === "date") return;
+          void save();
+        }}
+        {...commonProps}
+      />
     ) : (
-      <input className={inputCls} value={val} placeholder={placeholder} onChange={(e) => setVal(e.target.value)} {...commonProps} />
+      <input className={inputCls} value={val} placeholder={placeholder} onChange={(e) => setVal(e.target.value)} onBlur={() => void save()} {...commonProps} />
     );
   }
 
@@ -3867,7 +3885,10 @@ function InlineEditProjectCell({
       type="button"
       title={value || placeholder}
       onClick={(e) => { e.stopPropagation(); savedRef.current = false; setVal(value); setEditing(true); }}
-      className={cn("text-left hover:underline decoration-dotted underline-offset-2", className)}
+      className={cn(
+        "-mx-1.5 -my-1 inline-block rounded px-1.5 py-1 text-left hover:bg-slate-100 hover:underline decoration-dotted underline-offset-2",
+        className,
+      )}
     >
       {display ?? (value || <Dash />)}
     </button>

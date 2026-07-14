@@ -22,13 +22,15 @@ const MAIN_NAV: NavItem[] = [
   { href: "/tasks", label: "Công việc của tôi", icon: ClipboardList },
   { href: "/timesheet", label: "Timesheet", icon: Clock },
   { href: "/reports", label: "Báo cáo", icon: PieChart },
-  // Mọi vai trò xem được (chỉ ADMIN hoặc user được cấp quyền cột mới sửa được).
-  { href: "/admin/catalog", label: "Khai báo thông tin", icon: SlidersHorizontal },
 ];
 
 const MANAGE_NAV: NavItem = { href: "/manage", label: "Quản lý công việc", icon: ClipboardCheck };
 
-const ADMIN_NAV: NavItem[] = [
+// Mọi vai trò xem được (chỉ ADMIN hoặc user được cấp quyền cột mới sửa được) — đặt trong mục Quản trị.
+const CATALOG_NAV: NavItem = { href: "/admin/catalog", label: "Khai báo thông tin", icon: SlidersHorizontal };
+
+// Chỉ ADMIN mới thấy.
+const ADMIN_ONLY_NAV: NavItem[] = [
   { href: "/admin/users", label: "Người dùng", icon: Users },
 ];
 
@@ -54,6 +56,8 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 export function SidebarNav({ isAdmin, canAssign }: { isAdmin: boolean; canAssign: boolean }) {
   const pathname = usePathname();
   const mainNav = [MAIN_NAV[0], MAIN_NAV[1], MANAGE_NAV, ...MAIN_NAV.slice(2)];
+  // Mục Quản trị: Khai báo thông tin luôn hiện (ai cũng xem được); Người dùng chỉ ADMIN.
+  const quanTriNav = [CATALOG_NAV, ...(isAdmin ? ADMIN_ONLY_NAV : [])];
   return (
     <div className="space-y-3">
       <div className="space-y-0.5">
@@ -61,19 +65,15 @@ export function SidebarNav({ isAdmin, canAssign }: { isAdmin: boolean; canAssign
           <NavLink key={item.href} item={item} pathname={pathname} />
         ))}
       </div>
-      {isAdmin ? (
-        <>
-          <Separator className="bg-sidebar-border" />
-          <p className="px-3 pt-1 text-xs font-medium uppercase tracking-wider text-sidebar-foreground/50">
-            Quản trị
-          </p>
-          <div className="space-y-0.5">
-            {ADMIN_NAV.map((item) => (
-              <NavLink key={item.href} item={item} pathname={pathname} />
-            ))}
-          </div>
-        </>
-      ) : null}
+      <Separator className="bg-sidebar-border" />
+      <p className="px-3 pt-1 text-xs font-medium uppercase tracking-wider text-sidebar-foreground/50">
+        Quản trị
+      </p>
+      <div className="space-y-0.5">
+        {quanTriNav.map((item) => (
+          <NavLink key={item.href} item={item} pathname={pathname} />
+        ))}
+      </div>
     </div>
   );
 }
