@@ -34,6 +34,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { ColResizeHandle } from "@/components/col-resize-handle";
 import { toast } from "sonner";
 import { AssignClient, type ProjectOpt } from "@/app/(app)/assign/assign-client";
 import { TaskForm } from "@/components/task-form";
@@ -70,7 +71,7 @@ import {
   setTaskStartApproval,
 } from "@/server/actions/tasks";
 import { getTaskAllEntries } from "@/server/actions/timesheet";
-import { ResultCell } from "@/components/result-cell";
+import { EntryResultCell, ResultCell } from "@/components/result-cell";
 import { DateInput } from "@/components/ui/date-input";
 
 type Opt = { id: string; name: string };
@@ -101,6 +102,7 @@ export type TaskRow = {
   groupCode: string | null;
   groupName: string | null;
   loaiHinhCode: string | null;
+  loaiHinhName: string | null;
   disciplineId: string | null;
   disciplineCode: string | null;
   disciplineName: string | null;
@@ -294,6 +296,28 @@ type ColDef = {
   opts?: string[];
   labelMap?: Record<string, string>;
 };
+
+// Bề rộng cột mặc định — người dùng kéo giãn được (lưu localStorage).
+const DEFAULT_TASKS_COL_W: Record<SortKey, number> = {
+  sumId: 150,
+  duAn: 95,
+  loaiHinh: 120,
+  hangMuc: 125,
+  congViec: 252,
+  giaiDoan: 130,
+  boMon: 120,
+  thucHien: 172,
+  uuTien: 108,
+  tinhTrang: 168,
+  batDau: 112,
+  ketThuc: 112,
+  thucTe: 188,
+  soGio: 100,
+  ketQua: 120,
+};
+const TASKS_COL_W_KEY = "tasks:colWidths";
+const TASKS_COL_W_MIN = 60;
+const TASKS_COL_W_MAX = 500;
 
 function colText(t: TaskRow, key: SortKey): string {
   switch (key) {
@@ -999,7 +1023,7 @@ export function TasksClient({
   const [treeCollapsed, setTreeCollapsed] = React.useState<Set<string> | null>(initialQuery ? new Set() : null);
   const [viewMode, setViewMode] = useLocalStorage<"tree" | "flat">("tasks:viewMode", "tree");
   // Modal chi tiết công việc: nội dung + toàn bộ giờ đã ghi (mọi người, mọi thời điểm).
-  type WeekEntry = { id: string; date: string; hours: number; note: string | null; userName: string };
+  type WeekEntry = { id: string; date: string; hours: number; note: string | null; result: string | null; userName: string };
   const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
   const [detailEntries, setDetailEntries] = React.useState<WeekEntry[]>([]);
   const [detailLoading, setDetailLoading] = React.useState(false);
@@ -1021,6 +1045,13 @@ export function TasksClient({
     [selected, tasks],
   );
 
+  // Mô tả hạng mục (Project.description) theo id — dùng cho tooltip hover ở cột Hạng mục.
+  const projectDescById = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of projects) if (p.description) m.set(p.id, p.description);
+    return m;
+  }, [projects]);
+
   const setCF = (k: SortKey, v: ColFilterVal) => setColFilters((s) => ({ ...s, [k]: v }));
   const clearCol = (k: SortKey) =>
     setColFilters((s) => {
@@ -1036,6 +1067,35 @@ export function TasksClient({
     setActiveL1("");
     setTimePeriod("all");
   }
+
+  // Bề rộng cột kéo giãn được — nhớ theo localStorage, nạp sau mount để tránh lệch hydrate.
+  const [colWidths, setColWidths] = React.useState<Record<string, number>>(() => ({ ...DEFAULT_TASKS_COL_W }));
+  const colWidthsRef = React.useRef(colWidths);
+  React.useEffect(() => {
+    colWidthsRef.current = colWidths;
+  }, [colWidths]);
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TASKS_COL_W_KEY);
+      if (raw) setColWidths((w) => ({ ...w, ...(JSON.parse(raw) as Record<string, number>) }));
+    } catch {
+      /* bỏ qua localStorage lỗi */
+    }
+  }, []);
+  const persistColWidths = (w: Record<string, number>) => {
+    try {
+      window.localStorage.setItem(TASKS_COL_W_KEY, JSON.stringify(w));
+    } catch {
+      /* bỏ qua localStorage lỗi */
+    }
+  };
+  const setColWidth = (k: string, px: number) => setColWidths((w) => ({ ...w, [k]: px }));
+  const endResizeColWidth = () => persistColWidths(colWidthsRef.current);
+  const resetColWidth = (k: SortKey) => {
+    const nw = { ...colWidthsRef.current, [k]: DEFAULT_TASKS_COL_W[k] };
+    setColWidths(nw);
+    persistColWidths(nw);
+  };
 
   // Giá trị phân biệt cho cột lọc "multi".
   const distinct = React.useMemo(() => {
@@ -1054,22 +1114,22 @@ export function TasksClient({
   // Cột — gộp phân cấp còn 2 cột định danh (Dự án + Công việc); không cột Mã mặc định.
   const cols = React.useMemo<ColDef[]>(
     () => [
-      { key: "duAn", label: "Dự án", w: 95, ident: true, lvl: 1, filter: "multi", opts: distinct.duAn },
-      { key: "loaiHinh", label: "Loại hình", w: 120, lvl: 2, filter: "multi", opts: distinct.loaiHinh },
-      { key: "hangMuc", label: "Hạng mục", w: 125, lvl: 3, filter: "multi", opts: distinct.hangMuc },
-      { key: "congViec", label: "Công việc", w: 252, ident: true, leaf: true, filter: "multi", opts: distinct.congViec },
-      { key: "giaiDoan", label: "Giai đoạn", w: 130, filter: "multi", opts: distinct.giaiDoan },
-      { key: "boMon", label: "Bộ môn", w: 120, filter: "multi", opts: distinct.boMon },
-      { key: "thucHien", label: "Người thực hiện", w: 172, filter: "multi", opts: distinct.thucHien },
-      { key: "uuTien", label: "Ưu tiên", w: 108, filter: "multi", opts: [...PRIORITY_OPTIONS], labelMap: PRIORITY_LABEL },
-      { key: "tinhTrang", label: "Trạng thái", w: 168, filter: "status" },
-      { key: "batDau", label: "Bắt đầu", w: 112, filter: "date" },
-      { key: "ketThuc", label: "Kết thúc", w: 112, filter: "date" },
-      { key: "thucTe", label: "Thực tế hoàn thành", w: 188, filter: "date" },
-      { key: "soGio", label: "Thời gian", w: 100 },
-      { key: "ketQua", label: "Kết quả", w: 120, filter: "text" },
+      { key: "duAn", label: "Dự án", w: colWidths.duAn ?? DEFAULT_TASKS_COL_W.duAn, ident: true, lvl: 1, filter: "multi", opts: distinct.duAn },
+      { key: "loaiHinh", label: "Loại hình", w: colWidths.loaiHinh ?? DEFAULT_TASKS_COL_W.loaiHinh, lvl: 2, filter: "multi", opts: distinct.loaiHinh },
+      { key: "hangMuc", label: "Hạng mục", w: colWidths.hangMuc ?? DEFAULT_TASKS_COL_W.hangMuc, lvl: 3, filter: "multi", opts: distinct.hangMuc },
+      { key: "congViec", label: "Công việc", w: colWidths.congViec ?? DEFAULT_TASKS_COL_W.congViec, ident: true, leaf: true, filter: "multi", opts: distinct.congViec },
+      { key: "giaiDoan", label: "Giai đoạn", w: colWidths.giaiDoan ?? DEFAULT_TASKS_COL_W.giaiDoan, filter: "multi", opts: distinct.giaiDoan },
+      { key: "boMon", label: "Bộ môn", w: colWidths.boMon ?? DEFAULT_TASKS_COL_W.boMon, filter: "multi", opts: distinct.boMon },
+      { key: "thucHien", label: "Người thực hiện", w: colWidths.thucHien ?? DEFAULT_TASKS_COL_W.thucHien, filter: "multi", opts: distinct.thucHien },
+      { key: "uuTien", label: "Ưu tiên", w: colWidths.uuTien ?? DEFAULT_TASKS_COL_W.uuTien, filter: "multi", opts: [...PRIORITY_OPTIONS], labelMap: PRIORITY_LABEL },
+      { key: "tinhTrang", label: "Trạng thái", w: colWidths.tinhTrang ?? DEFAULT_TASKS_COL_W.tinhTrang, filter: "status" },
+      { key: "batDau", label: "Bắt đầu", w: colWidths.batDau ?? DEFAULT_TASKS_COL_W.batDau, filter: "date" },
+      { key: "ketThuc", label: "Kết thúc", w: colWidths.ketThuc ?? DEFAULT_TASKS_COL_W.ketThuc, filter: "date" },
+      { key: "thucTe", label: "Thực tế hoàn thành", w: colWidths.thucTe ?? DEFAULT_TASKS_COL_W.thucTe, filter: "date" },
+      { key: "soGio", label: "Thời gian", w: colWidths.soGio ?? DEFAULT_TASKS_COL_W.soGio },
+      { key: "ketQua", label: "Kết quả", w: colWidths.ketQua ?? DEFAULT_TASKS_COL_W.ketQua, filter: "text" },
     ],
-    [distinct],
+    [distinct, colWidths],
   );
 
   // Cột phụ (không thuộc dữ liệu sort/lọc): Ghi giờ + Thao tác.
@@ -1577,7 +1637,7 @@ export function TasksClient({
         key={col.key}
         style={headStyle(col.key, col.w)}
         className={cn(
-          "border-b border-slate-200 dark:border-slate-700 px-2.5 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400",
+          "relative select-none border-b border-slate-200 dark:border-slate-700 px-2.5 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400",
           col.ident && col.key !== "duAn" && "border-l border-slate-100 dark:border-slate-800",
         )}
       >
@@ -1615,6 +1675,14 @@ export function TasksClient({
             </button>
           )}
         </div>
+        <ColResizeHandle
+          width={col.w}
+          minW={TASKS_COL_W_MIN}
+          maxW={TASKS_COL_W_MAX}
+          onResize={(px) => setColWidth(col.key, px)}
+          onResizeEnd={endResizeColWidth}
+          onReset={() => resetColWidth(col.key)}
+        />
       </th>
     );
   }
@@ -1654,7 +1722,7 @@ export function TasksClient({
             return <td key={c.key} style={bodyFrozenStyle(c.key)} className="px-2 py-2.5 align-top" />;
           if (c.key === "duAn")
             return (
-              <td key="duAn" style={bodyFrozenStyle("duAn")} className="px-2 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+              <td key="duAn" style={bodyFrozenStyle("duAn")} className="px-2 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300" title={t.groupName ?? undefined}>
                 {duAnText(t) !== "—" ? duAnText(t) : <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
@@ -1672,13 +1740,13 @@ export function TasksClient({
             );
           if (c.key === "loaiHinh")
             return (
-              <td key="loaiHinh" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+              <td key="loaiHinh" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300" title={t.loaiHinhName ?? undefined}>
                 {t.loaiHinhCode || <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
           if (c.key === "hangMuc")
             return (
-              <td key="hangMuc" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+              <td key="hangMuc" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300" title={projectDescById.get(t.projectId ?? "") ?? undefined}>
                 {t.level3 || <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
@@ -1690,7 +1758,7 @@ export function TasksClient({
             );
           if (c.key === "boMon")
             return (
-              <td key="boMon" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300">
+              <td key="boMon" className="px-2.5 py-2.5 align-top text-xs text-slate-600 dark:text-slate-300" title={t.disciplineName ?? undefined}>
                 {t.disciplineCode || <span className="text-slate-300 dark:text-slate-600">—</span>}
               </td>
             );
@@ -1899,6 +1967,15 @@ export function TasksClient({
     const allSel = groupTasks.length > 0 && groupTasks.every((t) => selected.has(t.id));
     const someSel = !allSel && groupTasks.some((t) => selected.has(t.id));
     const projDates = projectDatesForGroup(groupTasks, type);
+    // Hover vào mã (Dự án/Loại hình) hiện tên đầy đủ; Hạng mục hiện Mô tả (nếu có khai báo).
+    const labelTitle =
+      type === "g1"
+        ? (groupTasks[0]?.groupName ?? undefined)
+        : type === "g2"
+          ? (groupTasks[0]?.loaiHinhName ?? undefined)
+          : type === "g3"
+            ? (projectDescById.get(groupTasks[0]?.projectId ?? "") ?? undefined)
+            : undefined;
 
     // Tách cols thành: [trước batDau] | batDau | ketThuc | [sau ketThuc] | ghiGio
     const batDauIdx = cols.findIndex((c) => c.key === "batDau");
@@ -1935,7 +2012,7 @@ export function TasksClient({
               className={cn("flex items-center gap-1.5", textCls)}
             >
               <Chevron className="size-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
-              <span className="whitespace-nowrap">{label === "—" ? "(Không có)" : label}</span>
+              <span className="whitespace-nowrap" title={labelTitle}>{label === "—" ? "(Không có)" : label}</span>
               <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
                 ({count} việc{overdue ? ` · ${overdue} quá hạn` : ""})
               </span>
@@ -2782,6 +2859,8 @@ export function TasksClient({
             hours: null as number | null,
             person: detailTask.assigneeNames.join(", ") || null,
             isUpdate: true,
+            entryId: null as string | null,
+            result: null as string | null,
           })),
           ...detailEntries.map((e) => ({
             key: e.id,
@@ -2790,8 +2869,11 @@ export function TasksClient({
             hours: e.hours as number | null,
             person: e.userName as string | null,
             isUpdate: false,
+            entryId: e.id as string | null,
+            result: e.result,
           })),
         ].sort((a, b) => a.date.localeCompare(b.date));
+        const canEditResult = canManage || detailTask.assigneeIds.includes(currentUserId);
         return (
           <Modal
             open
@@ -2830,6 +2912,7 @@ export function TasksClient({
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Nội dung công việc</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Số giờ</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Người thực hiện</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Kết quả</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2845,6 +2928,18 @@ export function TasksClient({
                             <td className={cn("px-3 py-2 text-slate-600 dark:text-slate-300", row.isUpdate && "font-bold text-slate-800 dark:text-slate-100")}>
                               {row.person || <span className="italic text-slate-300 dark:text-slate-600">—</span>}
                             </td>
+                            <td className="px-3 py-2">
+                              {row.entryId ? (
+                                <EntryResultCell
+                                  entryId={row.entryId}
+                                  value={row.result}
+                                  canEdit={canEditResult}
+                                  onSaved={(v) => setDetailEntries((arr) => arr.map((x) => (x.id === row.entryId ? { ...x, result: v } : x)))}
+                                />
+                              ) : (
+                                <span className="text-slate-300 dark:text-slate-600 text-xs">—</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -2854,7 +2949,7 @@ export function TasksClient({
                           <td className="px-3 py-2 text-sm font-bold text-blue-600 dark:text-blue-400">
                             {detailEntries.reduce((s, e) => s + e.hours, 0)}h
                           </td>
-                          <td />
+                          <td colSpan={2} />
                         </tr>
                       </tfoot>
                     </table>

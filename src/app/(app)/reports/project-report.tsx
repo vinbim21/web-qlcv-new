@@ -149,6 +149,9 @@ export function ProjectReport({ rows }: { rows: TaskRow[] }) {
                               <CornerDownRight className="size-3.5 shrink-0 text-slate-300" />
                               <span className="text-slate-700">{h.name}</span>
                               <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">{h.loaiHinh}</span>
+                              {h.khoi.map((k) => (
+                                <span key={k} className="rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] font-medium text-cyan-600">{k}</span>
+                              ))}
                             </div>
                           </td>
                           <td className="px-3 py-2.5 text-center text-slate-300">·</td>

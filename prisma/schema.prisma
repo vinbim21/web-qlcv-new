@@ -113,7 +113,26 @@ model Department {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users User[]
+  users                    User[]
+  catalogColumnPermissions CatalogColumnPermission[]
+}
+
+/// Phân quyền sửa từng cột "vận hành" của Hạng mục (Project) trong Khai báo thông tin
+/// cho user không phải ADMIN — cấp theo user đích danh hoặc theo cả Bộ phận.
+/// column: "startDate" | "packagingDate" | "scale" | "description"
+model CatalogColumnPermission {
+  id           String   @id @default(cuid())
+  column       String
+  userId       String?
+  departmentId String?
+  createdAt    DateTime @default(now())
+
+  user       User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([column, userId, departmentId])
+  @@index([userId])
+  @@index([departmentId])
 }
 
 /// Loại hình công trình (Nhà ở, Hạ tầng, TTTM, Công nghiệp...) — dùng cho báo cáo định mức.
@@ -213,6 +232,7 @@ model User {
   completionHistoryApprovals TaskCompletionHistory[] @relation("TaskCompletionHistoryApprover")
   timeSheets    TimeSheetEntry[]
   notifications Notification[]   @relation("NotifRecipient")
+  catalogColumnPermissions CatalogColumnPermission[]
 
   @@index([disciplineId])
   @@index([departmentId])
@@ -345,6 +365,7 @@ model TimeSheetEntry {
   date      DateTime  @db.Date
   hours     Decimal   @db.Decimal(4, 2)
   note      String?
+  result    String? // Link/đường dẫn kết quả gắn theo ngày ghi giờ này (khác với Task.result — kết quả cuối cùng).
   lockedAt  DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

@@ -19,7 +19,7 @@ import {
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
-import { ResultCell } from "@/components/result-cell";
+import { EntryResultCell, ResultCell } from "@/components/result-cell";
 import { getTaskAllEntries } from "@/server/actions/timesheet";
 import { Donut, HBars } from "./report-charts";
 import {
@@ -274,7 +274,7 @@ export function ReportsClient({
   const [sort, setSort] = React.useState<{ key: string; dir: "asc" | "desc" }>({ key: "duAn", dir: "asc" });
 
   // Modal chi tiết công việc (click vào tên việc): nội dung + toàn bộ giờ đã ghi (mọi người, mọi thời điểm).
-  type WeekEntry = { id: string; date: string; hours: number; note: string | null; userName: string };
+  type WeekEntry = { id: string; date: string; hours: number; note: string | null; result: string | null; userName: string };
   const [detailTask, setDetailTask] = React.useState<TaskRow | null>(null);
   const [detailEntries, setDetailEntries] = React.useState<WeekEntry[]>([]);
   const [detailLoading, setDetailLoading] = React.useState(false);
@@ -808,6 +808,8 @@ export function ReportsClient({
             hours: null as number | null,
             person: detailTask.thucHien.join(", ") || null,
             isUpdate: true,
+            entryId: null as string | null,
+            result: null as string | null,
           })),
           ...detailEntries.map((e) => ({
             key: e.id,
@@ -816,6 +818,8 @@ export function ReportsClient({
             hours: e.hours as number | null,
             person: e.userName as string | null,
             isUpdate: false,
+            entryId: e.id as string | null,
+            result: e.result,
           })),
         ].sort((a, b) => a.date.localeCompare(b.date));
         return (
@@ -854,6 +858,7 @@ export function ReportsClient({
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Nội dung công việc</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Số giờ</th>
                           <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Người thực hiện</th>
+                          <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Kết quả</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -869,6 +874,13 @@ export function ReportsClient({
                             <td className={cn("px-3 py-2 text-slate-600", row.isUpdate && "font-bold text-slate-800")}>
                               {row.person || <span className="italic text-slate-300">—</span>}
                             </td>
+                            <td className="px-3 py-2">
+                              {row.entryId ? (
+                                <EntryResultCell entryId={row.entryId} value={row.result} canEdit={false} onSaved={() => {}} />
+                              ) : (
+                                <span className="text-slate-300 text-xs">—</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -878,7 +890,7 @@ export function ReportsClient({
                           <td className="px-3 py-2 text-sm font-bold text-blue-600">
                             {detailEntries.reduce((s, e) => s + e.hours, 0)}h
                           </td>
-                          <td />
+                          <td colSpan={2} />
                         </tr>
                       </tfoot>
                     </table>

@@ -22,6 +22,7 @@ export type ProjectOpt = Opt & {
   groupWorkGroupId: string | null;
   constructionTypeId: string;
   constructionTypeCode: string;
+  description: string;
 };
 import { PRIORITY_LABEL, PRIORITY_OPTIONS } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";

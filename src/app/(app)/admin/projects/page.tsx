@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { auth } from "@/server/auth/config";
 import { prisma } from "@/server/db/client";
 import { ProjectsManager } from "./projects-manager";
 
@@ -6,6 +8,9 @@ function toInput(d: Date | null): string {
 }
 
 export default async function ProjectsPage() {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") redirect("/dashboard");
+
   const [projects, constructionTypes] = await Promise.all([
     prisma.project.findMany({
       where: { deletedAt: null },

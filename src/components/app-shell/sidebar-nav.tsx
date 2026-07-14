@@ -22,13 +22,14 @@ const MAIN_NAV: NavItem[] = [
   { href: "/tasks", label: "Công việc của tôi", icon: ClipboardList },
   { href: "/timesheet", label: "Timesheet", icon: Clock },
   { href: "/reports", label: "Báo cáo", icon: PieChart },
+  // Mọi vai trò xem được (chỉ ADMIN hoặc user được cấp quyền cột mới sửa được).
+  { href: "/admin/catalog", label: "Khai báo thông tin", icon: SlidersHorizontal },
 ];
 
 const MANAGE_NAV: NavItem = { href: "/manage", label: "Quản lý công việc", icon: ClipboardCheck };
 
 const ADMIN_NAV: NavItem[] = [
   { href: "/admin/users", label: "Người dùng", icon: Users },
-  { href: "/admin/catalog", label: "Khai báo thông tin", icon: SlidersHorizontal },
 ];
 
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {

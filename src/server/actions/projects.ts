@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db/client";
-import { requireRole } from "@/server/auth/permissions";
+import { requireRole, requireUser } from "@/server/auth/permissions";
 import { projectSchema } from "@/lib/schemas/project";
+import { getEditableCatalogColumns, type CatalogPermissionColumn } from "@/server/data/catalog-permissions";
 import { runAction } from "./_helpers";
 
 function toDate(v?: string | null): Date | null {
@@ -122,6 +123,7 @@ export async function saveCatalogProject(input: {
   scale?: string | null;
   startDate?: string | null;
   packagingDate?: string | null;
+  description?: string | null;
 }) {
   return runAction(async () => {
     await requireRole("ADMIN");
@@ -133,6 +135,7 @@ export async function saveCatalogProject(input: {
     const startDate = toDate(input.startDate);
     const packagingDate = toDate(input.packagingDate);
     const constructionTypeId = input.constructionTypeId || null;
+    const description = input.description?.trim() || null;
 
     const group = await prisma.projectGroup.findUnique({
       where: { id: input.groupId },
@@ -157,12 +160,12 @@ export async function saveCatalogProject(input: {
     if (input.id) {
       await prisma.project.update({
         where: { id: input.id },
-        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId, startDate, packagingDate },
+        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId, startDate, packagingDate, description },
       });
-      // Đồng bộ ngày Bắt đầu/Đóng gói sang tất cả hạng mục cùng Dự án + cùng tên (khác Khối/Hệ thống)
+      // Đồng bộ ngày Bắt đầu/Đóng gói/Mô tả sang tất cả hạng mục cùng Dự án + cùng tên (khác Khối/Hệ thống)
       await prisma.project.updateMany({
         where: { groupId: input.groupId, name, id: { not: input.id }, deletedAt: null },
-        data: { startDate, packagingDate },
+        data: { startDate, packagingDate, description },
       });
       await prisma.task.updateMany({
         where: { projectId: input.id, deletedAt: null },
@@ -170,7 +173,7 @@ export async function saveCatalogProject(input: {
       });
     } else {
       await prisma.project.create({
-        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId, startDate, packagingDate },
+        data: { groupId: input.groupId, code, name, blockSystem, scale, constructionTypeId, startDate, packagingDate, description },
       });
     }
     revalidatePath("/admin/catalog", "layout");
@@ -263,13 +266,28 @@ export async function createProjectGroupReturnId(input: {
 }
 
 // Batch update Dự án / Loại hình / Hạng mục cho nhiều hạng mục (Tab Dự án)
+// Cột "cấu trúc" (ảnh hưởng phân cấp danh mục) — chỉ ADMIN được đổi.
+const STRUCTURAL_PATCH_KEYS = ["groupId", "constructionTypeId", "name", "blockSystem"] as const;
+
 export async function batchUpdateCatalogProjects(
   ids: string[],
-  patch: { groupId?: string; constructionTypeId?: string | null; name?: string; blockSystem?: string | null; startDate?: string | null; packagingDate?: string | null },
+  patch: { groupId?: string; constructionTypeId?: string | null; name?: string; blockSystem?: string | null; startDate?: string | null; packagingDate?: string | null; scale?: string | null; description?: string | null },
 ) {
   return runAction(async () => {
-    await requireRole("ADMIN");
+    const user = await requireUser();
     if (!ids.length) throw new Error("Không có mục nào được chọn");
+
+    // Member (không phải ADMIN): chỉ được đổi các cột "vận hành" mà mình được cấp quyền,
+    // không được đổi cột cấu trúc (Dự án/Loại hình/Hạng mục/Khối).
+    if (user.role !== "ADMIN") {
+      const usedStructural = STRUCTURAL_PATCH_KEYS.some((k) => patch[k] !== undefined);
+      if (usedStructural) throw new Error("Không đủ quyền thực hiện thao tác này");
+      const editable = await getEditableCatalogColumns(user.id, user.role);
+      const usedKeys = (Object.keys(patch) as (keyof typeof patch)[]).filter((k) => patch[k] !== undefined);
+      const notAllowed = usedKeys.filter((k) => !editable.includes(k as CatalogPermissionColumn));
+      if (notAllowed.length) throw new Error("Không đủ quyền sửa cột này");
+    }
+
     let newCode: string | undefined;
     if (patch.groupId) {
       const group = await prisma.projectGroup.findUnique({
@@ -288,6 +306,8 @@ export async function batchUpdateCatalogProjects(
       if (patch.blockSystem !== undefined) data.blockSystem = patch.blockSystem?.trim() || null;
       if (patch.startDate !== undefined) data.startDate = patch.startDate ? new Date(patch.startDate) : null;
       if (patch.packagingDate !== undefined) data.packagingDate = patch.packagingDate ? new Date(patch.packagingDate) : null;
+      if (patch.scale !== undefined) data.scale = patch.scale?.trim() || null;
+      if (patch.description !== undefined) data.description = patch.description?.trim() || null;
       if (Object.keys(data).length) {
         await prisma.project.update({ where: { id }, data });
         const taskData: { level3?: string } = {};
@@ -311,7 +331,7 @@ export async function batchDuplicateCatalogProjects(ids: string[], newBlockSyste
     if (!ids.length) throw new Error("Không có mục nào được chọn");
     const sources = await prisma.project.findMany({
       where: { id: { in: ids }, deletedAt: null },
-      select: { groupId: true, code: true, name: true, constructionTypeId: true, scale: true, startDate: true, packagingDate: true },
+      select: { groupId: true, code: true, name: true, constructionTypeId: true, scale: true, startDate: true, packagingDate: true, description: true },
     });
     const blockSystem = newBlockSystem?.trim() || null;
     for (const src of sources) {
@@ -321,7 +341,7 @@ export async function batchDuplicateCatalogProjects(ids: string[], newBlockSyste
       });
       if (dup) throw new Error(`Hạng mục "${src.name}" với Khối "${blockSystem ?? "—"}" đã tồn tại`);
       await prisma.project.create({
-        data: { groupId: src.groupId, code: src.code, name: src.name, constructionTypeId: src.constructionTypeId, scale: src.scale, startDate: src.startDate, packagingDate: src.packagingDate, blockSystem },
+        data: { groupId: src.groupId, code: src.code, name: src.name, constructionTypeId: src.constructionTypeId, scale: src.scale, startDate: src.startDate, packagingDate: src.packagingDate, description: src.description, blockSystem },
       });
     }
     revalidatePath("/admin/catalog", "layout");

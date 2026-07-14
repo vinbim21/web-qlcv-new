@@ -106,7 +106,7 @@ export function tally(rows: TaskRow[], keyFn: (r: TaskRow) => string | string[])
 export type ProjectAgg = StatusCounts & {
   duAn: string;
   hangMucCount: number;
-  hangMuc: (StatusCounts & { name: string; loaiHinh: string })[];
+  hangMuc: (StatusCounts & { name: string; loaiHinh: string; khoi: string[] })[];
 };
 export function buildProjects(rows: TaskRow[]): { projects: ProjectAgg[]; unassignedTasks: number } {
   const map = new Map<string, { rows: TaskRow[]; hangMuc: Map<string, TaskRow[]> }>();
@@ -129,11 +129,16 @@ export function buildProjects(rows: TaskRow[]): { projects: ProjectAgg[]; unassi
   const projects = [...map.entries()]
     .map(([duAn, p]) => {
       const hangMuc = [...p.hangMuc.entries()]
-        .map(([name, rs]) => ({ name, loaiHinh: rs[0].loaiHinh || "—", ...statusCounts(rs) }))
-        .sort((a, b) => b.total - a.total);
+        .map(([name, rs]) => ({
+          name,
+          loaiHinh: rs[0].loaiHinh || "—",
+          khoi: [...new Set(rs.map((r) => r.khoi).filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi")),
+          ...statusCounts(rs),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, "vi"));
       return { duAn, hangMucCount: hangMuc.length, hangMuc, ...statusCounts(p.rows) };
     })
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => a.duAn.localeCompare(b.duAn, "vi"));
   return { projects, unassignedTasks };
 }
 
