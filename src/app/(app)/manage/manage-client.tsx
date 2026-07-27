@@ -24,6 +24,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Trash2,
   UserX,
   Users,
   X,
@@ -79,8 +80,8 @@ import {
   setTaskStartApproval,
   updateTaskStatus,
 } from "@/server/actions/tasks";
-import { saveCatalogProject, batchUpdateCatalogProjects } from "@/server/actions/projects";
-import { addBtHangMuc } from "@/server/actions/catalog";
+import { saveCatalogProject, batchUpdateCatalogProjects, deleteProject } from "@/server/actions/projects";
+import { addBtHangMuc, renameBtHangMuc, deleteBtHangMuc } from "@/server/actions/catalog";
 import { getTaskAllEntries } from "@/server/actions/timesheet";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { DateInput } from "@/components/ui/date-input";
@@ -627,7 +628,33 @@ export function ManageClient({
   function closeDetail() {
     setDetailTask(null);
   }
-  const [renameHangMuc, setRenameHangMuc] = React.useState<{ ids: string[]; name: string } | null>(null);
+  const [renameHangMuc, setRenameHangMuc] = React.useState<{ ids: string[]; name: string; btWorkGroupId?: string | null } | null>(null);
+  // Hạng mục 0 việc đã chọn (checkbox) ở cấp g3 — sửa tên/xóa trực tiếp (Project hoặc CatalogItem BIM Tools).
+  const [selectedEmptyHangMuc, setSelectedEmptyHangMuc] = React.useState<Map<string, { label: string; projectIds: string[]; btWorkGroupId: string | null }>>(
+    () => new Map(),
+  );
+  const [deletingEmptyHangMuc, setDeletingEmptyHangMuc] = React.useState(false);
+  async function deleteSelectedEmptyHangMuc() {
+    if (selectedEmptyHangMuc.size === 0) return;
+    if (!confirm(`Xóa ${selectedEmptyHangMuc.size} hạng mục (không có công việc)? Hành động này không thể hoàn tác.`)) return;
+    setDeletingEmptyHangMuc(true);
+    for (const info of selectedEmptyHangMuc.values()) {
+      const res = info.btWorkGroupId
+        ? await deleteBtHangMuc(info.btWorkGroupId, info.label)
+        : await Promise.all(info.projectIds.map((id) => deleteProject(id))).then(
+            (rs) => rs.find((r) => !r.ok) ?? { ok: true as const },
+          );
+      if (!res.ok) {
+        setDeletingEmptyHangMuc(false);
+        toast.error(res.error);
+        return;
+      }
+    }
+    setDeletingEmptyHangMuc(false);
+    toast.success(`Đã xóa ${selectedEmptyHangMuc.size} hạng mục`);
+    setSelectedEmptyHangMuc(new Map());
+    router.refresh();
+  }
   // Modal "Giao việc": false = đóng, true = mở trống, TaskRow = mở điền sẵn theo việc đó ("Thêm tương tự").
   const [assignModal, setAssignModal] = React.useState<false | true | TaskRow>(false);
   // "Cập nhật công việc": làm tiếp việc đã Hoàn thành (đầu việc đổi) — chờ quản lý duyệt lại.
@@ -2219,6 +2246,18 @@ export function ManageClient({
       return { groupKey: key, workGroupId, projectGroupCode: d === "—" ? "" : d, constructionTypeCode: l === "—" ? "" : l, hangMuc: h === "—" ? "" : h };
     }
 
+    // Nhận diện Hạng mục (g3) đứng sau Project thật hay chỉ là CatalogItem BIM Tools (không Project),
+    // để "Sửa tên hạng mục" / checkbox chọn xóa (khi 0 việc) hoạt động đúng cho cả 2 trường hợp.
+    const g3Ctx = type === "g3" ? parseInsertCtx() : null;
+    const g3ProjectIds = g3Ctx
+      ? projects.filter((p) => p.groupCode === g3Ctx.projectGroupCode && p.constructionTypeCode === g3Ctx.constructionTypeCode && p.name === label).map((p) => p.id)
+      : [];
+    const g3IsBt = type === "g3" && g3ProjectIds.length === 0 && !!btWgId && (g3Ctx?.workGroupId === btWgId || groupTasks.length === 0);
+    const g3Empty = type === "g3" && groupTasks.length === 0;
+    const g3Info = g3Empty && (g3ProjectIds.length > 0 || g3IsBt)
+      ? { label, projectIds: g3ProjectIds, btWorkGroupId: g3IsBt ? btWgId : null }
+      : null;
+
     // Tách cols thành: trước batDau | batDau | ketThuc | sau ketThuc
     const batDauIdx = cols.findIndex((c) => c.key === "batDau");
     const ketThucIdx = cols.findIndex((c) => c.key === "ketThuc");
@@ -2237,8 +2276,17 @@ export function ManageClient({
             <input
               type="checkbox"
               className="size-3.5 shrink-0 accent-slate-700"
-              checked={allSel}
+              checked={g3Info ? selectedEmptyHangMuc.has(key) : allSel}
               onChange={() => {
+                if (g3Info) {
+                  setSelectedEmptyHangMuc((m) => {
+                    const n = new Map(m);
+                    if (n.has(key)) n.delete(key);
+                    else n.set(key, g3Info);
+                    return n;
+                  });
+                  return;
+                }
                 setSelected((s) => {
                   const n = new Set(s);
                   if (allSel) groupTasks.forEach((t) => n.delete(t.id));
@@ -2270,19 +2318,42 @@ export function ManageClient({
                 className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200">
                 <Plus className="size-3.5" />
               </button>
-              {(() => {
-                const ctx = parseInsertCtx();
-                const ids = projects
-                  .filter((p) => p.groupCode === ctx.projectGroupCode && p.constructionTypeCode === ctx.constructionTypeCode && p.name === label)
-                  .map((p) => p.id);
-                if (!ids.length) return null;
-                return (
-                  <button type="button" title="Sửa tên hạng mục" onClick={() => setRenameHangMuc({ ids, name: label })}
-                    className="grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200">
-                    <Pencil className="size-3.5" />
-                  </button>
-                );
-              })()}
+              {g3ProjectIds.length > 0 || g3IsBt ? (
+                <button
+                  type="button"
+                  title="Sửa tên hạng mục"
+                  onClick={() => setRenameHangMuc({ ids: g3ProjectIds, name: label, btWorkGroupId: g3IsBt ? btWgId : null })}
+                  className="grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              ) : null}
+              {g3Info ? (
+                <button
+                  type="button"
+                  title="Xóa hạng mục (không có công việc)"
+                  onClick={() => {
+                    if (!confirm(`Xóa hạng mục "${label}"? Hành động này không thể hoàn tác.`)) return;
+                    void (async () => {
+                      const res = g3Info.btWorkGroupId
+                        ? await deleteBtHangMuc(g3Info.btWorkGroupId, g3Info.label)
+                        : await Promise.all(g3Info.projectIds.map((id) => deleteProject(id))).then(
+                            (rs) => rs.find((r) => !r.ok) ?? { ok: true as const },
+                          );
+                      if (res.ok) {
+                        toast.success("Đã xóa hạng mục");
+                        setSelectedEmptyHangMuc((m) => { const n = new Map(m); n.delete(key); return n; });
+                        router.refresh();
+                      } else {
+                        toast.error(res.error);
+                      }
+                    })();
+                  }}
+                  className="grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-red-100 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              ) : null}
             </>
           ) : canManage && type === "g2" ? (
             <button type="button" title="Thêm hạng mục vào loại hình này"
@@ -3023,6 +3094,31 @@ export function ManageClient({
         </div>
       ) : null}
 
+      {/* Thanh thao tác hàng loạt cho Hạng mục 0 việc đã chọn (checkbox ở cây) — sửa tên/xóa trực tiếp. */}
+      {canManage && selected.size === 0 && selectedEmptyHangMuc.size > 0 ? (
+        <div className="fixed bottom-4 left-1/2 z-40 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border bg-card p-2 shadow-lg">
+          <span className="px-2 text-sm font-medium">Đã chọn {selectedEmptyHangMuc.size} hạng mục (0 việc)</span>
+          {selectedEmptyHangMuc.size === 1 ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const [info] = [...selectedEmptyHangMuc.values()];
+                setRenameHangMuc({ ids: info.projectIds, name: info.label, btWorkGroupId: info.btWorkGroupId });
+              }}
+            >
+              <Pencil className="size-4" /> Sửa tên
+            </Button>
+          ) : null}
+          <Button size="sm" variant="destructive" disabled={deletingEmptyHangMuc} onClick={() => void deleteSelectedEmptyHangMuc()}>
+            {deletingEmptyHangMuc ? "Đang xóa..." : "Xóa"}
+          </Button>
+          <Button size="icon" variant="ghost" onClick={() => setSelectedEmptyHangMuc(new Map())} title="Bỏ chọn" aria-label="Bỏ chọn">
+            <X className="size-4" />
+          </Button>
+        </div>
+      ) : null}
+
       {/* Dialog thêm Hạng mục (từ nút + ở cấp Dự án hoặc Loại hình trong tree view) */}
       {addHangMucCtx ? (
         <Modal
@@ -3282,14 +3378,17 @@ export function ManageClient({
         );
       })() : null}
 
-      {/* Sửa tên Hạng mục (g3) — đổi Project.name cho mọi Khối/Hệ thống cùng hạng mục. */}
+      {/* Sửa tên Hạng mục (g3) — đổi Project.name cho mọi Khối/Hệ thống cùng hạng mục,
+          hoặc đổi tên CatalogItem (Phát triển BIM Tools) nếu không có Project thật đứng sau. */}
       {renameHangMuc ? (
         <RenameHangMucModal
           ids={renameHangMuc.ids}
           currentName={renameHangMuc.name}
+          btWorkGroupId={renameHangMuc.btWorkGroupId ?? null}
           onClose={() => setRenameHangMuc(null)}
           onSaved={() => {
             setRenameHangMuc(null);
+            setSelectedEmptyHangMuc(new Map());
             router.refresh();
           }}
         />
@@ -3931,11 +4030,13 @@ function TaskDialog({
 function RenameHangMucModal({
   ids,
   currentName,
+  btWorkGroupId,
   onClose,
   onSaved,
 }: {
   ids: string[];
   currentName: string;
+  btWorkGroupId?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -3946,7 +4047,9 @@ function RenameHangMucModal({
     const trimmed = name.trim();
     if (!trimmed) { toast.error("Nhập tên hạng mục"); return; }
     setPending(true);
-    const res = await batchUpdateCatalogProjects(ids, { name: trimmed });
+    const res = btWorkGroupId
+      ? await renameBtHangMuc(btWorkGroupId, currentName, trimmed)
+      : await batchUpdateCatalogProjects(ids, { name: trimmed });
     setPending(false);
     if (res.ok) {
       toast.success("Đã đổi tên hạng mục");
@@ -3960,9 +4063,11 @@ function RenameHangMucModal({
     <Modal open onClose={onClose} title="Sửa tên hạng mục" className="max-w-md">
       <div className="space-y-3">
         <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-        <p className="text-xs text-amber-500">
-          Sẽ đổi tên hạng mục cho tất cả {ids.length} dòng Khối/Hệ thống thuộc hạng mục này.
-        </p>
+        {!btWorkGroupId ? (
+          <p className="text-xs text-amber-500">
+            Sẽ đổi tên hạng mục cho tất cả {ids.length} dòng Khối/Hệ thống thuộc hạng mục này.
+          </p>
+        ) : null}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Hủy</Button>
           <Button disabled={pending} onClick={() => void save()}>{pending ? "Đang lưu..." : "Lưu"}</Button>
