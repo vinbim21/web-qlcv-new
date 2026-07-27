@@ -96,6 +96,36 @@ export async function addCatalogValue(workGroupId: string, level: number, value:
   });
 }
 
+// Thêm Hạng mục (level 3) từ cây ở trang Quản lý công việc, cho các nhóm không có "Dự án"
+// thật đứng sau (VD: Phát triển BIM Tools) — khác với saveCatalogProject vốn tạo Project.
+export async function addBtHangMuc(workGroupId: string, level2: string, level3: string, projectGroupId?: string | null) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    const l2 = level2.trim();
+    const l3 = level3.trim();
+    if (!l3) throw new Error("Nhập tên hạng mục");
+    let parentId: string | null = null;
+    if (l2) {
+      const parent = await prisma.catalogItem.findUnique({
+        where: { workGroupId_level_value: { workGroupId, level: 2, value: l2 } },
+        select: { id: true },
+      });
+      if (!parent) throw new Error("Không tìm thấy Loại hình");
+      parentId = parent.id;
+    }
+    await prisma.catalogItem.upsert({
+      where: { workGroupId_level_value: { workGroupId, level: 3, value: l3 } },
+      update: { parentId, projectGroupId: projectGroupId ?? null },
+      create: { workGroupId, level: 3, value: l3, parentId, projectGroupId: projectGroupId ?? null },
+    });
+    revalidatePath(`/admin/catalog/${workGroupId}`);
+    revalidatePath("/admin/catalog");
+    revalidatePath("/tasks");
+    revalidatePath("/manage");
+    revalidatePath("/assign");
+  });
+}
+
 export async function updateCatalogValue(id: string, value: string, parentId?: string | null, projectGroupId?: string | null) {
   return runAction(async () => {
     await requireRole("ADMIN");

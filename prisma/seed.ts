@@ -8,9 +8,9 @@ const WORK_GROUPS = [
   { code: "2", name: "Đào tạo BIM", abbr: "DT", order: 2 },
   { code: "3", name: "Quản lý BIM", abbr: "QL", order: 3 },
   { code: "4", name: "Thanh tra BIM", abbr: "TT", order: 4 },
-  { code: "5", name: "Phát triển BIM Tools", abbr: "BT", order: 5 },
+  { code: "5", name: "Phát triển BIM Tools", abbr: "PT", order: 5 },
   { code: "6", name: "Quản lý phần mềm", abbr: "PM", order: 6 },
-  { code: "7", name: "Công việc khác", abbr: "CV", order: 7 },
+  { code: "7", name: "Công việc khác", abbr: "CK", order: 7 },
 ];
 
 const DISCIPLINES = [
