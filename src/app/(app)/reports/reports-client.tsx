@@ -479,6 +479,104 @@ export function ReportsClient({
     }
   }
 
+  // Xuất tổng hợp — cùng bộ lọc/sắp xếp đang áp dụng (`sorted`), gồm 2 sheet:
+  // "Tổng hợp" (Nhóm công việc → từng đầu việc → số hạng mục/số việc) và "Chi tiết" (đầy đủ từng dòng việc).
+  const [exportingSummary, setExportingSummary] = React.useState(false);
+  async function handleExportSummary() {
+    setExportingSummary(true);
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const wb = new ExcelJS.Workbook();
+
+      // Gom theo Nhóm công việc → Đầu việc (congViec) → Set hạng mục + đếm số việc.
+      const byGroup = new Map<
+        string,
+        { order: number; byCongViec: Map<string, { hangMuc: Set<string>; taskCount: number }> }
+      >();
+      for (const r of sorted) {
+        const gName = r.groupName || "—";
+        let g = byGroup.get(gName);
+        if (!g) {
+          g = { order: r.groupOrder, byCongViec: new Map() };
+          byGroup.set(gName, g);
+        }
+        const hm = r.hangMuc || "—";
+        let cv = g.byCongViec.get(r.congViec);
+        if (!cv) { cv = { hangMuc: new Set(), taskCount: 0 }; g.byCongViec.set(r.congViec, cv); }
+        cv.hangMuc.add(hm);
+        cv.taskCount++;
+      }
+      const groupsSorted = [...byGroup.entries()].sort((a, b) => a[1].order - b[1].order || a[0].localeCompare(b[0], "vi"));
+
+      // Sheet "Tổng hợp": từng Đầu việc trong mỗi Nhóm công việc.
+      const ws1 = wb.addWorksheet("Tổng hợp");
+      ws1.columns = [
+        { header: "Nhóm công việc", key: "nhom", width: 26 },
+        { header: "Đầu việc", key: "dauViec", width: 30 },
+        { header: "Số hạng mục", key: "soHangMuc", width: 14 },
+        { header: "Số việc", key: "soViec", width: 12 },
+      ];
+      ws1.getRow(1).font = { bold: true };
+      for (const [gName, g] of groupsSorted) {
+        const cvSorted = [...g.byCongViec.entries()].sort((a, b) => a[0].localeCompare(b[0], "vi"));
+        for (const [cvName, cv] of cvSorted) {
+          ws1.addRow({ nhom: gName, dauViec: cvName, soHangMuc: cv.hangMuc.size, soViec: cv.taskCount });
+        }
+      }
+
+      // Sheet "Chi tiết": đầy đủ từng dòng công việc (giống Xuất Excel), theo đúng bộ lọc đang chọn.
+      const ws2 = wb.addWorksheet("Chi tiết");
+      ws2.columns = [
+        { header: "Dự án", key: "duAn", width: 14 },
+        { header: "Loại hình", key: "loaiHinh", width: 16 },
+        { header: "Hạng mục", key: "hangMuc", width: 20 },
+        { header: "Khối hệ thống", key: "khoi", width: 16 },
+        { header: "Công việc", key: "congViec", width: 28 },
+        { header: "Giai đoạn", key: "giaiDoan", width: 14 },
+        { header: "Bộ môn", key: "boMon", width: 12 },
+        { header: "Thực hiện", key: "thucHien", width: 24 },
+        { header: "Ưu tiên", key: "uuTien", width: 10 },
+        { header: "Tình trạng", key: "tinhTrang", width: 16 },
+        { header: "Bắt đầu", key: "batDau", width: 12 },
+        { header: "Kết thúc", key: "ketThuc", width: 12 },
+        { header: "Thực tế hoàn thành", key: "thucTe", width: 16 },
+        { header: "Thời gian (giờ)", key: "hours", width: 14 },
+        { header: "Kết quả", key: "result", width: 24 },
+      ];
+      ws2.getRow(1).font = { bold: true };
+      for (const r of sorted) {
+        ws2.addRow({
+          duAn: r.duAn === "—" ? "" : r.duAn,
+          loaiHinh: r.loaiHinh,
+          hangMuc: r.hangMuc,
+          khoi: r.khoi,
+          congViec: r.congViec,
+          giaiDoan: r.giaiDoan,
+          boMon: r.boMon,
+          thucHien: r.thucHien.join(", "),
+          uuTien: PRIO_LABEL[r.uuTien] ?? r.uuTien,
+          tinhTrang: STATUS_LABEL[effStatus(r)],
+          batDau: fmtDate(r.batDau),
+          ketThuc: fmtDate(r.ketThuc),
+          thucTe: fmtDate(r.thucTe),
+          hours: r.hours || "",
+          result: r.result,
+        });
+      }
+
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bao-cao-tong-hop-loc-${Date.now()}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExportingSummary(false);
+    }
+  }
+
   const openCol = open ? cols.find((c) => c.key === open.key) : null;
 
   return (
@@ -591,14 +689,25 @@ export function ReportsClient({
         title="Danh sách công việc"
         sub={`${sorted.length} việc · mọi cột đều lọc được`}
         right={
-          <button
-            type="button"
-            onClick={handleExport}
-            disabled={exporting}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-          >
-            <ArrowDown className="size-3.5" /> {exporting ? "Đang xuất…" : `Xuất Excel (${sorted.length} việc đang lọc)`}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExportSummary}
+              disabled={exportingSummary}
+              title="Tổng hợp theo Nhóm công việc → Đầu việc → số Hạng mục, theo đúng bộ lọc đang chọn"
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <ListChecks className="size-3.5" /> {exportingSummary ? "Đang xuất…" : "Xuất tổng hợp"}
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <ArrowDown className="size-3.5" /> {exporting ? "Đang xuất…" : `Xuất Excel (${sorted.length} việc đang lọc)`}
+            </button>
+          </div>
         }
         bodyClass="!px-0 !py-0"
       >
