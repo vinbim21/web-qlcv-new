@@ -180,6 +180,35 @@ export async function deleteCatalogValue(id: string) {
   });
 }
 
+// Sửa tên / xóa Hạng mục (level 3) từ cây ở trang Quản lý công việc, cho các nhóm không có
+// "Dự án" thật đứng sau (VD: Phát triển BIM Tools) — tra theo value vì client không có id.
+
+export async function renameBtHangMuc(workGroupId: string, oldValue: string, newValue: string) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    const item = await prisma.catalogItem.findUnique({
+      where: { workGroupId_level_value: { workGroupId, level: 3, value: oldValue.trim() } },
+      select: { id: true },
+    });
+    if (!item) throw new Error("Không tìm thấy hạng mục");
+    const res = await updateCatalogValue(item.id, newValue);
+    if (!res.ok) throw new Error(res.error);
+  });
+}
+
+export async function deleteBtHangMuc(workGroupId: string, value: string) {
+  return runAction(async () => {
+    await requireRole("ADMIN");
+    const item = await prisma.catalogItem.findUnique({
+      where: { workGroupId_level_value: { workGroupId, level: 3, value: value.trim() } },
+      select: { id: true },
+    });
+    if (!item) throw new Error("Không tìm thấy hạng mục");
+    const res = await deleteCatalogValue(item.id);
+    if (!res.ok) throw new Error(res.error);
+  });
+}
+
 // ---------- Batch thêm nhiều CatalogItem cùng parentId ----------
 
 export async function batchSaveCatalogItems(
