@@ -80,6 +80,7 @@ import {
   updateTaskStatus,
 } from "@/server/actions/tasks";
 import { saveCatalogProject, batchUpdateCatalogProjects } from "@/server/actions/projects";
+import { addBtHangMuc } from "@/server/actions/catalog";
 import { getTaskAllEntries } from "@/server/actions/timesheet";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { DateInput } from "@/components/ui/date-input";
@@ -94,7 +95,7 @@ const SHOW_MA = false; // ẩn cột Mã mặc định
 // Nhóm dùng cấu trúc Dự án → Hạng mục (catalog tab 2).
 const PROJECT_BASED_ABBRS = new Set(["QL", "TT"]);
 // Nhóm dùng cấu trúc CatalogItem PT (catalog tab 3).
-const BT_ABBR = "BT";
+const BT_ABBR = "PT";
 
 // Chip "Lọc:" nhanh theo từng nhóm công việc — lọc thô theo từ khóa có trong
 // Loại hình/Hạng mục/Công việc/mã, KHÔNG cần khai báo catalog Level 1.
@@ -723,6 +724,8 @@ export function ManageClient({
     constructionTypeId: string | null;
     constructionTypeCode: string | null;
     lockCt: boolean; // true = CT cố định (g2), false = CT chọn từ dropdown (g1)
+    btWorkGroupId?: string | null; // set → nhánh không có Project thật (VD: Phát triển BIM Tools), thêm qua CatalogItem thay vì Project
+    btProjectGroupId?: string | null; // ProjectGroup (tag "Dự án BIM Tools") để gắn cho Hạng mục mới, giữ đúng nhóm hiển thị
   } | null>(null);
   const [addHmName, setAddHmName] = React.useState("");
   const [addHmCtId, setAddHmCtId] = React.useState("");
@@ -730,8 +733,22 @@ export function ManageClient({
 
   async function submitAddHangMuc() {
     if (!addHangMucCtx || !addHmName.trim()) return;
-    if (!addHangMucCtx.groupId) { toast.error("Không tìm thấy ID dự án"); return; }
     setAddHmSaving(true);
+    if (addHangMucCtx.btWorkGroupId) {
+      // Nhánh BIM Tools: không có Project đứng sau → thêm Hạng mục (level 3) vào CatalogItem.
+      const level2 = addHangMucCtx.lockCt ? (addHangMucCtx.constructionTypeCode ?? "") : addHmCtId;
+      const res = await addBtHangMuc(addHangMucCtx.btWorkGroupId, level2, addHmName.trim(), addHangMucCtx.btProjectGroupId ?? null);
+      setAddHmSaving(false);
+      if (res.ok) {
+        toast.success("Đã thêm hạng mục");
+        setAddHangMucCtx(null);
+        router.refresh();
+      } else {
+        toast.error(res.error);
+      }
+      return;
+    }
+    if (!addHangMucCtx.groupId) { setAddHmSaving(false); toast.error("Không tìm thấy ID dự án"); return; }
     const res = await saveCatalogProject({
       groupId: addHangMucCtx.groupId,
       name: addHmName.trim(),
@@ -799,6 +816,10 @@ export function ManageClient({
   const useBTSeed = !activeWg || activeWgAbbr === BT_ABBR;
   const btWgId = React.useMemo(
     () => workGroups.find((w) => w.abbr === BT_ABBR)?.id ?? null,
+    [workGroups],
+  );
+  const btWgName = React.useMemo(
+    () => workGroups.find((w) => w.abbr === BT_ABBR)?.name ?? "BIM Tools",
     [workGroups],
   );
 
@@ -2270,8 +2291,20 @@ export function ManageClient({
                 const dk = content.slice(0, i1); const lk = content.slice(i1 + 1);
                 const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
                 const ctProj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk) && p.constructionTypeCode === (lk === "—" ? "" : lk));
-                setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: ctProj?.constructionTypeId || null, constructionTypeCode: lk === "—" ? null : lk, lockCt: true });
-                setAddHmName(""); setAddHmCtId(ctProj?.constructionTypeId ?? "");
+                // Xác định nhánh Phát triển BIM Tools qua workGroupId thật của các việc trong nhánh (đáng tin hơn
+                // so với chỉ dò theo mã dk, vì mã dk có thể trùng tình cờ với mã một Dự án thật ở nhóm khác).
+                const nodeWgId = groupTasks[0]?.workGroupId ?? activeWg;
+                const isBt = nodeWgId === btWgId || (!proj && !!btWgId);
+                if (isBt && btWgId) {
+                  // Nhánh không có Project thật đứng sau (VD: Phát triển BIM Tools) → thêm qua CatalogItem.
+                  // dk = mã "Dự án BIM Tools" (ProjectGroup tag) của nhánh đang bấm + → gắn lại cho Hạng mục mới.
+                  const btPg = catalog[btWgId]?.projectGroups?.find((g) => g.code === dk)?.id ?? null;
+                  setAddHangMucCtx({ groupId: "", groupCode: btWgName, constructionTypeId: null, constructionTypeCode: lk === "—" ? null : lk, lockCt: true, btWorkGroupId: btWgId, btProjectGroupId: btPg });
+                  setAddHmName(""); setAddHmCtId("");
+                } else {
+                  setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: ctProj?.constructionTypeId || null, constructionTypeCode: lk === "—" ? null : lk, lockCt: true });
+                  setAddHmName(""); setAddHmCtId(ctProj?.constructionTypeId ?? "");
+                }
               }}
               className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200">
               <Plus className="size-3.5" />
@@ -2281,7 +2314,15 @@ export function ManageClient({
               onClick={() => {
                 const dk = key.slice(2);
                 const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
-                setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: null, constructionTypeCode: null, lockCt: false });
+                const nodeWgId = groupTasks[0]?.workGroupId ?? activeWg;
+                const isBt = nodeWgId === btWgId || (!proj && !!btWgId);
+                if (isBt && btWgId) {
+                  // Nhánh không có Project thật đứng sau (VD: Phát triển BIM Tools) → thêm qua CatalogItem.
+                  const btPg = catalog[btWgId]?.projectGroups?.find((g) => g.code === dk)?.id ?? null;
+                  setAddHangMucCtx({ groupId: "", groupCode: btWgName, constructionTypeId: null, constructionTypeCode: null, lockCt: false, btWorkGroupId: btWgId, btProjectGroupId: btPg });
+                } else {
+                  setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: null, constructionTypeCode: null, lockCt: false });
+                }
                 setAddHmName(""); setAddHmCtId("");
               }}
               className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200">
@@ -3008,11 +3049,17 @@ export function ManageClient({
                   className="w-full"
                 >
                   <option value="">— Không phân loại —</option>
-                  {constructionTypes.map((ct) => (
-                    <option key={ct.id} value={ct.id}>
-                      {ct.code} — {ct.name}
-                    </option>
-                  ))}
+                  {addHangMucCtx.btWorkGroupId
+                    ? (catalog[addHangMucCtx.btWorkGroupId]?.l2 ?? []).map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))
+                    : constructionTypes.map((ct) => (
+                        <option key={ct.id} value={ct.id}>
+                          {ct.code} — {ct.name}
+                        </option>
+                      ))}
                 </Select>
               </div>
             )}
