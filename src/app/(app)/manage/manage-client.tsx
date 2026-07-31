@@ -81,6 +81,7 @@ import {
   updateTaskStatus,
 } from "@/server/actions/tasks";
 import { saveCatalogProject, batchUpdateCatalogProjects, deleteProject } from "@/server/actions/projects";
+import { upsertConstructionTypeReturnId } from "@/server/actions/construction-types";
 import { addBtHangMuc, renameBtHangMuc, deleteBtHangMuc } from "@/server/actions/catalog";
 import { getTaskAllEntries } from "@/server/actions/timesheet";
 import { SearchableCombobox } from "@/components/searchable-combobox";
@@ -776,10 +777,23 @@ export function ManageClient({
       return;
     }
     if (!addHangMucCtx.groupId) { setAddHmSaving(false); toast.error("Không tìm thấy ID dự án"); return; }
+    // addHmCtId ở nhánh chọn tự do (g1) là MÃ loại hình gõ/chọn từ combobox (không phải id) —
+    // tra hoặc tạo mới ConstructionType theo mã trước khi lưu Hạng mục.
+    let constructionTypeId = addHangMucCtx.constructionTypeId;
+    if (!addHangMucCtx.lockCt) {
+      const code = addHmCtId.trim();
+      if (code) {
+        const ctRes = await upsertConstructionTypeReturnId(code, code);
+        if (!ctRes.ok) { setAddHmSaving(false); toast.error(ctRes.error); return; }
+        constructionTypeId = ctRes.data!.id;
+      } else {
+        constructionTypeId = null;
+      }
+    }
     const res = await saveCatalogProject({
       groupId: addHangMucCtx.groupId,
       name: addHmName.trim(),
-      constructionTypeId: addHangMucCtx.lockCt ? addHangMucCtx.constructionTypeId : (addHmCtId || null),
+      constructionTypeId,
     });
     setAddHmSaving(false);
     if (res.ok) {
@@ -847,6 +861,19 @@ export function ManageClient({
   );
   const btWgName = React.useMemo(
     () => workGroups.find((w) => w.abbr === BT_ABBR)?.name ?? "BIM Tools",
+    [workGroups],
+  );
+  // Mọi nhóm KHÔNG dùng cấu trúc Dự án/Project thật (tức trừ QL/TT — PROJECT_BASED_ABBRS) đều quản lý
+  // Hạng mục qua CatalogItem (Khai báo thông tin, Level 1/2/3) — không chỉ riêng Phát triển BIM Tools mà
+  // cả Xây dựng HTTC BIM, Đào tạo BIM, Quản lý phần mềm, Công việc khác... Dùng hàm này để "+ Thêm hạng mục" /
+  // sửa tên / xóa hạng mục 0 việc trỏ đúng CatalogItem của ĐÚNG nhóm đang thao tác, không hard-code về BT.
+  const catalogWgFor = React.useCallback(
+    (wgId: string | null): { id: string; name: string } | null => {
+      if (!wgId) return null;
+      const wg = workGroups.find((w) => w.id === wgId);
+      if (!wg || PROJECT_BASED_ABBRS.has(wg.abbr ?? "")) return null;
+      return { id: wg.id, name: wg.name };
+    },
     [workGroups],
   );
 
@@ -2246,16 +2273,16 @@ export function ManageClient({
       return { groupKey: key, workGroupId, projectGroupCode: d === "—" ? "" : d, constructionTypeCode: l === "—" ? "" : l, hangMuc: h === "—" ? "" : h };
     }
 
-    // Nhận diện Hạng mục (g3) đứng sau Project thật hay chỉ là CatalogItem BIM Tools (không Project),
-    // để "Sửa tên hạng mục" / checkbox chọn xóa (khi 0 việc) hoạt động đúng cho cả 2 trường hợp.
+    // Nhận diện Hạng mục (g3) đứng sau Project thật hay chỉ là CatalogItem (không Project — mọi nhóm trừ
+    // QL/TT), để "Sửa tên hạng mục" / checkbox chọn xóa (khi 0 việc) hoạt động đúng cho cả 2 trường hợp.
     const g3Ctx = type === "g3" ? parseInsertCtx() : null;
     const g3ProjectIds = g3Ctx
       ? projects.filter((p) => p.groupCode === g3Ctx.projectGroupCode && p.constructionTypeCode === g3Ctx.constructionTypeCode && p.name === label).map((p) => p.id)
       : [];
-    const g3IsBt = type === "g3" && g3ProjectIds.length === 0 && !!btWgId && (g3Ctx?.workGroupId === btWgId || groupTasks.length === 0);
+    const g3CatalogWg = g3ProjectIds.length === 0 ? catalogWgFor(g3Ctx?.workGroupId ?? null) : null;
     const g3Empty = type === "g3" && groupTasks.length === 0;
-    const g3Info = g3Empty && (g3ProjectIds.length > 0 || g3IsBt)
-      ? { label, projectIds: g3ProjectIds, btWorkGroupId: g3IsBt ? btWgId : null }
+    const g3Info = g3Empty && (g3ProjectIds.length > 0 || g3CatalogWg)
+      ? { label, projectIds: g3ProjectIds, btWorkGroupId: g3CatalogWg?.id ?? null }
       : null;
 
     // Tách cols thành: trước batDau | batDau | ketThuc | sau ketThuc
@@ -2318,11 +2345,11 @@ export function ManageClient({
                 className="ml-1 grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200">
                 <Plus className="size-3.5" />
               </button>
-              {g3ProjectIds.length > 0 || g3IsBt ? (
+              {g3ProjectIds.length > 0 || g3CatalogWg ? (
                 <button
                   type="button"
                   title="Sửa tên hạng mục"
-                  onClick={() => setRenameHangMuc({ ids: g3ProjectIds, name: label, btWorkGroupId: g3IsBt ? btWgId : null })}
+                  onClick={() => setRenameHangMuc({ ids: g3ProjectIds, name: label, btWorkGroupId: g3CatalogWg?.id ?? null })}
                   className="grid size-5 shrink-0 place-items-center rounded text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200"
                 >
                   <Pencil className="size-3.5" />
@@ -2362,15 +2389,16 @@ export function ManageClient({
                 const dk = content.slice(0, i1); const lk = content.slice(i1 + 1);
                 const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
                 const ctProj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk) && p.constructionTypeCode === (lk === "—" ? "" : lk));
-                // Xác định nhánh Phát triển BIM Tools qua workGroupId thật của các việc trong nhánh (đáng tin hơn
-                // so với chỉ dò theo mã dk, vì mã dk có thể trùng tình cờ với mã một Dự án thật ở nhóm khác).
+                // Xác định nhánh dùng CatalogItem (mọi nhóm trừ QL/TT) qua workGroupId thật của các việc
+                // trong nhánh (đáng tin hơn so với chỉ dò theo mã dk, vì mã dk có thể trùng tình cờ với
+                // mã một Dự án thật ở nhóm khác).
                 const nodeWgId = groupTasks[0]?.workGroupId ?? activeWg;
-                const isBt = nodeWgId === btWgId || (!proj && !!btWgId);
-                if (isBt && btWgId) {
-                  // Nhánh không có Project thật đứng sau (VD: Phát triển BIM Tools) → thêm qua CatalogItem.
-                  // dk = mã "Dự án BIM Tools" (ProjectGroup tag) của nhánh đang bấm + → gắn lại cho Hạng mục mới.
-                  const btPg = catalog[btWgId]?.projectGroups?.find((g) => g.code === dk)?.id ?? null;
-                  setAddHangMucCtx({ groupId: "", groupCode: btWgName, constructionTypeId: null, constructionTypeCode: lk === "—" ? null : lk, lockCt: true, btWorkGroupId: btWgId, btProjectGroupId: btPg });
+                const cwg = catalogWgFor(nodeWgId);
+                if (cwg) {
+                  // Nhánh không có Project thật đứng sau (VD: Phát triển BIM Tools, Xây dựng HTTC BIM...) → thêm qua CatalogItem.
+                  // dk = mã "Dự án" (ProjectGroup tag, nếu có) của nhánh đang bấm + → gắn lại cho Hạng mục mới.
+                  const cwgPg = catalog[cwg.id]?.projectGroups?.find((g) => g.code === dk)?.id ?? null;
+                  setAddHangMucCtx({ groupId: "", groupCode: cwg.name, constructionTypeId: null, constructionTypeCode: lk === "—" ? null : lk, lockCt: true, btWorkGroupId: cwg.id, btProjectGroupId: cwgPg });
                   setAddHmName(""); setAddHmCtId("");
                 } else {
                   setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: ctProj?.constructionTypeId || null, constructionTypeCode: lk === "—" ? null : lk, lockCt: true });
@@ -2386,11 +2414,11 @@ export function ManageClient({
                 const dk = key.slice(2);
                 const proj = projects.find((p) => p.groupCode === (dk === "—" ? "" : dk));
                 const nodeWgId = groupTasks[0]?.workGroupId ?? activeWg;
-                const isBt = nodeWgId === btWgId || (!proj && !!btWgId);
-                if (isBt && btWgId) {
-                  // Nhánh không có Project thật đứng sau (VD: Phát triển BIM Tools) → thêm qua CatalogItem.
-                  const btPg = catalog[btWgId]?.projectGroups?.find((g) => g.code === dk)?.id ?? null;
-                  setAddHangMucCtx({ groupId: "", groupCode: btWgName, constructionTypeId: null, constructionTypeCode: null, lockCt: false, btWorkGroupId: btWgId, btProjectGroupId: btPg });
+                const cwg = catalogWgFor(nodeWgId);
+                if (cwg) {
+                  // Nhánh không có Project thật đứng sau (VD: Phát triển BIM Tools, Xây dựng HTTC BIM...) → thêm qua CatalogItem.
+                  const cwgPg = catalog[cwg.id]?.projectGroups?.find((g) => g.code === dk)?.id ?? null;
+                  setAddHangMucCtx({ groupId: "", groupCode: cwg.name, constructionTypeId: null, constructionTypeCode: null, lockCt: false, btWorkGroupId: cwg.id, btProjectGroupId: cwgPg });
                 } else {
                   setAddHangMucCtx({ groupId: proj?.groupId ?? "", groupCode: dk === "—" ? "" : dk, constructionTypeId: null, constructionTypeCode: null, lockCt: false });
                 }
@@ -3138,25 +3166,18 @@ export function ManageClient({
                 <label htmlFor="add-hm-ct" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
                   Loại hình
                 </label>
-                <Select
-                  id="add-hm-ct"
+                <SearchableCombobox
+                  creatable
+                  placeholder="— Không phân loại —"
                   value={addHmCtId}
-                  onChange={(e) => setAddHmCtId(e.target.value)}
+                  options={
+                    addHangMucCtx.btWorkGroupId
+                      ? (catalog[addHangMucCtx.btWorkGroupId]?.l2 ?? [])
+                      : [...new Set(projects.filter((p) => p.groupCode === addHangMucCtx.groupCode).map((p) => p.constructionTypeCode).filter(Boolean))]
+                  }
+                  onChange={setAddHmCtId}
                   className="w-full"
-                >
-                  <option value="">— Không phân loại —</option>
-                  {addHangMucCtx.btWorkGroupId
-                    ? (catalog[addHangMucCtx.btWorkGroupId]?.l2 ?? []).map((v) => (
-                        <option key={v} value={v}>
-                          {v}
-                        </option>
-                      ))
-                    : constructionTypes.map((ct) => (
-                        <option key={ct.id} value={ct.id}>
-                          {ct.code} — {ct.name}
-                        </option>
-                      ))}
-                </Select>
+                />
               </div>
             )}
             <div>

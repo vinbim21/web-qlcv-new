@@ -480,7 +480,8 @@ export function ReportsClient({
   }
 
   // Xuất tổng hợp — cùng bộ lọc/sắp xếp đang áp dụng (`sorted`), gồm 2 sheet:
-  // "Tổng hợp" (Nhóm công việc → từng đầu việc → số hạng mục/số việc) và "Chi tiết" (đầy đủ từng dòng việc).
+  // "Tổng hợp" (dạng báo cáo phân cấp Nhóm CV → Dự án → Loại hình → Hạng mục, số La Mã/số thứ tự
+  // lồng cấp — mô phỏng mẫu "BÁO CÁO CÔNG VIỆC - PHÒNG BIM") và "Chi tiết" (đầy đủ từng dòng việc).
   const [exportingSummary, setExportingSummary] = React.useState(false);
   async function handleExportSummary() {
     setExportingSummary(true);
@@ -488,41 +489,110 @@ export function ReportsClient({
       const ExcelJS = (await import("exceljs")).default;
       const wb = new ExcelJS.Workbook();
 
-      // Gom theo Nhóm công việc → Đầu việc (congViec) → Set hạng mục + đếm số việc.
-      const byGroup = new Map<
-        string,
-        { order: number; byCongViec: Map<string, { hangMuc: Set<string>; taskCount: number }> }
-      >();
-      for (const r of sorted) {
-        const gName = r.groupName || "—";
-        let g = byGroup.get(gName);
-        if (!g) {
-          g = { order: r.groupOrder, byCongViec: new Map() };
-          byGroup.set(gName, g);
-        }
-        const hm = r.hangMuc || "—";
-        let cv = g.byCongViec.get(r.congViec);
-        if (!cv) { cv = { hangMuc: new Set(), taskCount: 0 }; g.byCongViec.set(r.congViec, cv); }
-        cv.hangMuc.add(hm);
-        cv.taskCount++;
-      }
-      const groupsSorted = [...byGroup.entries()].sort((a, b) => a[1].order - b[1].order || a[0].localeCompare(b[0], "vi"));
+      // ---- Sheet "Tổng hợp": cây phân cấp Nhóm CV → Dự án → Loại hình → Hạng mục ----
+      type HmAgg = { tasks: TaskRow[] };
+      type LhAgg = { hangMuc: Map<string, HmAgg> };
+      type DaAgg = { loaiHinh: Map<string, LhAgg> };
+      type NhomAgg = { order: number; duAn: Map<string, DaAgg> };
 
-      // Sheet "Tổng hợp": từng Đầu việc trong mỗi Nhóm công việc.
+      const byNhom = new Map<string, NhomAgg>();
+      for (const r of sorted) {
+        const nhomKey = r.groupName || "—";
+        let n = byNhom.get(nhomKey);
+        if (!n) { n = { order: r.groupOrder, duAn: new Map() }; byNhom.set(nhomKey, n); }
+        const daKey = r.duAn || "—";
+        let d = n.duAn.get(daKey);
+        if (!d) { d = { loaiHinh: new Map() }; n.duAn.set(daKey, d); }
+        const lhKey = r.loaiHinh || "—";
+        let l = d.loaiHinh.get(lhKey);
+        if (!l) { l = { hangMuc: new Map() }; d.loaiHinh.set(lhKey, l); }
+        const hmKey = r.hangMuc || "—";
+        let h = l.hangMuc.get(hmKey);
+        if (!h) { h = { tasks: [] }; l.hangMuc.set(hmKey, h); }
+        h.tasks.push(r);
+      }
+
+      // "—" (chưa gán) luôn xếp cuối cùng trong từng cấp.
+      const sortKeys = (keys: string[]) =>
+        keys.sort((a, b) => (a === "—" && b !== "—" ? 1 : b === "—" && a !== "—" ? -1 : a.localeCompare(b, "vi")));
+      const toRoman = (num: number): string => {
+        const map: [number, string][] = [
+          [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [90, "XC"], [50, "L"], [40, "XL"],
+          [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+        ];
+        let n = num, out = "";
+        for (const [v, s] of map) while (n >= v) { out += s; n -= v; }
+        return out;
+      };
+      // % hoàn thành (số việc trạng thái Hoàn thành / tổng số việc), Tiến độ (hạn chung nếu mọi việc
+      // cùng 1 hạn, ngược lại ghi chú chung chung), Nhân sự (gộp tên khác nhau, không tách theo bộ môn).
+      const summarize = (tasks: TaskRow[]) => {
+        const total = tasks.length;
+        const done = tasks.filter((t) => effStatus(t) === "HOAN_THANH").length;
+        const pct = total ? Math.round((done / total) * 100) : 0;
+        const deadlines = new Set(tasks.map((t) => t.ketThuc || ""));
+        let tienDo = "";
+        if (deadlines.size === 1) tienDo = fmtDate([...deadlines][0]) || "";
+        else if (deadlines.size > 1) tienDo = "Theo tiến độ chi tiết từng việc";
+        const people = sortKeys([...new Set(tasks.flatMap((t) => t.thucHien))]).join(", ");
+        return { pct, tienDo, people };
+      };
+
       const ws1 = wb.addWorksheet("Tổng hợp");
       ws1.columns = [
-        { header: "Nhóm công việc", key: "nhom", width: 26 },
-        { header: "Đầu việc", key: "dauViec", width: 30 },
-        { header: "Số hạng mục", key: "soHangMuc", width: 14 },
-        { header: "Số việc", key: "soViec", width: 12 },
+        { key: "stt", width: 12 },
+        { key: "noiDung", width: 46 },
+        { key: "tienDo", width: 26 },
+        { key: "nhanSu", width: 28 },
+        { key: "phanTram", width: 12 },
       ];
-      ws1.getRow(1).font = { bold: true };
-      for (const [gName, g] of groupsSorted) {
-        const cvSorted = [...g.byCongViec.entries()].sort((a, b) => a[0].localeCompare(b[0], "vi"));
-        for (const [cvName, cv] of cvSorted) {
-          ws1.addRow({ nhom: gName, dauViec: cvName, soHangMuc: cv.hangMuc.size, soViec: cv.taskCount });
-        }
-      }
+      ws1.mergeCells("A1:E1");
+      const titleCell = ws1.getCell("A1");
+      titleCell.value = "BÁO CÁO CÔNG VIỆC - PHÒNG BIM";
+      titleCell.font = { bold: true, size: 13 };
+      titleCell.alignment = { horizontal: "center", vertical: "middle" };
+      titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFB4C6E7" } };
+      ws1.getRow(1).height = 22;
+
+      const headerRow = ws1.addRow(["STT", "Nội dung công việc", "Tiến độ hoàn thành", "Nhân sự thực hiện", "% hoàn thành"]);
+      headerRow.font = { bold: true };
+      headerRow.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFB4C6E7" } }; });
+
+      const nhomSorted = [...byNhom.entries()].sort((a, b) => a[1].order - b[1].order || a[0].localeCompare(b[0], "vi"));
+      nhomSorted.forEach(([nhomName, n], nhomIdx) => {
+        const groupRow = ws1.addRow([toRoman(nhomIdx + 1), nhomName, "", "", ""]);
+        groupRow.font = { bold: true };
+        groupRow.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDDEBF7" } }; });
+
+        const daKeys = sortKeys([...n.duAn.keys()]);
+        daKeys.forEach((daName, daIdx) => {
+          const d = n.duAn.get(daName)!;
+          const daTasks = [...d.loaiHinh.values()].flatMap((l) => [...l.hangMuc.values()].flatMap((h) => h.tasks));
+          const daStt = `${nhomIdx + 1}.${daIdx + 1}`;
+          const daSum = summarize(daTasks);
+          const daRow = ws1.addRow([daStt, daName, daSum.tienDo, daSum.people, `${daSum.pct}%`]);
+          daRow.font = { bold: true };
+
+          const lhKeys = sortKeys([...d.loaiHinh.keys()]);
+          lhKeys.forEach((lhName, lhIdx) => {
+            const l = d.loaiHinh.get(lhName)!;
+            const lhTasks = [...l.hangMuc.values()].flatMap((h) => h.tasks);
+            const lhStt = `${daStt}.${lhIdx + 1}`;
+            const lhSum = summarize(lhTasks);
+            const lhRow = ws1.addRow([lhStt, lhName, lhSum.tienDo, lhSum.people, `${lhSum.pct}%`]);
+            lhRow.font = { italic: true };
+
+            const hmKeys = sortKeys([...l.hangMuc.keys()]);
+            hmKeys.forEach((hmName, hmIdx) => {
+              const h = l.hangMuc.get(hmName)!;
+              const hmStt = `${lhStt}.${hmIdx + 1}`;
+              const hmSum = summarize(h.tasks);
+              const hmRow = ws1.addRow([hmStt, hmName, hmSum.tienDo, hmSum.people, `${hmSum.pct}%`]);
+              hmRow.font = { italic: true };
+            });
+          });
+        });
+      });
 
       // Sheet "Chi tiết": đầy đủ từng dòng công việc (giống Xuất Excel), theo đúng bộ lọc đang chọn.
       const ws2 = wb.addWorksheet("Chi tiết");
