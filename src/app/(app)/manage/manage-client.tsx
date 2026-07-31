@@ -82,7 +82,7 @@ import {
 } from "@/server/actions/tasks";
 import { saveCatalogProject, batchUpdateCatalogProjects, deleteProject } from "@/server/actions/projects";
 import { upsertConstructionTypeReturnId } from "@/server/actions/construction-types";
-import { addBtHangMuc, renameBtHangMuc, deleteBtHangMuc } from "@/server/actions/catalog";
+import { addBtHangMuc, renameBtHangMuc, deleteBtHangMuc, addCatalogValue } from "@/server/actions/catalog";
 import { getTaskAllEntries } from "@/server/actions/timesheet";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { DateInput } from "@/components/ui/date-input";
@@ -94,10 +94,9 @@ const GROUPING: "dim" | "merge" | "flat" = "dim"; // gộp cấp trực quan: l�
 const FREEZE = true; // ghim checkbox + 4 cột phân cấp khi cuộn ngang
 const SHOW_MA = false; // ẩn cột Mã mặc định
 
-// Nhóm dùng cấu trúc Dự án → Hạng mục (catalog tab 2).
+// Nhóm dùng cấu trúc Dự án → Hạng mục (catalog tab 2). Mọi nhóm khác dùng cấu trúc CatalogItem
+// (Khai báo thông tin, catalog tab 3) — Phát triển BIM Tools, Xây dựng HTTC BIM, Đào tạo BIM,...
 const PROJECT_BASED_ABBRS = new Set(["QL", "TT"]);
-// Nhóm dùng cấu trúc CatalogItem PT (catalog tab 3).
-const BT_ABBR = "PT";
 
 // Chip "Lọc:" nhanh theo từng nhóm công việc — lọc thô theo từ khóa có trong
 // Loại hình/Hạng mục/Công việc/mã, KHÔNG cần khai báo catalog Level 1.
@@ -759,10 +758,22 @@ export function ManageClient({
   const [addHmCtId, setAddHmCtId] = React.useState("");
   const [addHmSaving, setAddHmSaving] = React.useState(false);
 
+  // g1 (không khóa Loại hình): cho phép chỉ tạo mới Loại hình mà chưa cần nhập Tên hạng mục ngay.
+  const canSaveLoaiHinhOnly = !!addHangMucCtx && !addHangMucCtx.lockCt && !addHmName.trim() && !!addHmCtId.trim();
+
   async function submitAddHangMuc() {
-    if (!addHangMucCtx || !addHmName.trim()) return;
+    if (!addHangMucCtx) return;
+    if (!addHmName.trim() && !canSaveLoaiHinhOnly) return;
     setAddHmSaving(true);
     if (addHangMucCtx.btWorkGroupId) {
+      if (canSaveLoaiHinhOnly) {
+        // Chỉ tạo mới Loại hình (CatalogItem level 2), chưa tạo Hạng mục.
+        const res = await addCatalogValue(addHangMucCtx.btWorkGroupId, 2, addHmCtId.trim());
+        setAddHmSaving(false);
+        if (res.ok) { toast.success("Đã thêm loại hình"); setAddHangMucCtx(null); router.refresh(); }
+        else toast.error(res.error);
+        return;
+      }
       // Nhánh BIM Tools: không có Project đứng sau → thêm Hạng mục (level 3) vào CatalogItem.
       const level2 = addHangMucCtx.lockCt ? (addHangMucCtx.constructionTypeCode ?? "") : addHmCtId;
       const res = await addBtHangMuc(addHangMucCtx.btWorkGroupId, level2, addHmName.trim(), addHangMucCtx.btProjectGroupId ?? null);
@@ -774,6 +785,15 @@ export function ManageClient({
       } else {
         toast.error(res.error);
       }
+      return;
+    }
+    if (canSaveLoaiHinhOnly) {
+      // Chỉ tạo mới Loại hình công trình (ConstructionType), chưa tạo Hạng mục.
+      const code = addHmCtId.trim();
+      const ctRes = await upsertConstructionTypeReturnId(code, code);
+      setAddHmSaving(false);
+      if (ctRes.ok) { toast.success("Đã thêm loại hình"); setAddHangMucCtx(null); router.refresh(); }
+      else toast.error(ctRes.error);
       return;
     }
     if (!addHangMucCtx.groupId) { setAddHmSaving(false); toast.error("Không tìm thấy ID dự án"); return; }
@@ -853,20 +873,12 @@ export function ManageClient({
   );
   // Tab "Tất cả" hoặc QL/TT → pre-seed từ Projects (catalog tab 2)
   const useProjectSeed = !activeWg || PROJECT_BASED_ABBRS.has(activeWgAbbr ?? "");
-  // Tab "Tất cả" hoặc BT → pre-seed từ CatalogItem L2/L3 (catalog tab 3)
-  const useBTSeed = !activeWg || activeWgAbbr === BT_ABBR;
-  const btWgId = React.useMemo(
-    () => workGroups.find((w) => w.abbr === BT_ABBR)?.id ?? null,
-    [workGroups],
-  );
-  const btWgName = React.useMemo(
-    () => workGroups.find((w) => w.abbr === BT_ABBR)?.name ?? "BIM Tools",
-    [workGroups],
-  );
-  // Mọi nhóm KHÔNG dùng cấu trúc Dự án/Project thật (tức trừ QL/TT — PROJECT_BASED_ABBRS) đều quản lý
-  // Hạng mục qua CatalogItem (Khai báo thông tin, Level 1/2/3) — không chỉ riêng Phát triển BIM Tools mà
-  // cả Xây dựng HTTC BIM, Đào tạo BIM, Quản lý phần mềm, Công việc khác... Dùng hàm này để "+ Thêm hạng mục" /
-  // sửa tên / xóa hạng mục 0 việc trỏ đúng CatalogItem của ĐÚNG nhóm đang thao tác, không hard-code về BT.
+  // Tab "Tất cả" hoặc bất kỳ nhóm nào KHÔNG dùng Dự án/Project thật (trừ QL/TT) → pre-seed từ CatalogItem
+  // (Khai báo thông tin) — áp dụng cho Phát triển BIM Tools, Xây dựng HTTC BIM, Đào tạo BIM, Quản lý phần
+  // mềm, Công việc khác... không chỉ riêng BT như trước (nếu không, Hạng mục 0 việc vừa tạo ở các nhóm này
+  // sẽ không hiện ra trong cây vì không có task nào tham chiếu tới).
+  const useCatalogSeed = !activeWg || !PROJECT_BASED_ABBRS.has(activeWgAbbr ?? "");
+  // Dùng để "+ Thêm hạng mục" / sửa tên / xóa hạng mục 0 việc trỏ đúng CatalogItem của ĐÚNG nhóm đang thao tác.
   const catalogWgFor = React.useCallback(
     (wgId: string | null): { id: string; name: string } | null => {
       if (!wgId) return null;
@@ -877,8 +889,30 @@ export function ManageClient({
     [workGroups],
   );
 
+  // Danh sách phẳng (dk, l2, l3) từ CatalogItem của mọi nhóm catalog-based đang liên quan tới tab hiện tại —
+  // dk = mã "Dự án": ưu tiên ProjectGroup gắn thẳng lên Hạng mục (VD BT: TL/QL), sau đó tới Level 1 cha của
+  // Loại hình (VD XD/DT: HTTC...), cuối cùng mới là "—" (không có Dự án). Dùng chung cho catalogSeed và
+  // trạng thái collapse mặc định để 2 nơi luôn khớp key với nhau.
+  const catalogSeedEntries = React.useMemo(() => {
+    if (!useCatalogSeed) return [];
+    const wgIds = activeWg ? [activeWg] : workGroups.filter((w) => !PROJECT_BASED_ABBRS.has(w.abbr ?? "")).map((w) => w.id);
+    const out: { dk: string; l2: string; l3: string }[] = [];
+    for (const wgId of wgIds) {
+      const c = catalog[wgId];
+      if (!c?.l3ByL2) continue;
+      const l1OfL2 = new Map<string, string>();
+      for (const [l1v, l2s] of Object.entries(c.l2ByL1 ?? {})) for (const l2v of l2s) l1OfL2.set(l2v, l1v);
+      for (const [l2, l3s] of Object.entries(c.l3ByL2)) {
+        for (const l3 of l3s) {
+          const dk = c.projectGroupByL3?.[l3]?.code || l1OfL2.get(l2) || "—";
+          out.push({ dk, l2, l3 });
+        }
+      }
+    }
+    return out;
+  }, [catalog, activeWg, workGroups, useCatalogSeed]);
+
   // Catalog seed: group → loaiHinh → [hạng mục]
-  // QL/TT: pre-seed từ projects (catalog tab 2); BT: pre-seed từ CatalogItem L2/L3 (tab 3)
   const catalogSeed = React.useMemo(() => {
     const seed = new Map<string, Map<string, Set<string>>>();
     if (useProjectSeed) {
@@ -892,16 +926,14 @@ export function ManageClient({
         byLoai.get(lk)!.add(hk);
       }
     }
-    if (useBTSeed && btWgId && catalog[btWgId]?.l3ByL2) {
-      if (!seed.has("—")) seed.set("—", new Map());
-      const byLoai = seed.get("—")!;
-      for (const [l2, l3s] of Object.entries(catalog[btWgId].l3ByL2)) {
-        if (!byLoai.has(l2)) byLoai.set(l2, new Set());
-        for (const l3 of l3s) byLoai.get(l2)!.add(l3);
-      }
+    for (const { dk, l2, l3 } of catalogSeedEntries) {
+      if (!seed.has(dk)) seed.set(dk, new Map());
+      const byLoai = seed.get(dk)!;
+      if (!byLoai.has(l2)) byLoai.set(l2, new Set());
+      byLoai.get(l2)!.add(l3);
     }
     return seed;
-  }, [projects, catalog, btWgId, useProjectSeed, useBTSeed]);
+  }, [projects, useProjectSeed, catalogSeedEntries]);
 
   // Giá trị phân biệt cho các cột lọc "multi".
   // Gộp cả giá trị từ catalog seed (Dự án/Loại hình/Hạng mục chưa có việc nào) để có thể
@@ -1206,7 +1238,7 @@ export function ManageClient({
     | { type: "task"; task: TaskRow }
     | { type: "insert"; ctx: NonNullable<typeof insertCtx> };
 
-  // Collapse g3 groups from catalog — QL/TT dùng projects, BT dùng catalog L2/L3
+  // Collapse g3 groups from catalog — QL/TT dùng projects, các nhóm còn lại dùng catalogSeedEntries
   const effectiveTreeCollapsed = React.useMemo(() => {
     if (treeCollapsed) return treeCollapsed;
     const keys = new Set<string>();
@@ -1223,13 +1255,9 @@ export function ManageClient({
         keys.add(`h:${p.groupCode || "—"}|${p.constructionTypeCode || "—"}|${p.name || "—"}`);
       }
     }
-    if (useBTSeed && btWgId && catalog[btWgId]?.l3ByL2) {
-      for (const [l2, l3s] of Object.entries(catalog[btWgId].l3ByL2)) {
-        for (const l3 of l3s) keys.add(`h:—|${l2}|${l3}`);
-      }
-    }
+    for (const { dk, l2, l3 } of catalogSeedEntries) keys.add(`h:${dk}|${l2}|${l3}`);
     return keys;
-  }, [treeCollapsed, sorted, projects, catalog, btWgId, useProjectSeed, useBTSeed]);
+  }, [treeCollapsed, sorted, projects, useProjectSeed, catalogSeedEntries]);
 
   const treeNodes = React.useMemo((): TreeNode[] => {
     const nodes: TreeNode[] = [];
@@ -3182,7 +3210,7 @@ export function ManageClient({
             )}
             <div>
               <label htmlFor="add-hm-name" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-                Tên hạng mục *
+                Tên hạng mục {addHangMucCtx.lockCt ? "*" : ""}
               </label>
               <Input
                 id="add-hm-name"
@@ -3195,13 +3223,18 @@ export function ManageClient({
                   if (e.key === "Escape") setAddHangMucCtx(null);
                 }}
               />
+              {!addHangMucCtx.lockCt ? (
+                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                  Để trống nếu chỉ muốn tạo mới Loại hình ở trên.
+                </p>
+              ) : null}
             </div>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setAddHangMucCtx(null)}>
                 Hủy
               </Button>
-              <Button onClick={() => void submitAddHangMuc()} disabled={!addHmName.trim() || addHmSaving}>
-                {addHmSaving ? "Đang lưu..." : "Thêm hạng mục"}
+              <Button onClick={() => void submitAddHangMuc()} disabled={addHmSaving || (!addHmName.trim() && !canSaveLoaiHinhOnly)}>
+                {addHmSaving ? "Đang lưu..." : "OK"}
               </Button>
             </div>
           </div>
