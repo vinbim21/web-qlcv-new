@@ -106,11 +106,13 @@ export async function addBtHangMuc(workGroupId: string, level2: string, level3: 
     if (!l3) throw new Error("Nhập tên hạng mục");
     let parentId: string | null = null;
     if (l2) {
-      const parent = await prisma.catalogItem.findUnique({
+      // Tìm-hoặc-tạo Loại hình (level 2) theo tên — cho phép gõ mới thẳng từ combobox ở /manage.
+      const parent = await prisma.catalogItem.upsert({
         where: { workGroupId_level_value: { workGroupId, level: 2, value: l2 } },
+        update: {},
+        create: { workGroupId, level: 2, value: l2 },
         select: { id: true },
       });
-      if (!parent) throw new Error("Không tìm thấy Loại hình");
       parentId = parent.id;
     }
     await prisma.catalogItem.upsert({
