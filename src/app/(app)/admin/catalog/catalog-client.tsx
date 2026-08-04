@@ -1378,6 +1378,33 @@ export function CatalogClient({
       });
 
     return (
+      <>
+      {/* Thanh Thu gọn/Mở rộng + nút thao tác — đặt NGOÀI khung bảng, giống tab "Dự án" */}
+      <div className="sticky top-[6.5rem] z-[25] -mx-4 mb-3 flex items-center gap-2 bg-background px-4 pb-2 pt-1 lg:-mx-6 lg:px-6">
+        <button type="button" onClick={() => {
+          setBimtoolsPgCollapsed(new Set(branches.map((b) => b.pgId)));
+          setBimtoolsL2Collapsed(new Set(branches.flatMap((b) => b.l2s.map((x) => `${b.pgId}|${x.l2Id}`))));
+        }} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
+          <X className="size-3" /> Thu gọn
+        </button>
+        <button type="button" onClick={() => { setBimtoolsPgCollapsed(new Set()); setBimtoolsL2Collapsed(new Set()); }}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
+          <ChevronsUpDown className="size-3" /> Mở rộng
+        </button>
+        {!readOnly ? (
+          <div className="ml-auto flex items-center gap-2">
+            <button type="button" onClick={() => setManageBimtoolsL2(true)}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
+              <SlidersHorizontal className="size-4 text-slate-400" /> Quản lý loại hình
+              <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptLevel2.length}</span>
+            </button>
+            <button type="button" onClick={addProject}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
+              <Plus className="size-4" /> Thêm dự án
+            </button>
+          </div>
+        ) : null}
+      </div>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-card shadow-sm">
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-2.5">
           <span className="text-sm font-medium text-slate-700">Dự án BIM Tools · Hạng mục</span>
@@ -1398,17 +1425,6 @@ export function CatalogClient({
               <button type="button" onClick={() => setGroupedColFilters((s) => { const n = { ...s }; delete n["bt_pg"]; delete n["bt_l2"]; delete n["bt_l3"]; return n; })} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-slate-400 hover:text-red-600"><RotateCcw className="size-3" /> Xóa lọc</button>
             </div>
           )}
-          <div className="h-4 w-px bg-slate-200" />
-          <button type="button" onClick={() => {
-            setBimtoolsPgCollapsed(new Set(branches.map((b) => b.pgId)));
-            setBimtoolsL2Collapsed(new Set(branches.flatMap((b) => b.l2s.map((x) => `${b.pgId}|${x.l2Id}`))));
-          }} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
-            <X className="size-3" /> Thu gọn
-          </button>
-          <button type="button" onClick={() => { setBimtoolsPgCollapsed(new Set()); setBimtoolsL2Collapsed(new Set()); }}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
-            <ChevronsUpDown className="size-3" /> Mở rộng
-          </button>
           <div className="relative ml-auto w-56">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
             <input
@@ -1418,19 +1434,6 @@ export function CatalogClient({
               onChange={(e) => setBimtoolsFilter(e.target.value)}
             />
           </div>
-          {!readOnly ? (
-            <>
-              <button type="button" onClick={() => setManageBimtoolsL2(true)}
-                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
-                <SlidersHorizontal className="size-4 text-slate-400" /> Quản lý loại hình
-                <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptLevel2.length}</span>
-              </button>
-              <button type="button" onClick={addProject}
-                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
-                <Plus className="size-4" /> Thêm dự án
-              </button>
-            </>
-          ) : null}
         </div>
 
         <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-2 text-xs text-slate-500">
@@ -1631,6 +1634,7 @@ export function CatalogClient({
           </table>
         </div>
       </div>
+      </>
     );
   };
 
