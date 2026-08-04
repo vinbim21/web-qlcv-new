@@ -53,7 +53,7 @@ import {
 } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
 import { PHONG_LABEL, phongOf } from "@/lib/dept-map";
-import { completionDateError, effectiveStatus, isCompletedLate } from "@/lib/task-status";
+import { completionDateError, effectiveStatus, isCompletedLate, shouldAutoStart } from "@/lib/task-status";
 import {
   type PeriodBounds,
   type PeriodType,
@@ -544,7 +544,7 @@ export function ManageClient({
   currentUserId,
   canManage,
   canAssign,
-  tasks,
+  tasks: tasksProp,
   constructionTypes,
   workGroups,
   disciplines,
@@ -573,6 +573,41 @@ export function ManageClient({
   initial?: { user: string; group: string; phong: string; from: string; to: string };
 }) {
   const router = useRouter();
+
+  // ---- Lớp vá cục bộ cho thao tác sửa 1 trường của 1 việc ----
+  // Chỉ chứa các trường ĐÃ LƯU THÀNH CÔNG, để không phải router.refresh() (tải lại cả trang ~2,5MB).
+  // Mỗi bản vá ghi kèm `base` = đúng object dòng đến từ server lúc vá. Khi server trả dữ liệu mới
+  // (điều hướng / refresh ở thao tác khác), object dòng là object MỚI ⇒ `base !== t` ⇒ bản vá tự bị
+  // bỏ qua. Nhờ vậy giao diện luôn bám đúng DB mà không cần useEffect dọn state.
+  const [taskPatch, setTaskPatch] = React.useState<Record<string, { base: TaskRow; patch: Partial<TaskRow> }>>({});
+  const patchTask = React.useCallback((id: string, patch: Partial<TaskRow>) => {
+    const base = tasksProp.find((x) => x.id === id);
+    if (!base) { router.refresh(); return; } // không tra được dòng gốc → quay về cách cũ cho chắc
+    setTaskPatch((m) => {
+      const cur = m[id];
+      return { ...m, [id]: cur && cur.base === base ? { base, patch: { ...cur.patch, ...patch } } : { base, patch } };
+    });
+  }, [tasksProp, router]);
+  const tasks = React.useMemo(
+    () =>
+      Object.keys(taskPatch).length === 0
+        ? tasksProp
+        : tasksProp.map((t) => {
+            const p = taskPatch[t.id];
+            return p && p.base === t ? { ...t, ...p.patch } : t;
+          }),
+    [tasksProp, taskPatch],
+  );
+  // Trạng thái khi KHÔNG hoàn thành & KHÔNG tạm dừng — dùng CHUNG hàm shouldAutoStart với server
+  // (src/server/actions/tasks.ts deriveActiveStatus) để không có logic thứ hai bị lệch.
+  const activeStatusOf = React.useCallback(
+    (t: TaskRow): TaskRow["status"] =>
+      shouldAutoStart({ status: "CHUA_LAM", plannedStart: t.plannedStart || null, assigneeCount: t.assigneeIds.length })
+        ? "DANG_LAM"
+        : "CHUA_LAM",
+    [],
+  );
+
   // Deep-link từ Báo cáo: chỉ còn các điều kiện không nằm trong filter-theo-cột
   // (1 nhân sự, 1 Phòng, khoảng Hạn từ/đến). Các điều kiện còn lại đã chuyển thành filter cột.
   const [f, setF] = React.useState({
@@ -1612,7 +1647,10 @@ export function ManageClient({
     if (res.ok) {
       const late = value && t.plannedEnd && value > t.plannedEnd;
       toast.success(value ? (late ? "Đã hoàn thành — TRỄ HẠN" : "Đã đánh dấu hoàn thành") : "Đã bỏ hoàn thành");
-      router.refresh();
+      // Sửa 1 việc / 3 cột (actualEnd, status, progressPercent) — vá tại chỗ thay vì tải lại cả trang.
+      patchTask(t.id, value
+        ? { actualEnd: value, status: "HOAN_THANH", progressPercent: 100 }
+        : { actualEnd: "", status: activeStatusOf(t), progressPercent: 0 });
     } else toast.error(res.error);
   }
 
@@ -1620,7 +1658,7 @@ export function ManageClient({
     const res = await setTaskPaused({ id: t.id, paused });
     if (res.ok) {
       toast.success(paused ? "Đã tạm dừng" : "Đã bỏ tạm dừng");
-      router.refresh();
+      patchTask(t.id, { status: paused ? "TAM_DUNG" : activeStatusOf(t) });
     } else toast.error(res.error);
   }
 
@@ -1628,14 +1666,22 @@ export function ManageClient({
     const res = await setTaskStartApproval({ id: t.id, approved });
     if (res.ok) {
       toast.success(approved ? "Đã duyệt — cho phép nhập thời gian" : "Đã bỏ duyệt khởi tạo");
-      router.refresh();
+      // Thu hồi việc CHƯA có người duyệt: server gán thêm approverId → phát sinh quan hệ mới,
+      // không vá được chắc chắn ⇒ giữ nguyên cơ chế cũ.
+      if (!approved && !t.approverId) router.refresh();
+      else patchTask(t.id, { startApproved: approved });
     } else toast.error(res.error);
   }
 
   async function approveCompletion(t: TaskRow) {
     const res = await setTaskApproval({ id: t.id, approved: true });
-    if (res.ok) { toast.success("Đã duyệt hoàn thành"); router.refresh(); }
-    else toast.error(res.error);
+    if (res.ok) {
+      toast.success("Đã duyệt hoàn thành");
+      // Người duyệt = người đang thao tác. Không tra được tên ⇒ quay về cách cũ cho chắc.
+      const me = users.find((u) => u.id === currentUserId);
+      if (me) patchTask(t.id, { approved: true, approvedByName: me.fullName });
+      else router.refresh();
+    } else toast.error(res.error);
   }
 
 

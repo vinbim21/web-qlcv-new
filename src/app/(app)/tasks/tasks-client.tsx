@@ -44,7 +44,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { PRIORITY_LABEL, PRIORITY_OPTIONS, TASK_STATUS_LABEL } from "@/lib/labels";
 import { cn, removeVietnameseTones } from "@/lib/utils";
-import { completionDateError, effectiveStatus, isCompletedLate } from "@/lib/task-status";
+import { completionDateError, effectiveStatus, isCompletedLate, shouldAutoStart } from "@/lib/task-status";
 import {
   type PeriodBounds,
   type PeriodType,
@@ -896,7 +896,7 @@ export function TasksClient({
   currentUserId,
   canManage,
   isAdmin,
-  tasks,
+  tasks: tasksProp,
   workGroups,
   disciplines,
   phases,
@@ -921,6 +921,40 @@ export function TasksClient({
   initialQuery?: string;
 }) {
   const router = useRouter();
+
+  // ---- Lớp vá cục bộ cho thao tác sửa 1 trường của 1 việc ----
+  // Chỉ chứa các trường ĐÃ LƯU THÀNH CÔNG, để không phải router.refresh() (tải lại cả trang).
+  // Mỗi bản vá ghi kèm `base` = đúng object dòng đến từ server lúc vá. Khi server trả dữ liệu mới,
+  // object dòng là object MỚI ⇒ `base !== t` ⇒ bản vá tự bị bỏ qua, giao diện luôn bám đúng DB.
+  const [taskPatch, setTaskPatch] = React.useState<Record<string, { base: TaskRow; patch: Partial<TaskRow> }>>({});
+  const patchTask = React.useCallback((id: string, patch: Partial<TaskRow>) => {
+    const base = tasksProp.find((x) => x.id === id);
+    if (!base) { router.refresh(); return; } // không tra được dòng gốc → quay về cách cũ cho chắc
+    setTaskPatch((m) => {
+      const cur = m[id];
+      return { ...m, [id]: cur && cur.base === base ? { base, patch: { ...cur.patch, ...patch } } : { base, patch } };
+    });
+  }, [tasksProp, router]);
+  const tasks = React.useMemo(
+    () =>
+      Object.keys(taskPatch).length === 0
+        ? tasksProp
+        : tasksProp.map((t) => {
+            const p = taskPatch[t.id];
+            return p && p.base === t ? { ...t, ...p.patch } : t;
+          }),
+    [tasksProp, taskPatch],
+  );
+  // Trạng thái khi KHÔNG hoàn thành & KHÔNG tạm dừng — dùng CHUNG hàm shouldAutoStart với server
+  // (src/server/actions/tasks.ts deriveActiveStatus) để không có logic thứ hai bị lệch.
+  const activeStatusOf = React.useCallback(
+    (t: TaskRow): TaskRow["status"] =>
+      shouldAutoStart({ status: "CHUA_LAM", plannedStart: t.plannedStart || null, assigneeCount: t.assigneeIds.length })
+        ? "DANG_LAM"
+        : "CHUA_LAM",
+    [],
+  );
+
   const [search, setSearch] = React.useState(initialQuery ?? "");
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   React.useEffect(() => {
@@ -1441,14 +1475,17 @@ export function TasksClient({
     if (res.ok) {
       const late = value && t.plannedEnd && value > t.plannedEnd;
       toast.success(value ? (late ? "Đã hoàn thành — TRỄ HẠN" : "Đã đánh dấu hoàn thành") : "Đã bỏ hoàn thành");
-      router.refresh();
+      // Sửa 1 việc / 3 cột (actualEnd, status, progressPercent) — vá tại chỗ thay vì tải lại cả trang.
+      patchTask(t.id, value
+        ? { actualEnd: value, status: "HOAN_THANH", progressPercent: 100 }
+        : { actualEnd: "", status: activeStatusOf(t), progressPercent: 0 });
     } else toast.error(res.error);
   }
   async function approveStart(t: TaskRow) {
     const res = await setTaskStartApproval({ id: t.id, approved: true });
     if (res.ok) {
       toast.success("Đã duyệt — cho phép nhập thời gian");
-      router.refresh();
+      patchTask(t.id, { startApproved: true });
     } else toast.error(res.error);
   }
 
@@ -1456,7 +1493,7 @@ export function TasksClient({
     const res = await setTaskPaused({ id: t.id, paused });
     if (res.ok) {
       toast.success(paused ? "Đã tạm dừng công việc" : "Đã tiếp tục công việc");
-      router.refresh();
+      patchTask(t.id, { status: paused ? "TAM_DUNG" : activeStatusOf(t) });
     } else toast.error(res.error);
   }
 
@@ -1464,7 +1501,8 @@ export function TasksClient({
     const res = await setTaskPlannedStart({ id: t.id, plannedStart: value || null });
     if (res.ok) {
       toast.success("Đã cập nhật ngày bắt đầu");
-      router.refresh();
+      // Action chỉ UPDATE đúng cột plannedStart, không suy lại status.
+      patchTask(t.id, { plannedStart: value });
     } else toast.error(res.error);
   }
 
