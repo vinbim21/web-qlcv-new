@@ -1453,7 +1453,7 @@ export function CatalogClient({
         )}
 
         <div className="max-h-[calc(100vh-240px)] overflow-auto">
-          <table className="w-full min-w-[720px] border-collapse text-sm">
+          <table className="w-full min-w-[960px] border-collapse text-sm">
             <thead className="sticky top-0 z-20 bg-card">
               <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500">
                 <th className="w-9 px-3 py-2">
@@ -1469,27 +1469,32 @@ export function CatalogClient({
                     />
                   ) : null}
                 </th>
-                <th className="w-[18%] px-3 py-2">
+                <th className="w-[12%] px-3 py-2">
                   <div className="flex items-center gap-1">Dự án
                     <button type="button" onClick={(e) => openBtcf("bt_pg", "Dự án", optPg, e)} className={cn("grid size-5 place-items-center rounded", btcfPg.length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
                   </div>
                 </th>
-                <th className="w-[24%] px-3 py-2">
+                <th className="w-[7%] px-3 py-2">
                   <div className="flex items-center gap-1">Loại hình
                     <button type="button" onClick={(e) => openBtcf("bt_l2", "Loại hình", optL2, e)} className={cn("grid size-5 place-items-center rounded", btcfL2.length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
                   </div>
                 </th>
-                <th className="px-3 py-2">
+                <th className="w-[12%] px-3 py-2">
                   <div className="flex items-center gap-1">Hạng mục
                     <button type="button" onClick={(e) => openBtcf("bt_l3", "Hạng mục", optL3, e)} className={cn("grid size-5 place-items-center rounded", btcfL3.length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
                   </div>
                 </th>
+                {/* 4 cột dưới đây bảng CatalogItem KHÔNG có dữ liệu — để đúng bố cục tab "Dự án", luôn hiện "—" */}
+                <th className="w-[30%] px-3 py-2">Khối/Hệ thống</th>
+                <th className="w-28 px-3 py-2">Bắt đầu</th>
+                <th className="w-28 px-3 py-2">Đóng gói</th>
+                <th className="w-32 px-3 py-2 text-right">Quy mô</th>
                 <th className="w-24 px-3 py-2 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {branches.length === 0 ? (
-                <tr><td colSpan={5} className="px-3 py-10 text-center text-sm text-slate-400">Không có dữ liệu khớp</td></tr>
+                <tr><td colSpan={9} className="px-3 py-10 text-center text-sm text-slate-400">Không có dữ liệu khớp</td></tr>
               ) : null}
               {branches.map(({ pgId, l2s, total }) => {
                 const { code, name } = pgLabel(pgId);
@@ -1509,7 +1514,7 @@ export function CatalogClient({
                             onChange={() => selectIds(pgIds, allPgSel)} />
                         ) : null}
                       </td>
-                      <td className="px-3 py-2" colSpan={4}>
+                      <td className="px-3 py-2" colSpan={8}>
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => togglePg(pgId)} className="inline-flex items-center gap-2 text-left">
                             {pgCollapsed ? <ChevronRight className="size-4 text-slate-400" /> : <ChevronDown className="size-4 text-slate-400" />}
@@ -1570,7 +1575,7 @@ export function CatalogClient({
                               ) : null}
                             </td>
                             <td className="px-3 py-2" />
-                            <td className="px-3 py-2" colSpan={3}>
+                            <td className="px-3 py-2" colSpan={7}>
                               <div className="flex items-center gap-2">
                                 <button type="button" onClick={() => toggleL2(l2Key)} className="inline-flex items-center gap-1.5 text-left">
                                   {l2Collapsed ? <ChevronRight className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
@@ -1603,6 +1608,11 @@ export function CatalogClient({
                               <td className="px-3 py-2">
                                 <span className="text-xs font-medium text-slate-800">{it.value}</span>
                               </td>
+                              {/* 4 cột không có dữ liệu trong CatalogItem — giữ đúng bố cục tab "Dự án" */}
+                              <td className="px-3 py-2"><Dash /></td>
+                              <td className="px-3 py-2 tabular-nums text-xs"><Dash /></td>
+                              <td className="px-3 py-2 tabular-nums text-xs"><Dash /></td>
+                              <td className="px-3 py-2 text-right tabular-nums"><Dash /></td>
                               <td className="px-3 py-2">
                                 {isAdmin ? (
                                   <div className="flex justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
