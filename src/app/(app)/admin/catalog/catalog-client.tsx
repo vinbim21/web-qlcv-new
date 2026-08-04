@@ -63,7 +63,6 @@ import {
   addBtHangMuc,
   addCatalogValue,
   batchReorderItems,
-  batchSaveCatalogItems,
   batchUpdateSimpleCatalog,
   batchUpdateCatalogItems,
   createCatalogItemReturnId,
@@ -2119,19 +2118,19 @@ export function CatalogClient({
       {/* Modal thêm nhiều hạng mục BIM Tools cho dự án vừa tạo */}
       {addBimtoolsItemsCtx ? (
         <AddMultipleBimtoolsModal
-          workGroupId={ptWorkGroupId ?? ""}
           level2Items={ptLevel2}
           group={addBimtoolsItemsCtx}
           onClose={() => setAddBimtoolsItemsCtx(null)}
-          onSubmit={async (parentId, values, projectGroupId) => {
-            const res = await batchSaveCatalogItems(ptWorkGroupId ?? "", 3, parentId, values, projectGroupId || null);
-            if (res.ok) {
-              toast.success(`Đã thêm ${values.length} hạng mục`);
-              router.refresh();
-              setAddBimtoolsItemsCtx(null);
-            } else {
-              toast.error(res.error);
+          onSubmit={async (rows, projectGroupId) => {
+            // addBtHangMuc tự tìm-hoặc-tạo Loại hình (level 2) theo tên rồi gắn Hạng mục (level 3)
+            // vào đúng Dự án — cùng server action mà /manage đang dùng, không thêm logic ghi mới.
+            for (const r of rows) {
+              const res = await addBtHangMuc(ptWorkGroupId ?? "", r.loaiHinh, r.hangMuc, projectGroupId || null);
+              if (!res.ok) { toast.error(res.error); return; }
             }
+            toast.success(`Đã thêm ${rows.length} hạng mục`);
+            router.refresh();
+            setAddBimtoolsItemsCtx(null);
           }}
         />
       ) : null}
@@ -3606,115 +3605,91 @@ function ManageBimtoolsL2Modal({
 }
 
 // ===================================================================
-//  AddMultipleBimtoolsModal — thêm nhiều Hạng mục cùng Loại hình (Tab BIM Tools)
+//  AddMultipleBimtoolsModal — thêm nhiều cặp Loại hình + Hạng mục (Tab BIM Tools)
 // ===================================================================
-type BimtoolsItemRow = { id: string; name: string };
-
+// Cùng khuôn với AddLoaiHinhToGroupModal của tab "Dự án": mỗi dòng là 1 Loại hình + 1 Hạng mục,
+// Loại hình chọn từ danh sách HOẶC gõ mới. Khác duy nhất: không có ô "Khối/HT" vì bảng CatalogItem
+// (danh mục BIM Tools) không có trường đó — nhập vào cũng không lưu được nên không hiển thị.
 function AddMultipleBimtoolsModal({
-  workGroupId,
   level2Items,
   group,
   onClose,
   onSubmit,
 }: {
-  workGroupId: string;
   level2Items: { id: string; value: string }[];
   group: { id: string; code: string; name: string };
   onClose: () => void;
-  onSubmit: (parentId: string, values: string[], projectGroupId: string) => Promise<void>;
+  onSubmit: (rows: { loaiHinh: string; hangMuc: string }[], projectGroupId: string) => Promise<void>;
 }) {
-  const [parentId, setParentId] = React.useState(level2Items[0]?.id ?? "");
-  const [rows, setRows] = React.useState<BimtoolsItemRow[]>([{ id: crypto.randomUUID(), name: "" }]);
+  const [rows, setRows] = React.useState<{ id: string; loaiHinh: string; hangMuc: string }[]>([
+    { id: crypto.randomUUID(), loaiHinh: "", hangMuc: "" },
+  ]);
   const [err, setErr] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
 
-  const inputCls =
-    "h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
+  const l2Names = level2Items.map((l) => l.value);
 
-  function addRow() {
-    setRows((prev) => [...prev, { id: crypto.randomUUID(), name: "" }]);
-  }
-
-  function removeRow(id: string) {
-    setRows((prev) => prev.filter((r) => r.id !== id));
-  }
-
-  function setRowName(id: string, name: string) {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, name } : r)));
+  function setRow(id: string, patch: Partial<{ loaiHinh: string; hangMuc: string }>) {
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
     setErr(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!parentId) { setErr("Chọn Loại hình."); return; }
-    const valid = rows.map((r) => r.name.trim()).filter(Boolean);
+    const valid = rows.filter((r) => r.loaiHinh.trim() || r.hangMuc.trim());
     if (!valid.length) { setErr("Nhập ít nhất 1 hạng mục."); return; }
+    if (valid.some((r) => !r.hangMuc.trim())) { setErr("Tên hạng mục không được để trống."); return; }
+    if (valid.some((r) => !r.loaiHinh.trim())) { setErr("Chọn hoặc gõ Loại hình cho từng dòng."); return; }
     setErr(null);
     setPending(true);
-    await onSubmit(parentId, valid, group.id);
+    await onSubmit(valid.map((r) => ({ loaiHinh: r.loaiHinh.trim(), hangMuc: r.hangMuc.trim() })), group.id);
     setPending(false);
   }
 
   return (
-    <Modal open onClose={onClose} title={`Thêm loại hình — ${group.code} · ${group.name}`} className="max-w-lg">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-slate-600">
-            Loại hình <span className="text-red-500">*</span>
-          </label>
-          <Select value={parentId} onChange={(e) => setParentId(e.target.value)} className="h-9">
-            {level2Items.map((l) => (
-              <option key={l.id} value={l.id}>{l.value}</option>
-            ))}
-          </Select>
-          <p className="text-[11px] text-slate-400">tạo/đổi tên loại hình ở nút "Quản lý loại hình"</p>
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 px-1">
-            <span className="text-xs font-medium text-slate-500">Hạng mục <span className="text-red-500">*</span></span>
-          </div>
-          <div className="max-h-60 space-y-2 overflow-y-auto pr-1">
-            {rows.map((row, idx) => (
-              <div key={row.id} className="flex items-center gap-2">
-                <input
-                  className={inputCls}
-                  value={row.name}
-                  placeholder={`Hạng mục ${idx + 1}`}
-                  autoFocus={idx === 0}
-                  onChange={(e) => setRowName(row.id, e.target.value)}
+    <Modal open onClose={onClose} title={`Thêm loại hình — ${group.code} · ${group.name}`} className="max-w-2xl">
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <p className="text-xs text-slate-500">
+          Mỗi dòng là 1 Loại hình + Hạng mục. Chọn từ danh sách hoặc gõ mới — loại hình mới sẽ được thêm vào danh mục <em>Loại hình</em> của nhóm Phát triển BIM Tools.
+        </p>
+        <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+          {rows.map((r, i) => (
+            <div key={r.id} className="flex items-center gap-2">
+              <span className="w-5 shrink-0 text-center text-xs text-slate-400">{i + 1}</span>
+              <div className="w-44 shrink-0">
+                <SearchableCombobox
+                  creatable
+                  placeholder="Loại hình..."
+                  value={r.loaiHinh}
+                  options={l2Names}
+                  onChange={(v) => setRow(r.id, { loaiHinh: v })}
                 />
-                {rows.length > 1 ? (
-                  <button
-                    type="button"
-                    onClick={() => removeRow(row.id)}
-                    className="grid size-7 shrink-0 place-items-center rounded-md text-slate-300 hover:bg-red-50 hover:text-red-500"
-                    title="Xóa dòng này"
-                  >
-                    <X className="size-4" />
-                  </button>
-                ) : (
-                  <span className="size-7 shrink-0" />
-                )}
               </div>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={addRow}
-            className="flex w-full items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:border-slate-500 hover:text-slate-700"
-          >
-            <Plus className="size-4" /> Thêm hạng mục
-          </button>
+              <input
+                className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="Tên hạng mục *"
+                value={r.hangMuc}
+                autoFocus={i === 0}
+                onChange={(e) => setRow(r.id, { hangMuc: e.target.value })}
+              />
+              {rows.length > 1 && (
+                <button type="button" onClick={() => setRows((rs) => rs.filter((x) => x.id !== r.id))}
+                  className="grid size-7 shrink-0 place-items-center rounded text-slate-400 hover:bg-red-50 hover:text-red-500">
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+          ))}
         </div>
-
+        <button type="button" onClick={() => setRows((rs) => [...rs, { id: crypto.randomUUID(), loaiHinh: "", hangMuc: "" }])}
+          className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700">
+          <Plus className="size-3" /> Thêm loại hình
+        </button>
         {err ? (
           <p className="flex items-center gap-1.5 text-xs text-red-600">
             <AlertCircle className="size-3.5" /> {err}
           </p>
         ) : null}
-
         <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
           <Button type="button" variant="outline" onClick={onClose}>Hủy</Button>
           <Button type="submit" disabled={pending}>
