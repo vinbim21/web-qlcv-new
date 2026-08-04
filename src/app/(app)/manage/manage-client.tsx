@@ -935,6 +935,34 @@ export function ManageClient({
     return seed;
   }, [projects, useProjectSeed, catalogSeedEntries]);
 
+  // Catalog seed sau khi lọc theo ô tìm kiếm — để tìm được cả Dự án / Loại hình / Hạng mục CHƯA CÓ VIỆC nào.
+  // Luật giữ nhánh theo kiểu cây: khớp ở cấp nào thì giữ nguyên cả nhánh con của cấp đó, đồng thời kéo theo
+  // tổ tiên để còn nhìn thấy đường dẫn. Không gõ gì → trả về nguyên catalogSeed (giữ hành vi cũ).
+  const searchedSeed = React.useMemo(() => {
+    const q = deferredSearch.trim();
+    if (!q) return catalogSeed;
+    const out = new Map<string, Map<string, Set<string>>>();
+    for (const [dk, byLoai] of catalogSeed) {
+      const dHit = matchesSearch(norm(dk), q);
+      const keptLoai = new Map<string, Set<string>>();
+      for (const [lk, hangSet] of byLoai) {
+        const lHit = dHit || matchesSearch(norm(`${dk} ${lk}`), q);
+        if (lHit) {
+          keptLoai.set(lk, new Set(hangSet)); // khớp ở cấp trên → giữ cả nhánh con
+          continue;
+        }
+        const keptHang = new Set<string>();
+        for (const hk of hangSet) {
+          if (matchesSearch(norm(`${dk} ${lk} ${hk}`), q)) keptHang.add(hk);
+        }
+        if (keptHang.size) keptLoai.set(lk, keptHang);
+      }
+      if (keptLoai.size) out.set(dk, keptLoai);
+      else if (dHit) out.set(dk, new Map()); // Dự án khớp nhưng chưa có Loại hình nào
+    }
+    return out;
+  }, [catalogSeed, deferredSearch]);
+
   // Giá trị phân biệt cho các cột lọc "multi".
   // Gộp cả giá trị từ catalog seed (Dự án/Loại hình/Hạng mục chưa có việc nào) để có thể
   // tìm & lọc ra các nhánh rỗng trong cây (VD: BDX01 (0 việc)).
@@ -1123,9 +1151,10 @@ export function ManageClient({
   // Cột cấu trúc: khi filter những cột này vẫn giữ pre-seed catalog (chỉ lọc trong seed).
   // Các filter khác (người, phòng, ngày, tìm, quick, tình trạng...) mới ẩn group 0-task.
   const STRUCTURAL_FILTER_KEYS = new Set<string>(["duAn", "loaiHinh", "hangMuc"]);
-  const hasActiveFilter = Boolean(
+  // CHÚ Ý: ô tìm kiếm KHÔNG nằm trong cờ này. Trước đây có, nên vừa gõ chữ là toàn bộ nhánh 0-việc bị ẩn →
+  // không thể tìm ra Hạng mục/Loại hình/Dự án chưa có việc. Nay tìm kiếm được xử lý riêng qua `searchedSeed`.
+  const hasNonSearchFilter = Boolean(
     f.userId || f.phong || f.dateFrom || f.dateTo ||
-    deferredSearch.trim() ||
     quick ||
     activeCols.some(c => !STRUCTURAL_FILTER_KEYS.has(c.key))
   );
@@ -1240,24 +1269,39 @@ export function ManageClient({
 
   // Collapse g3 groups from catalog — QL/TT dùng projects, các nhóm còn lại dùng catalogSeedEntries
   const effectiveTreeCollapsed = React.useMemo(() => {
-    if (treeCollapsed) return treeCollapsed;
-    const keys = new Set<string>();
-    for (const t of sorted) {
-      const dk = colText(t, "duAn") || "—";
-      const lk = colText(t, "loaiHinh") || "—";
-      const hk = colText(t, "hangMuc") || "—";
-      const bk = blockSystemText(t);
-      keys.add(`h:${dk}|${lk}|${hk}`);
-      if (bk) keys.add(`b:${dk}|${lk}|${hk}|${bk}`);
+    const searching = Boolean(deferredSearch.trim());
+    let keys: Set<string>;
+    if (treeCollapsed) {
+      // Người dùng đã tự thu/mở → tôn trọng lựa chọn đó (nhưng vẫn mở nhánh có kết quả tìm kiếm bên dưới).
+      if (!searching) return treeCollapsed;
+      keys = new Set(treeCollapsed);
+    } else {
+      keys = new Set<string>();
+      for (const t of sorted) {
+        const dk = colText(t, "duAn") || "—";
+        const lk = colText(t, "loaiHinh") || "—";
+        const hk = colText(t, "hangMuc") || "—";
+        const bk = blockSystemText(t);
+        keys.add(`h:${dk}|${lk}|${hk}`);
+        if (bk) keys.add(`b:${dk}|${lk}|${hk}|${bk}`);
+      }
+      if (useProjectSeed) {
+        for (const p of projects) {
+          keys.add(`h:${p.groupCode || "—"}|${p.constructionTypeCode || "—"}|${p.name || "—"}`);
+        }
+      }
+      for (const { dk, l2, l3 } of catalogSeedEntries) keys.add(`h:${dk}|${l2}|${l3}`);
     }
-    if (useProjectSeed) {
-      for (const p of projects) {
-        keys.add(`h:${p.groupCode || "—"}|${p.constructionTypeCode || "—"}|${p.name || "—"}`);
+    // Đang tìm kiếm → tự mở cấp Dự án/Loại hình của những nhánh có kết quả, tránh tìm ra rồi mà bị nhánh
+    // cha đang thu gọn che mất.
+    if (searching) {
+      for (const [dk, byLoai] of searchedSeed) {
+        keys.delete(`d:${dk}`);
+        for (const lk of byLoai.keys()) keys.delete(`l:${dk}|${lk}`);
       }
     }
-    for (const { dk, l2, l3 } of catalogSeedEntries) keys.add(`h:${dk}|${l2}|${l3}`);
     return keys;
-  }, [treeCollapsed, sorted, projects, useProjectSeed, catalogSeedEntries]);
+  }, [treeCollapsed, sorted, projects, useProjectSeed, catalogSeedEntries, deferredSearch, searchedSeed]);
 
   const treeNodes = React.useMemo((): TreeNode[] => {
     const nodes: TreeNode[] = [];
@@ -1274,8 +1318,8 @@ export function ManageClient({
     // Pre-seed byDuAn từ catalog (giữ thứ tự catalog, task sẽ điền vào sau)
     // Bỏ qua khi có filter NON-structural đang bật — chỉ show group có task khớp filter
     const byDuAn = new Map<string, TaskRow[]>();
-    if (!hasActiveFilter) {
-      for (const dk of catalogSeed.keys()) {
+    if (!hasNonSearchFilter) {
+      for (const dk of searchedSeed.keys()) {
         if (filterDuAn && !filterDuAn.includes(dk)) continue; // lọc theo filter Dự án
         byDuAn.set(dk, []);
       }
@@ -1289,7 +1333,7 @@ export function ManageClient({
       const d1 = `d:${dk}`;
 
       // Build byLoai trước để biết số lượng loại hình (dùng làm count cho g1)
-      const catalogLoai = !hasActiveFilter ? catalogSeed.get(dk) : undefined;
+      const catalogLoai = !hasNonSearchFilter ? searchedSeed.get(dk) : undefined;
       const byLoai = new Map<string, TaskRow[]>();
       if (catalogLoai) {
         for (const lk of catalogLoai.keys()) {
@@ -1351,12 +1395,12 @@ export function ManageClient({
       }
     }
     return nodes;
-  }, [sorted, effectiveTreeCollapsed, insertCtx, catalogSeed, hasActiveFilter, colFilters]);
+  }, [sorted, effectiveTreeCollapsed, insertCtx, searchedSeed, hasNonSearchFilter, colFilters]);
 
   // Tất cả keys theo từng cấp (dùng cho expand/collapse từng cấp).
   const allTreeKeys = React.useMemo(() => {
     const d = new Set<string>(), l = new Set<string>(), h = new Set<string>(), b = new Set<string>();
-    for (const [dk, byLoai] of catalogSeed) {
+    for (const [dk, byLoai] of searchedSeed) {
       d.add(`d:${dk}`);
       for (const [lk, hangSet] of byLoai) {
         l.add(`l:${dk}|${lk}`);
@@ -1376,7 +1420,7 @@ export function ManageClient({
       if (bk) b.add(`b:${dk}|${lk}|${hk}|${bk}`);
     }
     return { d: [...d], l: [...l], h: [...h], b: [...b] };
-  }, [catalogSeed, sorted]);
+  }, [searchedSeed, sorted]);
 
   const selectedTreeKeys = React.useMemo(() => {
     const d = new Set<string>(), l = new Set<string>(), h = new Set<string>(), b = new Set<string>();

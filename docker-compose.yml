@@ -2,7 +2,7 @@
 # Dùng: docker compose up -d   |   tắt: docker compose down
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: qlcv-db
     restart: unless-stopped
     environment:
@@ -12,7 +12,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - qlcv-pgdata:/var/lib/postgresql/data
+      - qlcv-pgdata17:/var/lib/postgresql/data
 
 volumes:
-  qlcv-pgdata:
+  qlcv-pgdata17:
