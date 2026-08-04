@@ -60,6 +60,7 @@ import { Select } from "@/components/ui/select";
 import { SearchableCombobox } from "@/components/searchable-combobox";
 import { cn, removeVietnameseTones } from "@/lib/utils";
 import {
+  addBtHangMuc,
   addCatalogValue,
   batchReorderItems,
   batchSaveCatalogItems,
@@ -185,7 +186,9 @@ export function CatalogClient({
   const router = useRouter();
   const [showColumnPermissions, setShowColumnPermissions] = React.useState(false);
   const [tab, setTab] = React.useState<TabId>("groups");
-  const [projectsViewMode, setProjectsViewMode] = React.useState<"table" | "grouped" | "g6">("table");
+  // Tạm tắt 2 chế độ xem "Bảng" và "AntV G6" — chỉ dùng chế độ cây ("grouped").
+  // Code 2 nhánh kia vẫn giữ nguyên bên dưới, bật lại chỉ cần trả lại cụm nút chuyển chế độ.
+  const [projectsViewMode] = React.useState<"table" | "grouped" | "g6">("grouped");
   const [groupedCollapsed, setGroupedCollapsed] = React.useState<Set<string>>(new Set());
   const [groupedCtCollapsed, setGroupedCtCollapsed] = React.useState<Set<string>>(new Set());
   const [groupedHmCollapsed, setGroupedHmCollapsed] = React.useState<Set<string>>(new Set());
@@ -193,6 +196,12 @@ export function CatalogClient({
   const [groupedSelectedIds, setGroupedSelectedIds] = React.useState<Set<string>>(new Set());
   const [groupedFilter, setGroupedFilter] = React.useState("");
   const [groupedColFilters, setGroupedColFilters] = React.useState<Record<string, string[]>>({});
+  // Tab "Dự án BIM Tools" dạng cây: Dự án → Loại hình → Hạng mục
+  const [bimtoolsViewMode] = React.useState<"tree" | "table">("tree");
+  const [bimtoolsPgCollapsed, setBimtoolsPgCollapsed] = React.useState<Set<string>>(new Set());
+  const [bimtoolsL2Collapsed, setBimtoolsL2Collapsed] = React.useState<Set<string>>(new Set());
+  const [bimtoolsSelectedIds, setBimtoolsSelectedIds] = React.useState<Set<string>>(new Set());
+  const [bimtoolsFilter, setBimtoolsFilter] = React.useState("");
   const [groupedOpenFilter, setGroupedOpenFilter] = React.useState<{ key: string; label: string; opts: string[]; rect: DOMRect } | null>(null);
 
   const ptWorkGroupId = workGroups.find((w) => w.abbr === "PT")?.id ?? null;
@@ -1061,19 +1070,10 @@ export function CatalogClient({
 
   const projectsView = () => (
     <>
-      {/* Toggle Bảng / Dự án / AntV G6 + Collapse/Expand All */}
+      {/* Collapse/Expand All (đã tạm ẩn 2 nút chuyển chế độ "Bảng" và "AntV G6") */}
       <div className="sticky top-[6.5rem] z-[25] -mx-4 mb-3 flex items-center gap-2 bg-background px-4 pb-2 pt-1 lg:-mx-6 lg:px-6">
-        {(["table", "grouped", "g6"] as const).map(m => (
-          <button key={m} type="button" onClick={() => setProjectsViewMode(m)}
-            className={cn("rounded-md px-3 py-1.5 text-sm font-medium transition",
-              projectsViewMode === m ? "bg-slate-800 text-white" : "bg-white text-slate-500 border border-slate-200 hover:bg-slate-50"
-            )}>
-            {m === "table" ? "Bảng" : m === "grouped" ? "Dự án" : "AntV G6"}
-          </button>
-        ))}
         {projectsViewMode === "grouped" && (
           <>
-            <div className="h-4 w-px bg-slate-200" />
             <button type="button" onClick={() => {
               const keys = collectGroupedCollapseKeys();
               setGroupedCollapsed(new Set(keys.projectKeys));
@@ -1266,6 +1266,326 @@ export function CatalogClient({
     </>
   );
 
+  // ============== TAB bimtools (DẠNG CÂY) — Dự án → Loại hình → Hạng mục ==============
+  // Cùng khuôn với chế độ cây của tab "Dự án" (groupedProjectsView) nhưng dữ liệu là CatalogItem:
+  // ProjectGroup(PT) → CatalogItem level 2 → CatalogItem level 3.
+  const bimtoolsTreeView = (itemFields: Field[]) => {
+    const q = bimtoolsFilter.trim().toLowerCase();
+    const hit = (s: string) => !q || s.toLowerCase().includes(q);
+
+    type Hm = { id: string; value: string; parentId: string | null; projectGroupId: string | null; order: number };
+    const NO_PG = "__nopg__";
+    const NO_L2 = "__nol2__";
+
+    // Gom Hạng mục theo Dự án → Loại hình. Seed sẵn mọi Dự án để dự án chưa có hạng mục nào vẫn hiện
+    // (nếu không sẽ mất đường vào để thêm mới).
+    const byPg = new Map<string, Map<string, Hm[]>>();
+    for (const g of ptProjectGroups) byPg.set(g.id, new Map());
+    byPg.set(NO_PG, new Map());
+    for (const it of ptLevel3) {
+      const pgKey = it.projectGroupId && byPg.has(it.projectGroupId) ? it.projectGroupId : NO_PG;
+      const l2Key = it.parentId ?? NO_L2;
+      if (!byPg.has(pgKey)) byPg.set(pgKey, new Map());
+      const m = byPg.get(pgKey)!;
+      if (!m.has(l2Key)) m.set(l2Key, []);
+      m.get(l2Key)!.push(it as Hm);
+    }
+    // Loại hình chưa gắn hạng mục nào ở bất kỳ dự án nào → gom vào nhánh "(Chưa gắn dự án)" để còn nhìn thấy.
+    const usedL2 = new Set(ptLevel3.map((i) => i.parentId ?? NO_L2));
+    for (const l2 of ptLevel2) if (!usedL2.has(l2.id)) byPg.get(NO_PG)!.set(l2.id, []);
+
+    const pgLabel = (pgId: string) => {
+      if (pgId === NO_PG) return { code: "(Chưa gắn dự án)", name: "Hạng mục/Loại hình chưa gắn dự án nào" };
+      const g = ptPgById.get(pgId);
+      return { code: g?.code ?? "—", name: g?.name ?? "" };
+    };
+    const l2Label = (l2Id: string) => (l2Id === NO_L2 ? "(Chưa có loại hình)" : ptL2ById.get(l2Id)?.value ?? "—");
+
+    // Lọc theo ô tìm: khớp ở Dự án/Loại hình → giữ cả nhánh; khớp ở Hạng mục → giữ hạng mục đó.
+    const branches: { pgId: string; l2s: { l2Id: string; items: Hm[] }[]; total: number }[] = [];
+    for (const [pgId, byL2] of byPg) {
+      const { code, name } = pgLabel(pgId);
+      const pgHit = hit(code) || hit(name);
+      const l2s: { l2Id: string; items: Hm[] }[] = [];
+      for (const [l2Id, items] of byL2) {
+        const lHit = pgHit || hit(l2Label(l2Id));
+        const kept = lHit ? items : items.filter((i) => hit(i.value));
+        if (lHit || kept.length) l2s.push({ l2Id, items: kept });
+      }
+      if (l2s.length || pgHit) branches.push({ pgId, l2s, total: l2s.reduce((s, x) => s + x.items.length, 0) });
+    }
+
+    const visibleIds = branches.flatMap((b) => b.l2s.flatMap((x) => x.items.map((i) => i.id)));
+    const allVisibleSel = visibleIds.length > 0 && visibleIds.every((id) => bimtoolsSelectedIds.has(id));
+    const someVisibleSel = !allVisibleSel && visibleIds.some((id) => bimtoolsSelectedIds.has(id));
+    const selectIds = (ids: string[], allSelected: boolean) =>
+      setBimtoolsSelectedIds((s) => {
+        const n = new Set(s);
+        if (allSelected) ids.forEach((id) => n.delete(id));
+        else ids.forEach((id) => n.add(id));
+        return n;
+      });
+    const togglePg = (k: string) => setBimtoolsPgCollapsed((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+    const toggleL2 = (k: string) => setBimtoolsL2Collapsed((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+
+    const addProject = () =>
+      setRecord({
+        title: "Thêm dự án",
+        fields: [
+          { key: "code", label: "Mã dự án", required: true, span: 2, autoFocus: true },
+          { key: "name", label: "Tên dự án", required: true, span: 3 },
+        ],
+        initial: { code: "", name: "" },
+        existingCodes: projectGroups.map((g) => g.code),
+        submit: async (v) => {
+          const res = await createProjectGroupReturnId({ code: v.code, name: v.name, workGroupId: ptWorkGroupId ?? null });
+          if (res.ok && res.data) {
+            setAddBimtoolsItemsCtx({ id: res.data.id, code: v.code.trim().toUpperCase(), name: v.name.trim() });
+          }
+          return res;
+        },
+      });
+
+    const addHangMuc = (pgId: string, l2Id: string) =>
+      setRecord({
+        title: `Thêm hạng mục — ${l2Label(l2Id)}`,
+        fields: [{ key: "value", label: "Tên hạng mục", required: true, span: 3, autoFocus: true }],
+        initial: { value: "" },
+        submit: (v) =>
+          addBtHangMuc(
+            ptWorkGroupId ?? "",
+            l2Id === NO_L2 ? "" : l2Label(l2Id),
+            v.value,
+            pgId === NO_PG ? null : pgId,
+          ),
+      });
+
+    return (
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-card shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-2.5">
+          <span className="text-sm font-medium text-slate-700">Dự án BIM Tools · Hạng mục</span>
+          <span className="rounded-full bg-slate-100 px-1.5 text-xs text-slate-500">
+            {visibleIds.length}{q ? <span className="text-slate-400"> / {ptLevel3.length}</span> : null}
+          </span>
+          <div className="h-4 w-px bg-slate-200" />
+          <button type="button" onClick={() => {
+            setBimtoolsPgCollapsed(new Set(branches.map((b) => b.pgId)));
+            setBimtoolsL2Collapsed(new Set(branches.flatMap((b) => b.l2s.map((x) => `${b.pgId}|${x.l2Id}`))));
+          }} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
+            <X className="size-3" /> Thu gọn
+          </button>
+          <button type="button" onClick={() => { setBimtoolsPgCollapsed(new Set()); setBimtoolsL2Collapsed(new Set()); }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
+            <ChevronsUpDown className="size-3" /> Mở rộng
+          </button>
+          <div className="relative ml-auto w-56">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              className="h-8 w-full rounded-md border border-slate-200 bg-background pl-8 pr-3 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Tìm dự án, loại hình, hạng mục..."
+              value={bimtoolsFilter}
+              onChange={(e) => setBimtoolsFilter(e.target.value)}
+            />
+          </div>
+          {!readOnly ? (
+            <>
+              <button type="button" onClick={() => setManageBimtoolsL2(true)}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                <SlidersHorizontal className="size-4 text-slate-400" /> Quản lý loại hình
+                <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptLevel2.length}</span>
+              </button>
+              <button type="button" onClick={addProject}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
+                <Plus className="size-4" /> Thêm dự án
+              </button>
+            </>
+          ) : null}
+        </div>
+
+        <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-2 text-xs text-slate-500">
+          Danh mục Hạng mục của nhóm Phát triển BIM Tools — nguồn gợi ý khi tạo công việc. Quản lý Loại hình ở nút &quot;Quản lý loại hình&quot;.
+        </div>
+
+        {isAdmin && bimtoolsSelectedIds.size > 0 && (
+          <CatalogBulkBar
+            count={bimtoolsSelectedIds.size}
+            onClear={() => setBimtoolsSelectedIds(new Set())}
+            actions={[
+              { label: "Đổi Dự án", onClick: () => setBulkBimtoolsEdit({ ids: [...bimtoolsSelectedIds], field: "projectGroupId" }) },
+              { label: "Đổi Loại hình", onClick: () => setBulkBimtoolsEdit({ ids: [...bimtoolsSelectedIds], field: "parentId" }) },
+              { label: "Đổi Hạng mục", onClick: () => setBulkBimtoolsEdit({ ids: [...bimtoolsSelectedIds], field: "value" }) },
+            ]}
+          />
+        )}
+
+        <div className="max-h-[calc(100vh-240px)] overflow-auto">
+          <table className="w-full min-w-[720px] border-collapse text-sm">
+            <thead className="sticky top-0 z-20 bg-card">
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500">
+                <th className="w-9 px-3 py-2">
+                  {isAdmin ? (
+                    <input
+                      type="checkbox"
+                      className="size-3.5 accent-slate-700"
+                      checked={allVisibleSel}
+                      ref={(el) => { if (el) el.indeterminate = someVisibleSel; }}
+                      onChange={() => selectIds(visibleIds, allVisibleSel)}
+                      title={allVisibleSel ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                      aria-label={allVisibleSel ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                    />
+                  ) : null}
+                </th>
+                <th className="px-3 py-2">Dự án · Loại hình · Hạng mục</th>
+                <th className="w-24 px-3 py-2 text-right">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {branches.length === 0 ? (
+                <tr><td colSpan={3} className="px-3 py-10 text-center text-sm text-slate-400">Không có dữ liệu khớp</td></tr>
+              ) : null}
+              {branches.map(({ pgId, l2s, total }) => {
+                const { code, name } = pgLabel(pgId);
+                const pgCollapsed = bimtoolsPgCollapsed.has(pgId);
+                const pgIds = l2s.flatMap((x) => x.items.map((i) => i.id));
+                const allPgSel = pgIds.length > 0 && pgIds.every((id) => bimtoolsSelectedIds.has(id));
+                const somePgSel = !allPgSel && pgIds.some((id) => bimtoolsSelectedIds.has(id));
+                const pg = pgId !== NO_PG ? ptPgById.get(pgId) : null;
+
+                return (
+                  <React.Fragment key={pgId}>
+                    <tr className="border-b border-slate-200 bg-slate-100">
+                      <td className="px-3 py-2 align-middle">
+                        {isAdmin && pgIds.length > 0 ? (
+                          <input type="checkbox" className="size-3.5 accent-slate-700" checked={allPgSel}
+                            ref={(el) => { if (el) el.indeterminate = somePgSel; }}
+                            onChange={() => selectIds(pgIds, allPgSel)} />
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2" colSpan={2}>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => togglePg(pgId)} className="inline-flex items-center gap-2 text-left">
+                            {pgCollapsed ? <ChevronRight className="size-4 text-slate-400" /> : <ChevronDown className="size-4 text-slate-400" />}
+                            <span className="font-mono text-[13px] font-semibold text-slate-700" title={name}>{code}</span>
+                            <span className="text-xs font-normal text-slate-400">({l2s.length} loại hình · {total} hạng mục)</span>
+                          </button>
+                          {isAdmin && pg ? (
+                            <>
+                              <button type="button" title="Thêm loại hình / hạng mục"
+                                onClick={() => setAddBimtoolsItemsCtx({ id: pg.id, code: pg.code, name: pg.name })}
+                                className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                                <Plus className="size-3" />
+                              </button>
+                              <button type="button" title="Sửa dự án"
+                                onClick={() => setRecord({
+                                  title: "Sửa dự án",
+                                  fields: [
+                                    { key: "code", label: "Mã dự án", required: true, span: 2, autoFocus: true },
+                                    { key: "name", label: "Tên dự án", required: true, span: 3 },
+                                  ],
+                                  initial: { code: pg.code, name: pg.name },
+                                  existingCodes: projectGroups.filter((x) => x.id !== pg.id).map((x) => x.code),
+                                  submit: (v) => saveProjectGroup({ id: pg.id, code: v.code, name: v.name }),
+                                })}
+                                className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                                <Pencil className="size-3" />
+                              </button>
+                              <button type="button" title="Xóa dự án"
+                                onClick={() => setConfirm({
+                                  name: `${pg.code} — ${pg.name}`,
+                                  blockMsg: total > 0 ? `Dự án này có ${total} hạng mục. Xóa hạng mục trước khi xóa dự án.` : undefined,
+                                  run: () => deleteProjectGroup(pg.id),
+                                })}
+                                className="grid size-5 place-items-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600">
+                                <Trash2 className="size-3" />
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {!pgCollapsed && l2s.map(({ l2Id, items }) => {
+                      const l2Key = `${pgId}|${l2Id}`;
+                      const l2Collapsed = bimtoolsL2Collapsed.has(l2Key);
+                      const l2Ids = items.map((i) => i.id);
+                      const allL2Sel = l2Ids.length > 0 && l2Ids.every((id) => bimtoolsSelectedIds.has(id));
+                      const someL2Sel = !allL2Sel && l2Ids.some((id) => bimtoolsSelectedIds.has(id));
+
+                      return (
+                        <React.Fragment key={l2Key}>
+                          <tr className="border-b border-slate-100 bg-slate-50">
+                            <td className="px-3 py-2 align-middle">
+                              {isAdmin && l2Ids.length > 0 ? (
+                                <input type="checkbox" className="size-3.5 accent-slate-700" checked={allL2Sel}
+                                  ref={(el) => { if (el) el.indeterminate = someL2Sel; }}
+                                  onChange={() => selectIds(l2Ids, allL2Sel)} />
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2" colSpan={2}>
+                              <div className="flex items-center gap-2 pl-5">
+                                <button type="button" onClick={() => toggleL2(l2Key)} className="inline-flex items-center gap-1.5 text-left">
+                                  {l2Collapsed ? <ChevronRight className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                                  <span className={cn("text-xs font-semibold", l2Id === NO_L2 ? "font-normal text-slate-400" : "font-mono text-slate-700")}>
+                                    {l2Label(l2Id)}
+                                  </span>
+                                  <span className="text-xs font-normal text-slate-400">({items.length} hạng mục)</span>
+                                </button>
+                                {isAdmin ? (
+                                  <button type="button" title="Thêm hạng mục" onClick={() => addHangMuc(pgId, l2Id)}
+                                    className="grid size-5 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                                    <Plus className="size-3" />
+                                  </button>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+
+                          {!l2Collapsed && items.map((it) => (
+                            <tr key={it.id} className="group border-b border-slate-100 bg-white hover:bg-slate-50/70">
+                              <td className="px-3 py-2 align-middle">
+                                {isAdmin ? (
+                                  <input type="checkbox" className="size-3.5 accent-slate-700"
+                                    checked={bimtoolsSelectedIds.has(it.id)}
+                                    onChange={() => selectIds([it.id], bimtoolsSelectedIds.has(it.id))} />
+                                ) : null}
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className="pl-11 font-medium text-slate-800">{it.value}</span>
+                              </td>
+                              <td className="px-3 py-2">
+                                {isAdmin ? (
+                                  <div className="flex justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
+                                    <button type="button" title="Sửa" onClick={() => setRecord({
+                                      title: "Sửa hạng mục BIM Tools",
+                                      fields: itemFields,
+                                      initial: { projectGroupId: it.projectGroupId ?? "", parentId: it.parentId ?? "", value: it.value },
+                                      submit: (v) => updateCatalogValue(it.id, v.value, v.parentId || null, v.projectGroupId || null),
+                                    })} className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                                      <Pencil className="size-4" />
+                                    </button>
+                                    <button type="button" title="Xóa"
+                                      onClick={() => setConfirm({ name: it.value, run: () => deleteCatalogValue(it.id) })}
+                                      className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500">
+                                      <Trash2 className="size-4" />
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   // ============== TAB bimtools — Phát triển BIM Tools (Level 2 Loại hình / Level 3 Hạng mục) ==============
   const bimtoolsView = () => {
     const bimtoolsItemFields: Field[] = [
@@ -1286,6 +1606,9 @@ export function CatalogClient({
       },
       { key: "value", label: "Hạng mục", required: true, span: 3, autoFocus: true },
     ];
+
+    // Mặc định dùng dạng CÂY. Bảng phẳng bên dưới giữ nguyên làm đường lùi (đổi state là bật lại).
+    if (bimtoolsViewMode === "tree") return bimtoolsTreeView(bimtoolsItemFields);
 
     return (
       <FilterTable

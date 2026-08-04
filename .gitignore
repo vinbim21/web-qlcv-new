@@ -51,7 +51,15 @@ next-env.d.ts
 .claude/
 .mcp.json
 
+# Ghi chú handoff phiên làm việc (nội bộ, không cần trong repo)
+/.session/
+
+# Agent skills cài bằng `npx skills add` (tooling cá nhân, giống .claude/)
+/.agents/
+/skills-lock.json
+
 # docs nhạy cảm (chứa mật khẩu tạm) / quá khổ — KHÔNG đẩy lên git
+/docs/data_connect.txt
 /docs/_gen_accounts.py
 /docs/_gen_guide.py
 /docs/HUONG-DAN-SU-DUNG.docx
