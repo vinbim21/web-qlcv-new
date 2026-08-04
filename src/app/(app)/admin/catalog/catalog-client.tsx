@@ -1301,18 +1301,35 @@ export function CatalogClient({
     };
     const l2Label = (l2Id: string) => (l2Id === NO_L2 ? "(Chưa có loại hình)" : ptL2ById.get(l2Id)?.value ?? "—");
 
+    // Lọc theo cột — dùng chung state groupedColFilters / groupedOpenFilter với tab "Dự án",
+    // chỉ khác key (bt_*) nên không đụng nhau.
+    const btcfPg = groupedColFilters["bt_pg"] ?? [];
+    const btcfL2 = groupedColFilters["bt_l2"] ?? [];
+    const btcfL3 = groupedColFilters["bt_l3"] ?? [];
+    const btHasColFilter = btcfPg.length > 0 || btcfL2.length > 0 || btcfL3.length > 0;
+    const optPg = [...byPg.keys()].map((id) => pgLabel(id).code).sort((a, b) => a.localeCompare(b, "vi"));
+    const optL2 = [...new Set(ptLevel3.map((i) => l2Label(i.parentId ?? NO_L2)).concat(ptLevel2.map((l) => l.value)))].sort((a, b) => a.localeCompare(b, "vi"));
+    const optL3 = [...new Set(ptLevel3.map((i) => i.value))].sort((a, b) => a.localeCompare(b, "vi"));
+    const openBtcf = (key: string, label: string, opts: string[], e: React.MouseEvent) => {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      setGroupedOpenFilter((o) => (o?.key === key ? null : { key, label, opts, rect }));
+    };
+
     // Lọc theo ô tìm: khớp ở Dự án/Loại hình → giữ cả nhánh; khớp ở Hạng mục → giữ hạng mục đó.
     const branches: { pgId: string; l2s: { l2Id: string; items: Hm[] }[]; total: number }[] = [];
     for (const [pgId, byL2] of byPg) {
       const { code, name } = pgLabel(pgId);
+      if (btcfPg.length && !btcfPg.includes(code)) continue;
       const pgHit = hit(code) || hit(name);
       const l2s: { l2Id: string; items: Hm[] }[] = [];
       for (const [l2Id, items] of byL2) {
+        if (btcfL2.length && !btcfL2.includes(l2Label(l2Id))) continue;
         const lHit = pgHit || hit(l2Label(l2Id));
-        const kept = lHit ? items : items.filter((i) => hit(i.value));
-        if (lHit || kept.length) l2s.push({ l2Id, items: kept });
+        let kept = lHit ? items : items.filter((i) => hit(i.value));
+        if (btcfL3.length) kept = kept.filter((i) => btcfL3.includes(i.value));
+        if ((lHit && !btcfL3.length) || kept.length) l2s.push({ l2Id, items: kept });
       }
-      if (l2s.length || pgHit) branches.push({ pgId, l2s, total: l2s.reduce((s, x) => s + x.items.length, 0) });
+      if (l2s.length || (pgHit && !btHasColFilter)) branches.push({ pgId, l2s, total: l2s.reduce((s, x) => s + x.items.length, 0) });
     }
 
     const visibleIds = branches.flatMap((b) => b.l2s.flatMap((x) => x.items.map((i) => i.id)));
@@ -1361,23 +1378,53 @@ export function CatalogClient({
       });
 
     return (
+      <>
+      {/* Thanh Thu gọn/Mở rộng + nút thao tác — đặt NGOÀI khung bảng, giống tab "Dự án" */}
+      <div className="sticky top-[6.5rem] z-[25] -mx-4 mb-3 flex items-center gap-2 bg-background px-4 pb-2 pt-1 lg:-mx-6 lg:px-6">
+        <button type="button" onClick={() => {
+          setBimtoolsPgCollapsed(new Set(branches.map((b) => b.pgId)));
+          setBimtoolsL2Collapsed(new Set(branches.flatMap((b) => b.l2s.map((x) => `${b.pgId}|${x.l2Id}`))));
+        }} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
+          <X className="size-3" /> Thu gọn
+        </button>
+        <button type="button" onClick={() => { setBimtoolsPgCollapsed(new Set()); setBimtoolsL2Collapsed(new Set()); }}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
+          <ChevronsUpDown className="size-3" /> Mở rộng
+        </button>
+        {!readOnly ? (
+          <div className="ml-auto flex items-center gap-2">
+            <button type="button" onClick={() => setManageBimtoolsL2(true)}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
+              <SlidersHorizontal className="size-4 text-slate-400" /> Quản lý loại hình
+              <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptLevel2.length}</span>
+            </button>
+            <button type="button" onClick={addProject}
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
+              <Plus className="size-4" /> Thêm dự án
+            </button>
+          </div>
+        ) : null}
+      </div>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-card shadow-sm">
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-2.5">
           <span className="text-sm font-medium text-slate-700">Dự án BIM Tools · Hạng mục</span>
           <span className="rounded-full bg-slate-100 px-1.5 text-xs text-slate-500">
-            {visibleIds.length}{q ? <span className="text-slate-400"> / {ptLevel3.length}</span> : null}
+            {visibleIds.length}{q || btHasColFilter ? <span className="text-slate-400"> / {ptLevel3.length}</span> : null}
           </span>
-          <div className="h-4 w-px bg-slate-200" />
-          <button type="button" onClick={() => {
-            setBimtoolsPgCollapsed(new Set(branches.map((b) => b.pgId)));
-            setBimtoolsL2Collapsed(new Set(branches.flatMap((b) => b.l2s.map((x) => `${b.pgId}|${x.l2Id}`))));
-          }} className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
-            <X className="size-3" /> Thu gọn
-          </button>
-          <button type="button" onClick={() => { setBimtoolsPgCollapsed(new Set()); setBimtoolsL2Collapsed(new Set()); }}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50">
-            <ChevronsUpDown className="size-3" /> Mở rộng
-          </button>
+          {btHasColFilter && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {([["bt_pg", "Dự án", btcfPg], ["bt_l2", "Loại hình", btcfL2], ["bt_l3", "Hạng mục", btcfL3]] as const).map(([key, nhan, vals]) =>
+                vals.length > 0 ? (
+                  <span key={key} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white py-0.5 pl-2 pr-1 text-xs">
+                    <span className="text-slate-400">{nhan}:</span>
+                    <span className="font-medium text-slate-700">{vals.length === 1 ? vals[0] : `${vals.length} mục`}</span>
+                    <button type="button" onClick={() => setGroupedColFilters((s) => { const n = { ...s }; delete n[key]; return n; })} className="grid size-4 place-items-center rounded-full text-slate-400 hover:bg-slate-100"><X className="size-3" /></button>
+                  </span>
+                ) : null,
+              )}
+              <button type="button" onClick={() => setGroupedColFilters((s) => { const n = { ...s }; delete n["bt_pg"]; delete n["bt_l2"]; delete n["bt_l3"]; return n; })} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-slate-400 hover:text-red-600"><RotateCcw className="size-3" /> Xóa lọc</button>
+            </div>
+          )}
           <div className="relative ml-auto w-56">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
             <input
@@ -1387,19 +1434,6 @@ export function CatalogClient({
               onChange={(e) => setBimtoolsFilter(e.target.value)}
             />
           </div>
-          {!readOnly ? (
-            <>
-              <button type="button" onClick={() => setManageBimtoolsL2(true)}
-                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
-                <SlidersHorizontal className="size-4 text-slate-400" /> Quản lý loại hình
-                <span className="rounded-full bg-slate-100 px-1.5 text-xs">{ptLevel2.length}</span>
-              </button>
-              <button type="button" onClick={addProject}
-                className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">
-                <Plus className="size-4" /> Thêm dự án
-              </button>
-            </>
-          ) : null}
         </div>
 
         <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-2 text-xs text-slate-500">
@@ -1419,7 +1453,7 @@ export function CatalogClient({
         )}
 
         <div className="max-h-[calc(100vh-240px)] overflow-auto">
-          <table className="w-full min-w-[720px] border-collapse text-sm">
+          <table className="w-full min-w-[960px] border-collapse text-sm">
             <thead className="sticky top-0 z-20 bg-card">
               <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500">
                 <th className="w-9 px-3 py-2">
@@ -1435,13 +1469,32 @@ export function CatalogClient({
                     />
                   ) : null}
                 </th>
-                <th className="px-3 py-2">Dự án · Loại hình · Hạng mục</th>
+                <th className="w-[12%] px-3 py-2">
+                  <div className="flex items-center gap-1">Dự án
+                    <button type="button" onClick={(e) => openBtcf("bt_pg", "Dự án", optPg, e)} className={cn("grid size-5 place-items-center rounded", btcfPg.length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
+                  </div>
+                </th>
+                <th className="w-[7%] px-3 py-2">
+                  <div className="flex items-center gap-1">Loại hình
+                    <button type="button" onClick={(e) => openBtcf("bt_l2", "Loại hình", optL2, e)} className={cn("grid size-5 place-items-center rounded", btcfL2.length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
+                  </div>
+                </th>
+                <th className="w-[12%] px-3 py-2">
+                  <div className="flex items-center gap-1">Hạng mục
+                    <button type="button" onClick={(e) => openBtcf("bt_l3", "Hạng mục", optL3, e)} className={cn("grid size-5 place-items-center rounded", btcfL3.length ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-200")}><Filter className="size-3" /></button>
+                  </div>
+                </th>
+                {/* 4 cột dưới đây bảng CatalogItem KHÔNG có dữ liệu — để đúng bố cục tab "Dự án", luôn hiện "—" */}
+                <th className="w-[30%] px-3 py-2">Khối/Hệ thống</th>
+                <th className="w-28 px-3 py-2">Bắt đầu</th>
+                <th className="w-28 px-3 py-2">Đóng gói</th>
+                <th className="w-32 px-3 py-2 text-right">Quy mô</th>
                 <th className="w-24 px-3 py-2 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {branches.length === 0 ? (
-                <tr><td colSpan={3} className="px-3 py-10 text-center text-sm text-slate-400">Không có dữ liệu khớp</td></tr>
+                <tr><td colSpan={9} className="px-3 py-10 text-center text-sm text-slate-400">Không có dữ liệu khớp</td></tr>
               ) : null}
               {branches.map(({ pgId, l2s, total }) => {
                 const { code, name } = pgLabel(pgId);
@@ -1461,7 +1514,7 @@ export function CatalogClient({
                             onChange={() => selectIds(pgIds, allPgSel)} />
                         ) : null}
                       </td>
-                      <td className="px-3 py-2" colSpan={2}>
+                      <td className="px-3 py-2" colSpan={8}>
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={() => togglePg(pgId)} className="inline-flex items-center gap-2 text-left">
                             {pgCollapsed ? <ChevronRight className="size-4 text-slate-400" /> : <ChevronDown className="size-4 text-slate-400" />}
@@ -1521,8 +1574,9 @@ export function CatalogClient({
                                   onChange={() => selectIds(l2Ids, allL2Sel)} />
                               ) : null}
                             </td>
-                            <td className="px-3 py-2" colSpan={2}>
-                              <div className="flex items-center gap-2 pl-5">
+                            <td className="px-3 py-2" />
+                            <td className="px-3 py-2" colSpan={7}>
+                              <div className="flex items-center gap-2">
                                 <button type="button" onClick={() => toggleL2(l2Key)} className="inline-flex items-center gap-1.5 text-left">
                                   {l2Collapsed ? <ChevronRight className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
                                   <span className={cn("text-xs font-semibold", l2Id === NO_L2 ? "font-normal text-slate-400" : "font-mono text-slate-700")}>
@@ -1549,9 +1603,16 @@ export function CatalogClient({
                                     onChange={() => selectIds([it.id], bimtoolsSelectedIds.has(it.id))} />
                                 ) : null}
                               </td>
+                              <td className="px-3 py-2" />
+                              <td className="px-3 py-2" />
                               <td className="px-3 py-2">
-                                <span className="pl-11 font-medium text-slate-800">{it.value}</span>
+                                <span className="text-xs font-medium text-slate-800">{it.value}</span>
                               </td>
+                              {/* 4 cột không có dữ liệu trong CatalogItem — giữ đúng bố cục tab "Dự án" */}
+                              <td className="px-3 py-2"><Dash /></td>
+                              <td className="px-3 py-2 tabular-nums text-xs"><Dash /></td>
+                              <td className="px-3 py-2 tabular-nums text-xs"><Dash /></td>
+                              <td className="px-3 py-2 text-right tabular-nums"><Dash /></td>
                               <td className="px-3 py-2">
                                 {isAdmin ? (
                                   <div className="flex justify-end gap-0.5 opacity-60 transition group-hover:opacity-100">
@@ -1583,6 +1644,7 @@ export function CatalogClient({
           </table>
         </div>
       </div>
+      </>
     );
   };
 
