@@ -23,12 +23,15 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { SMARTSHEET_BATCH_SIZE } from "@/lib/smartsheet";
 import { cn } from "@/lib/utils";
 import {
   clearSmartsheetToken,
+  prepareSmartsheetSync,
   saveSmartsheetToken,
-  syncSmartsheet,
+  syncSmartsheetBatch,
   type SyncBatchResult,
+  type SyncPrepareResult,
 } from "@/server/actions/smartsheet";
 
 // ---------- Kiểu dữ liệu từ server ----------
@@ -83,6 +86,16 @@ const effStatus = (tinhTrang: string | null): EffStatus =>
 
 const fmtD = (iso: string | null) => (iso ? iso.split("-").reverse().join("/") : null);
 
+/** "còn ~2 phút 30 giây" — làm tròn 5 giây cho con số đỡ nhảy liên tục. */
+function fmtEta(seconds: number): string {
+  if (seconds <= 3) return "sắp xong";
+  const s = Math.round(seconds / 5) * 5;
+  if (s < 60) return `còn ~${s} giây`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r ? `còn ~${m} phút ${r} giây` : `còn ~${m} phút`;
+}
+
 // Bề rộng cột (px) — 3 cột cây ghim trái giống /manage.
 const W = { ma: 92, duAn: 110, sheet: 130, congViec: 230, boMon: 84, chuTri: 125, thucHien: 170, tinhTrang: 150, batDau: 96, pd: 112, ghiChu: 150 };
 const TOTAL_MIN_W = Object.values(W).reduce((a, b) => a + b, 0);
@@ -115,8 +128,23 @@ export function SmartsheetClient({
   });
 
   // ---------- State sync + token ----------
-  const [syncing, setSyncing] = React.useState(false);
-  const [progress, setProgress] = React.useState<{ fetched: number; remaining: number } | null>(null);
+  // phase "prepare": đang tải cây workspace, CHƯA biết mẫu số → thanh chạy vô định.
+  // phase "scan":    đã biết tổng → hiện phần trăm thật + thời gian còn lại.
+  // `inFlight` = số sheet của lô đang chạy dở → vẽ thành đoạn mờ nối sau phần đã xong,
+  // để thanh không đứng im suốt thời gian chờ một lô.
+  // `eta` tính sẵn lúc mỗi lô xong (không đọc đồng hồ khi render → hàm render thuần khiết).
+  type SyncState =
+    | { phase: "prepare" }
+    | {
+        phase: "scan";
+        total: number;
+        scanned: number;
+        inFlight: number;
+        rows: number;
+        eta: string | null;
+      };
+  const [sync, setSync] = React.useState<SyncState | null>(null);
+  const syncing = sync !== null;
   const [tokenOpen, setTokenOpen] = React.useState(false);
   const [tokenInput, setTokenInput] = React.useState("");
   const [tokenBusy, setTokenBusy] = React.useState(false);
@@ -241,34 +269,71 @@ export function SmartsheetClient({
       return { ...prev, sheets };
     });
 
-  // ---------- Sync theo lô ----------
+  // ---------- Sync 2 bước: chuẩn bị (biết tổng) → quét từng lô ----------
   async function runSync(full = false) {
     if (!hasToken) { setTokenOpen(true); return; }
-    setSyncing(true);
-    setProgress(null);
-    let logId: string | null = null;
-    let fetched = 0;
+    setSync({ phase: "prepare" });
     try {
+      const prep = await prepareSmartsheetSync({ full });
+      if (!prep.ok) { toast.error(prep.error); return; }
+      const { logId, total } = prep.data as SyncPrepareResult;
+
+      if (total === 0) {
+        toast.success("Dữ liệu đã là mới nhất", { description: "Không sheet nào thay đổi từ lần đồng bộ trước" });
+        return;
+      }
+
+      const startedAt = Date.now();
+      let scanned = 0;
+      let rows = 0;
+      let denom = total;
+      let eta: string | null = null;
+
       for (;;) {
-        const res = await syncSmartsheet({ logId, full });
+        setSync({
+          phase: "scan",
+          total: denom,
+          scanned,
+          inFlight: Math.min(SMARTSHEET_BATCH_SIZE, denom - scanned),
+          rows,
+          eta,
+        });
+        const res = await syncSmartsheetBatch({ logId });
         if (!res.ok) { toast.error(res.error); return; }
         const d = res.data as SyncBatchResult;
-        logId = d.logId;
-        fetched += d.processed;
-        setProgress({ fetched, remaining: d.remaining });
+        // Mẫu số lấy lại theo remaining thực tế, phòng khi có sheet mới bật cờ giữa chừng.
+        scanned += d.processed;
+        rows = d.totalRows;
+        denom = Math.max(denom, scanned + d.remaining);
+        eta =
+          scanned > 0 && d.remaining > 0
+            ? fmtEta(((denom - scanned) * (Date.now() - startedAt)) / 1000 / scanned)
+            : null;
+        setSync({ phase: "scan", total: denom, scanned, inFlight: 0, rows, eta });
         if (d.done) {
           toast.success("Đã đồng bộ từ Smartsheet", {
-            description: `${d.totalRows} dòng BIM · đã quét ${fetched} sheet`,
+            description: `${d.totalRows} dòng BIM · đã quét ${scanned} sheet`,
           });
           router.refresh();
           return;
         }
       }
     } finally {
-      setSyncing(false);
-      setProgress(null);
+      setSync(null);
     }
   }
+
+  // Phần trăm + thời gian còn lại (ước lượng theo tốc độ đã đo trong chính phiên này).
+  const pct =
+    sync?.phase === "scan" && sync.total > 0
+      ? Math.min(100, Math.round((sync.scanned / sync.total) * 100))
+      : null;
+  // Mốc cuối của lô đang chạy dở — vẽ đoạn mờ để thanh luôn "sống" trong lúc chờ server.
+  const pctInFlight =
+    sync?.phase === "scan" && sync.total > 0
+      ? Math.min(100, Math.round(((sync.scanned + sync.inFlight) / sync.total) * 100))
+      : null;
+  const etaText = sync?.phase === "scan" ? sync.eta : null;
 
   // ---------- Token ----------
   async function onSaveToken() {
@@ -360,16 +425,69 @@ export function SmartsheetClient({
                 ? "Lần đầu quét toàn bộ sheet của workspace (vài phút); các lần sau chỉ tải sheet có sửa đổi mới"
                 : "Cần cấu hình token trước"
             }
+            className={cn("relative min-w-[196px] overflow-hidden", syncing && "disabled:opacity-100")}
           >
-            <RefreshCw className={cn("size-4", syncing && "animate-spin")} />
-            {syncing
-              ? progress
-                ? `Đang quét ${progress.fetched}/${progress.fetched + progress.remaining} sheet...`
-                : "Đang quét..."
-              : "Tải từ Smartsheet"}
+            {/* Nền sáng dần theo % ngay trong nút; giai đoạn chưa biết tổng thì quét ngang vô định */}
+            {syncing ? (
+              <span
+                aria-hidden
+                // Dùng primary-foreground (không phải white) để lớp phủ vẫn tương phản ở giao diện tối,
+                // nơi nút có nền sáng.
+                className={cn(
+                  "absolute inset-y-0 left-0 bg-primary-foreground/25 transition-[width] duration-300 ease-out",
+                  pct === null && "w-full animate-pulse",
+                )}
+                style={pct === null ? undefined : { width: `${pct}%` }}
+              />
+            ) : null}
+            <span className="relative inline-flex items-center gap-2">
+              <RefreshCw className={cn("size-4", syncing && "animate-spin")} />
+              {!syncing ? "Tải từ Smartsheet" : pct === null ? "Đang chuẩn bị..." : `Đang quét ${pct}%`}
+            </span>
           </Button>
         </div>
       </div>
+
+      {/* ---- Thanh tiến trình chi tiết (chỉ hiện khi đang đồng bộ) ---- */}
+      {sync ? (
+        <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
+          <div className="flex items-baseline justify-between gap-3 text-xs">
+            <span className="font-medium">
+              {sync.phase === "prepare"
+                ? "Đang lấy danh sách sheet của workspace..."
+                : sync.inFlight > 0
+                  ? `Đang quét sheet ${sync.scanned + 1}–${Math.min(sync.total, sync.scanned + sync.inFlight)}/${sync.total}`
+                  : `Đã quét ${sync.scanned}/${sync.total} sheet`}
+            </span>
+            <span className="tabular-nums text-muted-foreground">
+              {pct === null ? "" : `${pct}%${etaText ? ` · ${etaText}` : ""}`}
+            </span>
+          </div>
+          <div className="relative h-1.5 overflow-hidden rounded-full bg-muted">
+            {/* Đoạn mờ = lô đang chạy dở; đoạn đậm = số sheet đã lưu xong vào DB */}
+            {pctInFlight !== null ? (
+              <div
+                className="absolute inset-y-0 left-0 animate-pulse rounded-full bg-primary/35 transition-[width] duration-300 ease-out"
+                style={{ width: `${pctInFlight}%` }}
+              />
+            ) : null}
+            <div
+              className={cn(
+                "absolute inset-y-0 left-0 rounded-full bg-primary transition-[width] duration-300 ease-out",
+                pct === null && "w-1/3 animate-pulse",
+              )}
+              style={pct === null ? undefined : { width: `${pct}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {/* Là TỔNG dòng đang có trong dữ liệu, không phải số tìm được riêng lượt này —
+                khi quét lại toàn bộ, dòng cũ vẫn còn cho tới lúc từng sheet được đọc lại. */}
+            {sync.phase === "scan" && sync.scanned > 0
+              ? `Đang có ${sync.rows} dòng Bộ môn BIM trong dữ liệu`
+              : "Chưa quét sheet nào"}
+          </p>
+        </div>
+      ) : null}
 
       {/* ---- KPI bấm để lọc nhanh ---- */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

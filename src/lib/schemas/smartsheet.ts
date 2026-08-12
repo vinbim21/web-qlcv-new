@@ -8,9 +8,13 @@ export const smartsheetTokenSchema = z.object({
     .max(500, "Token quá dài"),
 });
 
-export const smartsheetSyncSchema = z.object({
-  /** ID SyncLog của phiên đang chạy (null = lượt đầu tiên). */
-  logId: z.string().nullish(),
-  /** true = bỏ qua incremental, tải lại toàn bộ sheet ứng viên. */
+/** Bước 1 — chuẩn bị: đếm tổng số sheet cần quét (để hiện phần trăm ngay). */
+export const smartsheetPrepareSchema = z.object({
+  /** true = bỏ qua incremental, đọc lại mọi sheet. */
   full: z.boolean().optional(),
+});
+
+/** Bước 2 — quét từng lô cho tới khi hết. */
+export const smartsheetBatchSchema = z.object({
+  logId: z.string().min(1, "Thiếu mã phiên đồng bộ"),
 });

@@ -432,6 +432,9 @@ model SmartsheetRow {
 }
 
 /// Sổ theo dõi sheet đã biết — nền tảng cho incremental sync (chỉ tải lại sheet có sửa đổi mới).
+/// Bước "chuẩn bị" của mỗi phiên đồng bộ ghi TOÀN BỘ sheet của workspace vào đây và bật cờ
+/// `needsScan` cho sheet cần đọc lại → các lô sau chỉ cần đọc DB, KHÔNG tải lại cây workspace
+/// (tiết kiệm ~6 giây mỗi lô) và biết ngay tổng số sheet để tính phần trăm.
 model SmartsheetSheet {
   id                   String    @id @default(cuid())
   sheetId              String    @unique
@@ -441,6 +444,9 @@ model SmartsheetSheet {
   lastSourceModifiedAt DateTime? // modifiedAt của sheet trên Smartsheet ở lần tải gần nhất
   lastSyncedAt         DateTime?
   bimRowCount          Int       @default(0)
+  needsScan            Boolean   @default(true) // true = đang chờ quét trong phiên hiện tại
+
+  @@index([needsScan])
 }
 
 /// Lịch sử đồng bộ (hiện "Đồng bộ lần cuối" + khóa chống chạy song song).
