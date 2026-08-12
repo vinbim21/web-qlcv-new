@@ -218,6 +218,7 @@ model User {
   departmentId       String?
   isActive           Boolean   @default(true)
   lastLoginAt        DateTime?
+  smartsheetToken    String? // Token API Smartsheet cá nhân, mã hóa AES-256-GCM (không lưu plaintext)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
@@ -400,4 +401,66 @@ model Notification {
   task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
 
   @@index([userId, isRead, createdAt])
+}
+
+// ---------- Smartsheet (đồng bộ dữ liệu Viện Thiết Kế) ----------
+
+/// 1 dòng gói thiết kế đồng bộ từ Smartsheet (chỉ lưu dòng có Bộ môn chứa "BIM").
+/// sheetId/rowId lưu dạng String (ID Smartsheet ~15-16 chữ số, sát trần Number JS).
+/// tinhTrang giữ NGUYÊN giá trị gốc ("Xong"/"Quá hạn"/trống) — map nhãn ở UI, không đổi dữ liệu.
+model SmartsheetRow {
+  id         String    @id @default(cuid())
+  sheetId    String
+  rowId      String
+  rowNumber  Int? // thứ tự dòng trong sheet gốc (để sort ổn định)
+  folderName String // Folder dự án (folder cấp 1 trong workspace)
+  sheetName  String
+  maGoi      String? // ID gói thiết kế
+  hoSo       String? // Hồ sơ thiết kế
+  boMon      String?
+  batDau     DateTime? @db.Date
+  phatHanhPD DateTime? @db.Date
+  tinhTrang  String?
+  chuTri     String?
+  cbth1      String?
+  cbth2      String?
+  ghiChu     String?
+  syncedAt   DateTime  @updatedAt
+
+  @@unique([sheetId, rowId])
+  @@index([folderName])
+}
+
+/// Sổ theo dõi sheet đã biết — nền tảng cho incremental sync (chỉ tải lại sheet có sửa đổi mới).
+/// Bước "chuẩn bị" của mỗi phiên đồng bộ ghi TOÀN BỘ sheet của workspace vào đây và bật cờ
+/// `needsScan` cho sheet cần đọc lại → các lô sau chỉ cần đọc DB, KHÔNG tải lại cây workspace
+/// (tiết kiệm ~6 giây mỗi lô) và biết ngay tổng số sheet để tính phần trăm.
+model SmartsheetSheet {
+  id                   String    @id @default(cuid())
+  sheetId              String    @unique
+  name                 String
+  folderName           String
+  permalink            String?
+  lastSourceModifiedAt DateTime? // modifiedAt của sheet trên Smartsheet ở lần tải gần nhất
+  lastSyncedAt         DateTime?
+  bimRowCount          Int       @default(0)
+  needsScan            Boolean   @default(true) // true = đang chờ quét trong phiên hiện tại
+
+  @@index([needsScan])
+}
+
+/// Lịch sử đồng bộ (hiện "Đồng bộ lần cuối" + khóa chống chạy song song).
+model SmartsheetSyncLog {
+  id         String    @id @default(cuid())
+  userId     String?
+  userName   String?
+  status     String // RUNNING | OK | ERROR
+  startedAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt // nhịp tim: mỗi lô cập nhật → biết phiên RUNNING còn sống hay đã chết
+  finishedAt DateTime?
+  sheetCount Int       @default(0)
+  rowCount   Int       @default(0)
+  error      String?
+
+  @@index([startedAt])
 }

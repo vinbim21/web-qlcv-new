@@ -29,6 +29,7 @@ Next.js 16 (App Router) + React 19 + TypeScript + Prisma 6 + **Supabase PostgreS
 | [src/server/auth/](src/server/auth/) | Cấu hình NextAuth (tách edge-safe / node) + permissions |
 | [src/server/db/client.ts](src/server/db/client.ts) | Prisma singleton |
 | [src/server/notifications/service.ts](src/server/notifications/service.ts) | Sinh thông báo in-app (chuông) |
+| [src/server/smartsheet/](src/server/smartsheet/) | Client Smartsheet REST API 2.0 + mã hóa token (Node runtime) |
 | [src/lib/](src/lib/) | Schemas Zod, labels enum→tiếng Việt, logic trạng thái việc |
 | [src/components/](src/components/) | UI dùng chung + app-shell (sidebar, bell, breadcrumbs) |
 | [prisma/import/](prisma/import/), `prisma/backfill-*.ts` | Script import từ Excel + backfill dữ liệu |
@@ -51,6 +52,11 @@ Next.js 16 (App Router) + React 19 + TypeScript + Prisma 6 + **Supabase PostgreS
   / `LEVEL_2` (tự cập nhật + tạo việc) / `LEVEL_3` (chỉ xem, báo cáo self-only).
 - **Duyệt việc 2 cổng:** duyệt KHỞI TẠO (trước khi làm: `approverId` + `startApprovedAt`, khóa nhập
   giờ khi chờ duyệt) và duyệt HOÀN THÀNH (`approvedById` + `approvedAt`, ký sau khi xong).
+- **Tab Smartsheet** (`/smartsheet`, mọi vai trò xem): đồng bộ THỦ CÔNG dữ liệu workspace
+  "Viện Thiết Kế" → 3 bảng `SmartsheetRow`/`SmartsheetSheet`/`SmartsheetSyncLog`, **chỉ lưu dòng
+  Bộ môn chứa "BIM"**. Token API là **của từng user** (`User.smartsheetToken`, mã hóa AES-256-GCM);
+  chưa có token thì nút Tải khóa lại. Sync chạy **theo lô 40 sheet/lượt** (client gọi lặp) để né
+  timeout serverless; lần đầu quét cả ~862 sheet (~3 phút), sau đó chỉ tải sheet có `modifiedAt` mới.
 
 ## Lệnh hay dùng
 ```bash
@@ -77,11 +83,16 @@ pnpm import:all          # extract Excel (python) + load vào DB (tsx)
 - Soft-delete bằng `deletedAt` ở nhiều model — nhớ filter `deletedAt: null` khi query.
 - `Project.code` KHÔNG unique đơn lẻ; unique theo `(code, name)` (nhóm Quản lý BIM mỗi mã+tên là 1 dự án).
 - DB connection runtime phải dùng **pooling 6543**; migrate/push dùng **DIRECT_URL 5432**.
+- **Smartsheet:** KHÔNG dùng Search API để khoanh vùng sheet — API trả tối đa ~100 kết quả nên bỏ
+  sót sheet có dòng BIM (đã kiểm chứng: thiếu 9/56 dòng). Phải quét cây workspace rồi lọc theo
+  `modifiedAt`. Khóa mã hóa token lấy từ `SMARTSHEET_TOKEN_SECRET`, không có thì fallback `AUTH_SECRET`.
 
 ## Tham chiếu
 - **Bản đồ chi tiết:** [docs/PROJECT-MAP.md](docs/PROJECT-MAP.md) — kiến trúc đầy đủ, danh sách module/luồng.
 - **Thiết kế DB:** [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) · **Lộ trình:** [PLAN.md](PLAN.md).
-- **Handoff đang dở:** [HANDOFF-phan-quyen.md](HANDOFF-phan-quyen.md), [HANDOFF-duyet-viec.md](HANDOFF-duyet-viec.md).
+- **Handoff đang dở:** [HANDOFF-phan-quyen.md](HANDOFF-phan-quyen.md), [HANDOFF-duyet-viec.md](HANDOFF-duyet-viec.md),
+  [HANDOFF-smartsheet-tab.md](HANDOFF-smartsheet-tab.md) (tab Smartsheet — xong ở local, chưa lên prod)
+  + [HANDOFF-smartsheet-token.md](HANDOFF-smartsheet-token.md) (token/tài khoản + quét ngầm ban đêm).
 - **Dự án gốc tham khảo:** `../web-qlcv` (Next + Prisma + MySQL, cùng nghiệp vụ).
 - **Dữ liệu nguồn:** `WM_New.xlsx` (16 sheet) — cách phòng đang quản lý bằng Excel.
 

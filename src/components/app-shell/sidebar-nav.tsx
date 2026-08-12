@@ -8,6 +8,7 @@ import {
   type LucideIcon,
   PieChart,
   SlidersHorizontal,
+  Table2,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -21,6 +22,7 @@ const MAIN_NAV: NavItem[] = [
   { href: "/dashboard", label: "Tổng quan", icon: LayoutDashboard },
   { href: "/tasks", label: "Công việc của tôi", icon: ClipboardList },
   { href: "/timesheet", label: "Timesheet", icon: Clock },
+  { href: "/smartsheet", label: "Smartsheet", icon: Table2 },
   { href: "/reports", label: "Báo cáo", icon: PieChart },
 ];
 
