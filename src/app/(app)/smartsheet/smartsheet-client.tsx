@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -32,6 +33,13 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { SMARTSHEET_BATCH_SIZE } from "@/lib/smartsheet";
 import { cn } from "@/lib/utils";
+import {
+  type PeriodBounds,
+  type PeriodType,
+  getBounds,
+  getISOWeekYear,
+  isoWeeksInYear,
+} from "@/app/(app)/reports/period-utils";
 import {
   clearSmartsheetToken,
   prepareSmartsheetSync,
@@ -269,6 +277,21 @@ function cmpText(a: string, b: string, dir: "asc" | "desc"): number {
   return dir === "asc" ? c : -c;
 }
 
+// Lát cắt thời gian cho 1 gói thiết kế: dòng thuộc kỳ khi **Bắt đầu HOẶC Phát hành PD rơi vào
+// đúng kỳ** — tức "trong tuần này có gì khởi động, có gì đến hạn".
+//
+// CỐ Ý KHÁC quy tắc `inPeriod` của /manage (giao khoảng [bắt đầu, kết thúc] với kỳ). Quy tắc giao
+// khoảng coi mọi việc chưa xong có hạn ở tương lai là "đang mở trong kỳ", nên lọc Tuần 33/2026 vẫn
+// lòi ra gói có Phát hành PD tháng 01/2027 — sai với ý "lọc trong tuần". Task ở /manage có ngày
+// hoàn thành thực tế để neo, gói thiết kế Smartsheet thì không.
+//
+// Dòng KHÔNG có ngày nào (4/56 dòng) chỉ xuất hiện ở "Tất cả" — không quy được về kỳ nào.
+function rowInPeriod(r: SmartsheetRowDTO, bounds: PeriodBounds | null): boolean {
+  if (!bounds) return true;
+  const inRange = (d: string | null) => !!d && d >= bounds.start && d <= bounds.end;
+  return inRange(r.batDau) || inRange(r.phatHanhPD);
+}
+
 export function SmartsheetClient({
   rows,
   lastSync,
@@ -330,6 +353,73 @@ export function SmartsheetClient({
   const [tokenInput, setTokenInput] = React.useState("");
   const [tokenBusy, setTokenBusy] = React.useState(false);
 
+  // ---------- Lát cắt thời gian (Tuần/Tháng/Quý/Năm/Tất cả) ----------
+  // Mốc "hôm nay" lấy từ `todayISO` do server truyền xuống — KHÔNG đọc đồng hồ lúc render
+  // (lint `react-hooks/purity` của dự án cấm).
+  const anchor = React.useMemo(() => {
+    const d = new Date(`${todayISO}T00:00:00`);
+    const iso = getISOWeekYear(d);
+    const month = d.getMonth() + 1;
+    return {
+      calYear: d.getFullYear(),
+      isoYear: iso.year,
+      week: iso.week,
+      month,
+      quarter: Math.ceil(month / 3),
+    };
+  }, [todayISO]);
+
+  const [period, setPeriod] = React.useState<PeriodType>("all"); // mặc định Tất cả
+  const [pYear, setPYear] = React.useState(anchor.calYear);
+  const [pWeek, setPWeek] = React.useState(anchor.week);
+  const [pMonth, setPMonth] = React.useState(anchor.month);
+  const [pQuarter, setPQuarter] = React.useState(anchor.quarter);
+
+  const periodBounds = React.useMemo(
+    () => getBounds(period, pYear, pWeek, pMonth, pQuarter),
+    [period, pYear, pWeek, pMonth, pQuarter],
+  );
+
+  // Đổi loại kỳ thì nhảy về kỳ HIỆN TẠI (không giữ kỳ đang xem của loại cũ).
+  function handlePeriodType(t: PeriodType) {
+    setPeriod(t);
+    setPYear(t === "week" ? anchor.isoYear : anchor.calYear);
+    setPWeek(anchor.week);
+    setPMonth(anchor.month);
+    setPQuarter(anchor.quarter);
+  }
+  function handlePeriodPrev() {
+    if (period === "week") {
+      if (pWeek > 1) setPWeek((w) => w - 1);
+      else { setPYear((y) => y - 1); setPWeek(isoWeeksInYear(pYear - 1)); }
+    } else if (period === "month") {
+      if (pMonth > 1) setPMonth((m) => m - 1);
+      else { setPYear((y) => y - 1); setPMonth(12); }
+    } else if (period === "quarter") {
+      if (pQuarter > 1) setPQuarter((q) => q - 1);
+      else { setPYear((y) => y - 1); setPQuarter(4); }
+    } else if (period === "year") setPYear((y) => y - 1);
+  }
+  function handlePeriodNext() {
+    if (period === "week") {
+      if (pWeek < isoWeeksInYear(pYear)) setPWeek((w) => w + 1);
+      else { setPYear((y) => y + 1); setPWeek(1); }
+    } else if (period === "month") {
+      if (pMonth < 12) setPMonth((m) => m + 1);
+      else { setPYear((y) => y + 1); setPMonth(1); }
+    } else if (period === "quarter") {
+      if (pQuarter < 4) setPQuarter((q) => q + 1);
+      else { setPYear((y) => y + 1); setPQuarter(1); }
+    } else if (period === "year") setPYear((y) => y + 1);
+  }
+
+  // Tập dòng SAU khi cắt theo kỳ — mọi thứ phía sau (bộ lọc cột, KPI, cây, chip Chủ trì) đều
+  // tính trên tập này để các con số không nói khác nhau.
+  const periodRows = React.useMemo(
+    () => (periodBounds ? rows.filter((r) => rowInPeriod(r, periodBounds)) : rows),
+    [rows, periodBounds],
+  );
+
   // ---------- Lọc ----------
   const matches = React.useCallback(
     (r: SmartsheetRowDTO) => {
@@ -367,7 +457,7 @@ export function SmartsheetClient({
     // Sắp xếp TOÀN BẢNG trước, rồi mới gom nhóm — thứ tự nhóm đi theo thứ tự sắp xếp (Map giữ
     // thứ tự chèn), giống bảng /manage. Nếu chỉ sắp trong từng sheet thì bấm A→Z gần như không
     // thấy gì đổi vì đa số sheet chỉ có 1 dòng.
-    const sortedRows = rows.filter(matches).sort((a, b) => {
+    const sortedRows = periodRows.filter(matches).sort((a, b) => {
       if (sort) {
         const c = cmpText(textOf(a, sort.key, todayISO), textOf(b, sort.key, todayISO), sort.dir);
         if (c !== 0) return c;
@@ -405,7 +495,7 @@ export function SmartsheetClient({
     });
 
     return { folders, shown: sortedRows.length };
-  }, [rows, matches, sort, todayISO]);
+  }, [periodRows, matches, sort, todayISO]);
 
   const allSheetKeys = React.useMemo(
     () => view.folders.flatMap((f) => f.sheets.map((s) => s.key)),
@@ -416,7 +506,7 @@ export function SmartsheetClient({
   const optionsOf = React.useCallback(
     (key: ColKey): string[] => {
       const set = new Set<string>();
-      for (const r of rows) {
+      for (const r of periodRows) {
         if (key === "thucHien") {
           const names = [r.cbth1, r.cbth2].map((s) => s?.trim()).filter(Boolean) as string[];
           if (names.length) names.forEach((n) => set.add(n));
@@ -427,30 +517,30 @@ export function SmartsheetClient({
       }
       return [...set].sort((a, b) => cmpText(a, b, "asc"));
     },
-    [rows, todayISO],
+    [periodRows, todayISO],
   );
 
   // ---------- KPI ----------
   const kpi = React.useMemo(() => {
     let done = 0, dueSoon = 0, late = 0;
-    for (const r of rows) {
+    for (const r of periodRows) {
       const s = effStatusOf(r, todayISO);
       if (s === "HOAN_THANH") done++;
       else if (s === "SAP_DEN_HAN") dueSoon++;
       else if (s === "QUA_HAN") late++;
     }
-    return { total: rows.length, done, dueSoon, late };
-  }, [rows, todayISO]);
+    return { total: periodRows.length, done, dueSoon, late };
+  }, [periodRows, todayISO]);
 
   // Chip Chủ trì = lối tắt của bộ lọc cột "chuTri" (một cơ chế duy nhất, không đá nhau).
   const leads = React.useMemo(() => {
     const m = new Map<string, number>();
-    for (const r of rows) {
+    for (const r of periodRows) {
       const k = r.chuTri?.trim() || EMPTY;
       m.set(k, (m.get(k) ?? 0) + 1);
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  }, [rows]);
+  }, [periodRows]);
   const leadSel = colFilters.chuTri ?? [];
 
   const activeFilterCount =
@@ -790,6 +880,60 @@ export function SmartsheetClient({
           </p>
         </div>
       ) : null}
+
+      {/* ---- Lát cắt thời gian (giống /manage) ---- */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex overflow-hidden rounded-md border">
+          {(["week", "month", "quarter", "year", "all"] as const).map((p, i) => {
+            const LABEL: Record<PeriodType, string> = {
+              week: "Tuần", month: "Tháng", quarter: "Quý", year: "Năm", all: "Tất cả",
+            };
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => handlePeriodType(p)}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium transition-colors",
+                  i > 0 && "border-l",
+                  period === p
+                    ? "bg-foreground text-background"
+                    : "bg-background text-muted-foreground hover:bg-muted",
+                )}
+              >
+                {LABEL[p]}
+              </button>
+            );
+          })}
+        </div>
+        {periodBounds ? (
+          <>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handlePeriodPrev}
+                className="grid h-7 w-7 place-items-center rounded-md border bg-background hover:bg-muted"
+                aria-label="Kỳ trước"
+              >
+                <ChevronLeft className="size-3.5" />
+              </button>
+              <span className="min-w-[180px] text-center text-xs font-semibold">{periodBounds.label}</span>
+              <button
+                type="button"
+                onClick={handlePeriodNext}
+                className="grid h-7 w-7 place-items-center rounded-md border bg-background hover:bg-muted"
+                aria-label="Kỳ sau"
+              >
+                <ChevronRight className="size-3.5" />
+              </button>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {period === "week" ? "T2–T7 · " : ""}
+              <span className="font-medium text-foreground">{periodRows.length}</span>/{rows.length} gói
+            </span>
+          </>
+        ) : null}
+      </div>
 
       {/* ---- KPI bấm để lọc nhanh ---- */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
