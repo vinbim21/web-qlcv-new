@@ -1,5 +1,6 @@
 import { auth } from "@/server/auth/config";
 import { prisma } from "@/server/db/client";
+import { isTokenUsable } from "@/server/smartsheet/crypto";
 import { SmartsheetClient } from "./smartsheet-client";
 
 const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
@@ -29,7 +30,9 @@ export default async function SmartsheetPage() {
 
   return (
     <SmartsheetClient
-      hasOwnToken={!!me?.smartsheetToken}
+      // Token riêng giải mã không nổi (khóa đã đổi) thì coi như CHƯA CÓ — trang vẫn chạy bằng
+      // token mặc định thay vì hiện nhầm "đang dùng token riêng".
+      hasOwnToken={isTokenUsable(me?.smartsheetToken)}
       hasDefaultToken={!!process.env.SMARTSHEET_DEFAULT_TOKEN}
       // Truyền ngày từ server để client không phải đọc đồng hồ lúc render.
       todayISO={new Date().toISOString().slice(0, 10)}
