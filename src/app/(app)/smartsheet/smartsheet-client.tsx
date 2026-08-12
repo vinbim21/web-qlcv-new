@@ -138,8 +138,42 @@ type ColDef = {
   /** Cột phân cấp của cây, được ghim trái (1 = Dự án, 2 = Sheet, 3 = Công việc). */
   tree?: 1 | 2 | 3;
   sortable?: boolean;
+  /** Lọc chọn-nhiều theo danh sách giá trị có thật. */
   filter?: boolean;
+  /** Lọc chọn-một theo mốc thời gian (cột ngày) — xem DATE_PRESETS. */
+  dateFilter?: boolean;
 };
+
+/**
+ * Mốc lọc cho cột ngày, giống bảng /manage.
+ * "Phát hành PD" là cột HẠN của dữ liệu này nên có thêm Quá hạn / Sắp đến hạn.
+ */
+const DATE_PRESETS: Partial<Record<ColKey, [string, string][]>> = {
+  batDau: [
+    ["thang", "Trong tháng này"],
+    ["co", "Đã có ngày"],
+    ["trong", "Chưa có ngày"],
+  ],
+  phatHanhPD: [
+    ["quahan", "Quá hạn"],
+    ["sap", `Sắp đến hạn (≤${DUE_SOON_DAYS} ngày)`],
+    ["thang", "Trong tháng này"],
+    ["co", "Đã có ngày"],
+    ["trong", "Chưa có ngày"],
+  ],
+};
+
+function matchDatePreset(r: SmartsheetRowDTO, key: ColKey, val: string, todayISO: string): boolean {
+  const iso = key === "batDau" ? r.batDau : r.phatHanhPD;
+  switch (val) {
+    case "co": return !!iso;
+    case "trong": return !iso;
+    case "thang": return !!iso && iso.slice(0, 7) === todayISO.slice(0, 7);
+    case "quahan": return effStatusOf(r, todayISO) === "QUA_HAN";
+    case "sap": return effStatusOf(r, todayISO) === "SAP_DEN_HAN";
+    default: return true;
+  }
+}
 
 // Bề rộng mặc định đã tính chỗ cho icon sắp xếp + nút lọc trong tiêu đề (thiếu là nhãn bị cắt).
 const COLS: ColDef[] = [
@@ -151,8 +185,8 @@ const COLS: ColDef[] = [
   { key: "chuTri", label: "Chủ trì", w: 140, sortable: true, filter: true },
   { key: "thucHien", label: "Thực hiện", w: 175, sortable: true, filter: true },
   { key: "tinhTrang", label: "Tình trạng", w: 150, sortable: true, filter: true },
-  { key: "batDau", label: "Bắt đầu", w: 108, sortable: true },
-  { key: "phatHanhPD", label: "Phát hành PD", w: 132, sortable: true },
+  { key: "batDau", label: "Bắt đầu", w: 116, sortable: true, dateFilter: true },
+  { key: "phatHanhPD", label: "Phát hành PD", w: 140, sortable: true, dateFilter: true },
   { key: "ghiChu", label: "Ghi chú", w: 150 },
   { key: "link", label: "Smartsheet", w: 112 },
 ];
@@ -252,6 +286,8 @@ export function SmartsheetClient({
   const [q, setQ] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<"" | EffStatus>("");
   const [colFilters, setColFilters] = React.useState<Partial<Record<ColKey, string[]>>>({});
+  // Cột ngày dùng lọc CHỌN-MỘT theo mốc thời gian (rỗng = Tất cả).
+  const [dateFilters, setDateFilters] = React.useState<Partial<Record<ColKey, string>>>({});
   const [sort, setSort] = React.useState<{ key: ColKey; dir: "asc" | "desc" } | null>(null);
   const storedWidths = React.useSyncExternalStore(
     subscribeWidths,
@@ -304,6 +340,10 @@ export function SmartsheetClient({
           return false;
         }
       }
+      for (const [key, val] of Object.entries(dateFilters)) {
+        if (!val) continue;
+        if (!matchDatePreset(r, key as ColKey, val, todayISO)) return false;
+      }
       if (q) {
         const hay = [r.folderName, r.sheetName, r.maGoi, r.hoSo, r.chuTri, r.cbth1, r.cbth2, r.ghiChu]
           .filter(Boolean)
@@ -313,7 +353,7 @@ export function SmartsheetClient({
       }
       return true;
     },
-    [q, statusFilter, colFilters, todayISO],
+    [q, statusFilter, colFilters, dateFilters, todayISO],
   );
 
   // ---------- Dựng cây Dự án → Sheet → Gói (có áp sắp xếp) ----------
@@ -408,7 +448,10 @@ export function SmartsheetClient({
   const leadSel = colFilters.chuTri ?? [];
 
   const activeFilterCount =
-    Object.values(colFilters).filter((v) => v?.length).length + (statusFilter ? 1 : 0) + (q ? 1 : 0);
+    Object.values(colFilters).filter((v) => v?.length).length +
+    Object.values(dateFilters).filter(Boolean).length +
+    (statusFilter ? 1 : 0) +
+    (q ? 1 : 0);
 
   const setColFilter = (key: ColKey, sel: string[]) =>
     setColFilters((prev) => {
@@ -420,6 +463,7 @@ export function SmartsheetClient({
 
   const clearAllFilters = () => {
     setColFilters({});
+    setDateFilters({});
     setStatusFilter("");
     setQ("");
   };
@@ -898,6 +942,21 @@ export function SmartsheetClient({
                           onChange={(v) => setColFilter(col.key, v)}
                         />
                       ) : null}
+                      {col.dateFilter ? (
+                        <DateFilterButton
+                          title={col.label}
+                          presets={DATE_PRESETS[col.key] ?? []}
+                          selected={dateFilters[col.key] ?? ""}
+                          onChange={(v) =>
+                            setDateFilters((prev) => {
+                              const next = { ...prev };
+                              if (v) next[col.key] = v;
+                              else delete next[col.key];
+                              return next;
+                            })
+                          }
+                        />
+                      ) : null}
                     </div>
                     <ColResizeHandle
                       width={widthOf(col.key)}
@@ -1088,69 +1147,21 @@ export function SmartsheetClient({
 
 // ---------- Nút lọc theo cột + popover (mô phỏng bảng /manage) ----------
 
-function ColFilterButton({
-  title,
-  options,
-  selected,
-  onChange,
-}: {
-  title: string;
-  options: string[];
-  selected: string[];
-  onChange: (v: string[]) => void;
-}) {
-  const [rect, setRect] = React.useState<DOMRect | null>(null);
-  const on = selected.length > 0;
-  return (
-    <>
-      <button
-        type="button"
-        title={`Lọc theo ${title}`}
-        // Phải đo NGAY trong handler: React xóa e.currentTarget trước khi hàm cập nhật state chạy.
-        onClick={(e) => {
-          const box = e.currentTarget.getBoundingClientRect();
-          setRect((cur) => (cur ? null : box));
-        }}
-        className={cn(
-          "grid size-5 shrink-0 place-items-center rounded transition",
-          on
-            ? "bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900"
-            : "text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700",
-        )}
-      >
-        <Filter className="size-3" strokeWidth={on ? 2.5 : 2} />
-      </button>
-      {rect ? (
-        <FilterPopover
-          rect={rect}
-          title={title}
-          options={options}
-          selected={selected}
-          onChange={onChange}
-          onClose={() => setRect(null)}
-        />
-      ) : null}
-    </>
-  );
-}
-
-function FilterPopover({
+/** Khung popover dùng chung: định vị theo nút bấm, đóng khi click ngoài / cuộn / Esc. */
+function PopoverShell({
   rect,
   title,
-  options,
-  selected,
-  onChange,
   onClose,
+  onClear,
+  children,
 }: {
   rect: DOMRect;
   title: string;
-  options: string[];
-  selected: string[];
-  onChange: (v: string[]) => void;
   onClose: () => void;
+  onClear?: () => void;
+  children: React.ReactNode;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
-  const [q, setQ] = React.useState("");
   const WIDTH = 248;
 
   React.useEffect(() => {
@@ -1174,10 +1185,6 @@ function FilterPopover({
     };
   }, [onClose]);
 
-  const shown = options.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()));
-  const toggle = (o: string) =>
-    onChange(selected.includes(o) ? selected.filter((x) => x !== o) : [...selected, o]);
-
   return createPortal(
     <div
       ref={ref}
@@ -1191,54 +1198,183 @@ function FilterPopover({
     >
       <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 dark:border-slate-800">
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{title}</span>
-        {selected.length > 0 ? (
-          <button type="button" onClick={() => onChange([])} className="text-[11px] font-medium text-slate-400 hover:text-red-600">
+        {onClear ? (
+          <button type="button" onClick={onClear} className="text-[11px] font-medium text-slate-400 hover:text-red-600">
             Xóa
           </button>
         ) : null}
       </div>
-      {options.length >= 5 ? (
-        <div className="relative border-b border-slate-100 p-2 dark:border-slate-800">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-          <input
-            autoFocus
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Tìm…"
-            className="h-7 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-xs outline-none focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-900"
-          />
-        </div>
-      ) : null}
-      <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-slate-400">
-        <span>{selected.length ? `${selected.length} đã chọn` : "Chọn giá trị"}</span>
-        <span>{shown.length} mục</span>
-      </div>
-      <ul className="max-h-60 overflow-auto pb-1">
-        {shown.map((o) => {
-          const on = selected.includes(o);
-          return (
-            <li key={o}>
-              <button
-                type="button"
-                onClick={() => toggle(o)}
-                className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-              >
-                <span
-                  className={cn(
-                    "grid size-4 shrink-0 place-items-center rounded border",
-                    on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 dark:border-slate-600",
-                  )}
-                >
-                  {on ? <Check className="size-3" strokeWidth={3} /> : null}
-                </span>
-                <span className="truncate">{o}</span>
-              </button>
-            </li>
-          );
-        })}
-        {shown.length === 0 ? <li className="px-3 py-2 text-xs text-slate-400">Không có kết quả</li> : null}
-      </ul>
+      {children}
     </div>,
     document.body,
+  );
+}
+
+/** Nút phễu chung — đo tọa độ nút để popover neo đúng chỗ. */
+function FunnelButton({
+  active,
+  title,
+  onOpen,
+}: {
+  active: boolean;
+  title: string;
+  onOpen: (box: DOMRect) => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      // Phải đo NGAY trong handler: React xóa e.currentTarget trước khi hàm cập nhật state chạy.
+      onClick={(e) => onOpen(e.currentTarget.getBoundingClientRect())}
+      className={cn(
+        "grid size-5 shrink-0 place-items-center rounded transition",
+        active
+          ? "bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900"
+          : "text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700",
+      )}
+    >
+      <Filter className="size-3" strokeWidth={active ? 2.5 : 2} />
+    </button>
+  );
+}
+
+/** Lọc CHỌN-NHIỀU theo danh sách giá trị có thật trong dữ liệu. */
+function ColFilterButton({
+  title,
+  options,
+  selected,
+  onChange,
+}: {
+  title: string;
+  options: string[];
+  selected: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const [rect, setRect] = React.useState<DOMRect | null>(null);
+  const [q, setQ] = React.useState("");
+  const shown = options.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()));
+  const toggle = (o: string) =>
+    onChange(selected.includes(o) ? selected.filter((x) => x !== o) : [...selected, o]);
+
+  return (
+    <>
+      <FunnelButton
+        active={selected.length > 0}
+        title={`Lọc theo ${title}`}
+        onOpen={(box) => setRect((cur) => (cur ? null : box))}
+      />
+      {rect ? (
+        <PopoverShell
+          rect={rect}
+          title={title}
+          onClose={() => setRect(null)}
+          onClear={selected.length > 0 ? () => onChange([]) : undefined}
+        >
+          {options.length >= 5 ? (
+            <div className="relative border-b border-slate-100 p-2 dark:border-slate-800">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                autoFocus
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Tìm…"
+                className="h-7 w-full rounded-md border border-slate-200 bg-slate-50 pl-7 pr-2 text-xs outline-none focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-900"
+              />
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-slate-400">
+            <span>{selected.length ? `${selected.length} đã chọn` : "Chọn giá trị"}</span>
+            <span>{shown.length} mục</span>
+          </div>
+          <ul className="max-h-60 overflow-auto pb-1">
+            {shown.map((o) => {
+              const on = selected.includes(o);
+              return (
+                <li key={o}>
+                  <button
+                    type="button"
+                    onClick={() => toggle(o)}
+                    className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <span
+                      className={cn(
+                        "grid size-4 shrink-0 place-items-center rounded border",
+                        on ? "border-slate-800 bg-slate-800 text-white" : "border-slate-300 dark:border-slate-600",
+                      )}
+                    >
+                      {on ? <Check className="size-3" strokeWidth={3} /> : null}
+                    </span>
+                    <span className="truncate">{o}</span>
+                  </button>
+                </li>
+              );
+            })}
+            {shown.length === 0 ? <li className="px-3 py-2 text-xs text-slate-400">Không có kết quả</li> : null}
+          </ul>
+        </PopoverShell>
+      ) : null}
+    </>
+  );
+}
+
+/** Lọc CHỌN-MỘT theo mốc thời gian cho cột ngày (giống phiếu lọc ngày của /manage). */
+function DateFilterButton({
+  title,
+  presets,
+  selected,
+  onChange,
+}: {
+  title: string;
+  presets: [string, string][];
+  selected: string;
+  onChange: (v: string) => void;
+}) {
+  const [rect, setRect] = React.useState<DOMRect | null>(null);
+  const items: [string, string][] = [["", "Tất cả"], ...presets];
+
+  return (
+    <>
+      <FunnelButton
+        active={!!selected}
+        title={`Lọc theo ${title}`}
+        onOpen={(box) => setRect((cur) => (cur ? null : box))}
+      />
+      {rect ? (
+        <PopoverShell
+          rect={rect}
+          title={title}
+          onClose={() => setRect(null)}
+          onClear={selected ? () => onChange("") : undefined}
+        >
+          <ul className="max-h-72 overflow-auto py-1">
+            {items.map(([val, label]) => {
+              const on = selected === val;
+              return (
+                <li key={val || "all"}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange(val);
+                      setRect(null);
+                    }}
+                    className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <span
+                      className={cn(
+                        "grid size-4 shrink-0 place-items-center rounded-full border",
+                        on ? "border-slate-800 dark:border-slate-200" : "border-slate-300 dark:border-slate-600",
+                      )}
+                    >
+                      {on ? <span className="size-2 rounded-full bg-slate-800 dark:bg-slate-200" /> : null}
+                    </span>
+                    <span className="truncate">{label}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </PopoverShell>
+      ) : null}
+    </>
   );
 }
