@@ -90,7 +90,8 @@ pnpm import:all          # extract Excel (python) + load vào DB (tsx)
 ## Tham chiếu
 - **Bản đồ chi tiết:** [docs/PROJECT-MAP.md](docs/PROJECT-MAP.md) — kiến trúc đầy đủ, danh sách module/luồng.
 - **Thiết kế DB:** [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) · **Lộ trình:** [PLAN.md](PLAN.md).
-- **Handoff đang dở:** [HANDOFF-phan-quyen.md](HANDOFF-phan-quyen.md), [HANDOFF-duyet-viec.md](HANDOFF-duyet-viec.md).
+- **Handoff đang dở:** [HANDOFF-phan-quyen.md](HANDOFF-phan-quyen.md), [HANDOFF-duyet-viec.md](HANDOFF-duyet-viec.md),
+  [HANDOFF-smartsheet-token.md](HANDOFF-smartsheet-token.md) (token/tài khoản Smartsheet + quét ngầm ban đêm).
 - **Dự án gốc tham khảo:** `../web-qlcv` (Next + Prisma + MySQL, cùng nghiệp vụ).
 - **Dữ liệu nguồn:** `WM_New.xlsx` (16 sheet) — cách phòng đang quản lý bằng Excel.
 
