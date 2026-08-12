@@ -67,15 +67,26 @@ export async function clearSmartsheetToken() {
  * KHÔNG dùng Search API để khoanh vùng: search giới hạn ~100 kết quả nên bỏ sót sheet có dòng BIM.
  */
 
+/**
+ * Token dùng để gọi Smartsheet, theo thứ tự ưu tiên:
+ *   1. Token RIÊNG của người dùng (`User.smartsheetToken`, mã hóa trong DB) — chỉ áp cho chính họ.
+ *   2. Token MẶC ĐỊNH của hệ thống (`SMARTSHEET_DEFAULT_TOKEN` trong env) — dùng chung cho mọi
+ *      người chưa cấu hình gì, để vào là tải được ngay.
+ * Token mặc định nằm trong env nên KHÔNG qua lớp mã hóa AES (env vốn đã là kho bí mật);
+ * `SMARTSHEET_TOKEN_SECRET` chỉ dùng cho token riêng lưu ở DB.
+ */
 async function getTokenOrThrow(userId: string) {
   const dbUser = await prisma.user.findUnique({
     where: { id: userId },
     select: { smartsheetToken: true, fullName: true },
   });
-  if (!dbUser?.smartsheetToken) {
-    throw new Error("Bạn chưa cấu hình token Smartsheet — bấm 'Cấu hình token' để nhập");
+  if (!dbUser) throw new Error("Không tìm thấy tài khoản");
+  const own = dbUser.smartsheetToken ? decryptToken(dbUser.smartsheetToken) : null;
+  const token = own ?? process.env.SMARTSHEET_DEFAULT_TOKEN ?? null;
+  if (!token) {
+    throw new Error("Chưa có token Smartsheet — bấm 'Cấu hình token' để nhập");
   }
-  return { token: decryptToken(dbUser.smartsheetToken), fullName: dbUser.fullName };
+  return { token, fullName: dbUser.fullName };
 }
 
 /** Chặn 2 phiên chạy song song (phiên mất nhịp tim = crash/timeout thì bỏ qua). */
