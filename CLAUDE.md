@@ -57,8 +57,11 @@ Next.js 16 (App Router) + React 19 + TypeScript + Prisma 6 + **Supabase PostgreS
   Bộ môn chứa "BIM"**. **Mọi user đăng nhập đều bấm Tải được** (không gate theo role). Token theo
   thứ tự: `User.smartsheetToken` (riêng, mã hóa AES-256-GCM) → `SMARTSHEET_DEFAULT_TOKEN` (env, dùng
   chung) → báo lỗi. Sync chạy **theo lô 40 sheet/lượt** (client gọi lặp) để né timeout serverless;
-  lần đầu quét cả ~862 sheet (~3 phút), sau đó chỉ tải sheet có `modifiedAt` mới. **KHÔNG có cron
-  quét đêm** — đồng bộ thủ công (chốt 2026-08-12), nên sáng nào lần bấm đầu cũng ~3 phút.
+  lần đầu quét cả ~862 sheet (~3 phút), sau đó chỉ tải sheet có `modifiedAt` mới.
+- **Quét ngầm ban đêm:** GitHub Actions ([.github/workflows/smartsheet-sync.yml](.github/workflows/smartsheet-sync.yml))
+  chạy `0 20 * * *` UTC = **03:00 giờ VN**, gọi lặp `GET /api/cron/smartsheet` tới khi `done`.
+  Endpoint dùng `SMARTSHEET_DEFAULT_TOKEN` nên không cần session; bảo vệ bằng `CRON_SECRET`.
+  Lõi đồng bộ tách ở [sync-core.ts](src/server/smartsheet/sync-core.ts) để action và cron dùng chung.
 
 ## Lệnh hay dùng
 ```bash
@@ -90,6 +93,9 @@ pnpm import:all          # extract Excel (python) + load vào DB (tsx)
   `modifiedAt`. Hai env **phải là hai chuỗi khác nhau**: `SMARTSHEET_DEFAULT_TOKEN` (token API thật)
   và `SMARTSHEET_TOKEN_SECRET` (khóa AES, không có thì fallback `AUTH_SECRET`). Dùng chung 1 chuỗi
   thì lúc đổi token là mọi token riêng trong DB giải mã lỗi hết.
+- **Cron:** `api/cron` PHẢI nằm ngoài matcher của [src/proxy.ts](src/proxy.ts) — job không có session
+  nên NextAuth sẽ đá về `/login`. Và **chỉ gọi `runPrepare` khi hết sạch cờ `needsScan`**: hàm đó
+  reset toàn bộ cờ, gọi giữa chừng là mất tiến độ và quay vòng vô tận.
 
 ## Tham chiếu
 - **Bản đồ chi tiết:** [docs/PROJECT-MAP.md](docs/PROJECT-MAP.md) — kiến trúc đầy đủ, danh sách module/luồng.

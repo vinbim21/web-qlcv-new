@@ -95,9 +95,13 @@ Mã lỗi tương ứng đã xử lý sẵn trong [client.ts](src/server/smartsh
       chia sẻ hay đẩy lên kho mã nào; nhờ anh Nam sinh token mới.
 - [ ] (Lâu dài) Xin admin Smartsheet tạo tài khoản dịch vụ chỉ-xem, thay giá trị env — không sửa code.
 
-**KHÔNG làm quét ngầm ban đêm.** Anh Toản chốt 2026-08-12 là đồng bộ thủ công. Hệ quả chấp nhận:
-716/862 sheet bị Smartsheet đánh dấu sửa lúc 01h sáng (nó tính lại công thức theo ngày, không phải
-người sửa) ⇒ **lần bấm đầu tiên mỗi sáng mất ~3 phút**, các lần sau trong ngày mới nhanh (~6 giây).
+**Quét ngầm ban đêm — ĐÃ LÀM** (chốt lại 2026-08-12). Chính token mặc định trong env đã gỡ nút thắt
+"job 3h sáng không có session thì dùng token của ai".
+
+- Endpoint: `GET /api/cron/smartsheet`, đọc thẳng `SMARTSHEET_DEFAULT_TOKEN`, bảo vệ bằng `CRON_SECRET`
+- Kích hoạt: GitHub Actions `0 20 * * *` UTC = **03:00 giờ VN** (phải sau mốc 01h)
+- Nếu token của anh Nam chết thì job hỏng → trang `/smartsheet` **hiện băng đỏ** đọc từ
+  `SmartsheetSyncLog` (chỉ báo khi lần lỗi mới hơn lần thành công gần nhất)
 
 ---
 

@@ -1,0 +1,67 @@
+# Đồng bộ Smartsheet ngầm ban đêm.
+#
+# Vì sao GitHub Actions mà không phải Vercel Cron: gói Vercel Hobby chỉ cho 1 cron/ngày, một lượt
+# chạy không xong là kẹt tới hôm sau. Actions gọi lặp được nên không phụ thuộc trần thời gian của
+# serverless (endpoint tự dừng ở ~45s mỗi lượt rồi quét tiếp ở lượt sau).
+#
+# Cần đặt secret CRON_SECRET trong repo: Settings → Secrets and variables → Actions.
+
+name: Dong bo Smartsheet hang dem
+
+on:
+  schedule:
+    # 20:00 UTC = 03:00 giờ VN hôm sau. PHẢI sau mốc 01h VN — lúc Smartsheet tính lại công thức
+    # theo ngày làm 716/862 sheet bị đánh dấu sửa; chạy trước mốc đó là quét thừa rồi vẫn cũ.
+    - cron: "0 20 * * *"
+  # Cho phép bấm chạy tay ở tab Actions (dùng khi cần đồng bộ gấp hoặc để thử).
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Goi lap endpoint toi khi xong
+        env:
+          URL: https://web-qlcv-new.vercel.app/api/cron/smartsheet
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::Chua dat secret CRON_SECRET trong repo"
+            exit 1
+          fi
+
+          for i in $(seq 1 15); do
+            echo "--- Luot $i ---"
+            code=$(curl -sS --max-time 120 -o resp.json -w '%{http_code}' \
+                     -H "Authorization: Bearer ${CRON_SECRET}" "${URL}") || code=000
+            cat resp.json 2>/dev/null; echo
+
+            case "${code}" in
+              200) ;;
+              409)
+                # Có người đang bấm Tải trên web — nhường, chờ rồi thử lại.
+                echo "Dang co phien dong bo tay, cho 60s..."
+                sleep 60
+                continue
+                ;;
+              *)
+                echo "::error::HTTP ${code} - dong bo that bai"
+                exit 1
+                ;;
+            esac
+
+            if [ "$(jq -r '.done // false' resp.json)" = "true" ]; then
+              rows=$(jq -r '.totalRows // "?"' resp.json)
+              echo "::notice::Dong bo xong sau ${i} luot - ${rows} dong BIM"
+              exit 0
+            fi
+
+            echo "Con $(jq -r '.remaining // "?"' resp.json) sheet, goi tiep..."
+            sleep 5
+          done
+
+          echo "::error::Chua xong sau 15 luot - kiem tra log SmartsheetSyncLog"
+          exit 1

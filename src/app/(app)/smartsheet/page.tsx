@@ -9,13 +9,17 @@ export default async function SmartsheetPage() {
   const session = await auth();
   if (!session?.user) return null;
 
-  const [rows, sheets, lastOk, me] = await Promise.all([
+  const [rows, sheets, lastOk, lastErr, me] = await Promise.all([
     prisma.smartsheetRow.findMany({
       orderBy: [{ folderName: "asc" }, { sheetName: "asc" }, { rowNumber: "asc" }],
     }),
     prisma.smartsheetSheet.findMany({ select: { sheetId: true, permalink: true } }),
     prisma.smartsheetSyncLog.findFirst({
       where: { status: "OK" },
+      orderBy: { finishedAt: "desc" },
+    }),
+    prisma.smartsheetSyncLog.findFirst({
+      where: { status: "ERROR" },
       orderBy: { finishedAt: "desc" },
     }),
     prisma.user.findUnique({
@@ -27,6 +31,12 @@ export default async function SmartsheetPage() {
   // Link mở ĐÚNG DÒNG trên Smartsheet: permalink của sheet + ?rowId=...
   // (định dạng do chính API trả về khi gọi include=rowPermalink, nên ghép được từ dữ liệu đã lưu).
   const permalinkBySheet = new Map(sheets.map((s) => [s.sheetId, s.permalink]));
+
+  // Chỉ báo lỗi khi lần LỖI mới hơn lần THÀNH CÔNG gần nhất — lỗi đã được một lượt chạy thành công
+  // sau đó khắc phục thì thôi, không dọa người dùng nữa.
+  const showError =
+    !!lastErr?.finishedAt &&
+    (!lastOk?.finishedAt || lastErr.finishedAt.getTime() > lastOk.finishedAt.getTime());
 
   return (
     <SmartsheetClient
@@ -43,6 +53,15 @@ export default async function SmartsheetPage() {
               userName: lastOk.userName,
               sheetCount: lastOk.sheetCount,
               rowCount: lastOk.rowCount,
+            }
+          : null
+      }
+      lastError={
+        showError && lastErr?.finishedAt
+          ? {
+              at: lastErr.finishedAt.toISOString(),
+              userName: lastErr.userName,
+              error: lastErr.error,
             }
           : null
       }
