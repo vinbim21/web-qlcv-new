@@ -29,7 +29,8 @@ export default async function SmartsheetPage() {
 
   return (
     <SmartsheetClient
-      hasToken={!!me?.smartsheetToken}
+      hasOwnToken={!!me?.smartsheetToken}
+      hasDefaultToken={!!process.env.SMARTSHEET_DEFAULT_TOKEN}
       // Truyền ngày từ server để client không phải đọc đồng hồ lúc render.
       todayISO={new Date().toISOString().slice(0, 10)}
       lastSync={

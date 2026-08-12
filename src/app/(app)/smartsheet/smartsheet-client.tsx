@@ -272,15 +272,21 @@ function cmpText(a: string, b: string, dir: "asc" | "desc"): number {
 export function SmartsheetClient({
   rows,
   lastSync,
-  hasToken,
+  hasOwnToken,
+  hasDefaultToken,
   todayISO,
 }: {
   rows: SmartsheetRowDTO[];
   lastSync: LastSync;
-  hasToken: boolean;
+  /** Người dùng đã cấu hình token RIÊNG (lưu mã hóa trong DB, chỉ áp cho họ). */
+  hasOwnToken: boolean;
+  /** Hệ thống có token MẶC ĐỊNH trong env — ai chưa có token riêng thì dùng chung cái này. */
+  hasDefaultToken: boolean;
   todayISO: string;
 }) {
   const router = useRouter();
+  // Tải được khi có token riêng HOẶC có token mặc định của hệ thống.
+  const canSync = hasOwnToken || hasDefaultToken;
 
   // ---------- State bảng ----------
   const [q, setQ] = React.useState("");
@@ -499,7 +505,7 @@ export function SmartsheetClient({
 
   // ---------- Sync 2 bước: chuẩn bị (biết tổng) → quét từng lô ----------
   async function runSync(full = false) {
-    if (!hasToken) { setTokenOpen(true); return; }
+    if (!canSync) { setTokenOpen(true); return; }
     setSync({ phase: "prepare" });
     try {
       const prep = await prepareSmartsheetSync({ full });
@@ -575,12 +581,16 @@ export function SmartsheetClient({
     }
   }
   async function onClearToken() {
-    if (!confirm("Xóa token Smartsheet đã lưu của bạn?")) return;
+    if (!confirm(
+      hasDefaultToken
+        ? "Xóa token riêng của bạn và quay về dùng token mặc định của hệ thống?"
+        : "Xóa token Smartsheet đã lưu của bạn?",
+    )) return;
     setTokenBusy(true);
     try {
       const res = await clearSmartsheetToken();
       if (!res.ok) { toast.error(res.error); return; }
-      toast.success("Đã xóa token");
+      toast.success(hasDefaultToken ? "Đã quay về token mặc định" : "Đã xóa token");
       setTokenOpen(false);
       router.refresh();
     } finally {
@@ -707,7 +717,7 @@ export function SmartsheetClient({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => setTokenOpen(true)}>
-            <KeyRound className="size-4" /> {hasToken ? "Token" : "Cấu hình token"}
+            <KeyRound className="size-4" /> {canSync ? "Token" : "Cấu hình token"}
           </Button>
           <a
             href="/api/export/smartsheet"
@@ -719,7 +729,7 @@ export function SmartsheetClient({
             onClick={() => void runSync(false)}
             disabled={syncing}
             title={
-              hasToken
+              canSync
                 ? "Lần đầu quét toàn bộ sheet của workspace (vài phút); các lần sau chỉ tải sheet có sửa đổi mới"
                 : "Cần cấu hình token trước"
             }
@@ -1108,10 +1118,27 @@ export function SmartsheetClient({
       <Modal
         open={tokenOpen}
         onClose={() => setTokenOpen(false)}
-        title="Token Smartsheet cá nhân"
-        description="Token dùng để tải dữ liệu từ workspace Viện Thiết Kế, lưu mã hóa theo tài khoản của bạn."
+        title="Token Smartsheet"
+        description="Token dùng để tải dữ liệu từ workspace Viện Thiết Kế. Token riêng lưu mã hóa theo tài khoản của bạn."
       >
         <div className="space-y-3">
+          <div
+            className={
+              hasOwnToken
+                ? "rounded-md border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950 p-3 text-xs text-emerald-800 dark:text-emerald-200"
+                : hasDefaultToken
+                  ? "rounded-md border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 p-3 text-xs text-sky-800 dark:text-sky-200"
+                  : "rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 p-3 text-xs text-amber-800 dark:text-amber-200"
+            }
+          >
+            {hasOwnToken ? (
+              <>Đang dùng <strong>token riêng của bạn</strong>. Chỉ áp cho tài khoản này, không ảnh hưởng người khác.</>
+            ) : hasDefaultToken ? (
+              <>Đang dùng <strong>token mặc định của hệ thống</strong> — tải được ngay, không cần nhập gì. Muốn chạy dưới danh nghĩa tài khoản Smartsheet của mình thì dán token riêng vào ô dưới.</>
+            ) : (
+              <>Chưa có token nào. Nhập token để bắt đầu tải dữ liệu.</>
+            )}
+          </div>
           <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
             Lấy token: vào <strong>Smartsheet</strong> → ảnh đại diện →{" "}
             <strong>Personal Settings</strong> → <strong>API Access</strong> →{" "}
@@ -1121,13 +1148,13 @@ export function SmartsheetClient({
           <Input
             value={tokenInput}
             onChange={(e) => setTokenInput(e.target.value)}
-            placeholder={hasToken ? "Đã có token — dán token mới để thay" : "Dán token vào đây"}
+            placeholder={hasOwnToken ? "Đã có token riêng — dán token mới để thay" : "Dán token vào đây"}
             autoComplete="off"
           />
           <div className="flex items-center justify-between gap-2">
-            {hasToken ? (
+            {hasOwnToken ? (
               <Button variant="outline" onClick={() => void onClearToken()} disabled={tokenBusy} className="text-red-600 hover:text-red-700">
-                Xóa token
+                {hasDefaultToken ? "Quay về token mặc định" : "Xóa token"}
               </Button>
             ) : (
               <span />

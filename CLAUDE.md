@@ -54,9 +54,11 @@ Next.js 16 (App Router) + React 19 + TypeScript + Prisma 6 + **Supabase PostgreS
   giờ khi chờ duyệt) và duyệt HOÀN THÀNH (`approvedById` + `approvedAt`, ký sau khi xong).
 - **Tab Smartsheet** (`/smartsheet`, mọi vai trò xem): đồng bộ THỦ CÔNG dữ liệu workspace
   "Viện Thiết Kế" → 3 bảng `SmartsheetRow`/`SmartsheetSheet`/`SmartsheetSyncLog`, **chỉ lưu dòng
-  Bộ môn chứa "BIM"**. Token API là **của từng user** (`User.smartsheetToken`, mã hóa AES-256-GCM);
-  chưa có token thì nút Tải khóa lại. Sync chạy **theo lô 40 sheet/lượt** (client gọi lặp) để né
-  timeout serverless; lần đầu quét cả ~862 sheet (~3 phút), sau đó chỉ tải sheet có `modifiedAt` mới.
+  Bộ môn chứa "BIM"**. **Mọi user đăng nhập đều bấm Tải được** (không gate theo role). Token theo
+  thứ tự: `User.smartsheetToken` (riêng, mã hóa AES-256-GCM) → `SMARTSHEET_DEFAULT_TOKEN` (env, dùng
+  chung) → báo lỗi. Sync chạy **theo lô 40 sheet/lượt** (client gọi lặp) để né timeout serverless;
+  lần đầu quét cả ~862 sheet (~3 phút), sau đó chỉ tải sheet có `modifiedAt` mới. **KHÔNG có cron
+  quét đêm** — đồng bộ thủ công (chốt 2026-08-12), nên sáng nào lần bấm đầu cũng ~3 phút.
 
 ## Lệnh hay dùng
 ```bash
@@ -85,14 +87,17 @@ pnpm import:all          # extract Excel (python) + load vào DB (tsx)
 - DB connection runtime phải dùng **pooling 6543**; migrate/push dùng **DIRECT_URL 5432**.
 - **Smartsheet:** KHÔNG dùng Search API để khoanh vùng sheet — API trả tối đa ~100 kết quả nên bỏ
   sót sheet có dòng BIM (đã kiểm chứng: thiếu 9/56 dòng). Phải quét cây workspace rồi lọc theo
-  `modifiedAt`. Khóa mã hóa token lấy từ `SMARTSHEET_TOKEN_SECRET`, không có thì fallback `AUTH_SECRET`.
+  `modifiedAt`. Hai env **phải là hai chuỗi khác nhau**: `SMARTSHEET_DEFAULT_TOKEN` (token API thật)
+  và `SMARTSHEET_TOKEN_SECRET` (khóa AES, không có thì fallback `AUTH_SECRET`). Dùng chung 1 chuỗi
+  thì lúc đổi token là mọi token riêng trong DB giải mã lỗi hết.
 
 ## Tham chiếu
 - **Bản đồ chi tiết:** [docs/PROJECT-MAP.md](docs/PROJECT-MAP.md) — kiến trúc đầy đủ, danh sách module/luồng.
 - **Thiết kế DB:** [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) · **Lộ trình:** [PLAN.md](PLAN.md).
-- **Handoff đang dở:** [HANDOFF-phan-quyen.md](HANDOFF-phan-quyen.md), [HANDOFF-duyet-viec.md](HANDOFF-duyet-viec.md),
-  [HANDOFF-smartsheet-tab.md](HANDOFF-smartsheet-tab.md) (tab Smartsheet — xong ở local, chưa lên prod)
-  + [HANDOFF-smartsheet-token.md](HANDOFF-smartsheet-token.md) (token/tài khoản + quét ngầm ban đêm).
+- **Handoff đang dở:** [HANDOFF-phan-quyen.md](HANDOFF-phan-quyen.md) (refactor ma trận quyền — CHƯA code).
+- **Handoff đã xong (tham chiếu):** [HANDOFF-smartsheet-tab.md](HANDOFF-smartsheet-tab.md) +
+  [HANDOFF-smartsheet-token.md](HANDOFF-smartsheet-token.md) (tab Smartsheet — ĐÃ lên prod 12/08) ·
+  [HANDOFF-duyet-viec.md](HANDOFF-duyet-viec.md) (duyệt việc — ĐÃ lên prod, file mô tả cũ hơn code).
 - **Dự án gốc tham khảo:** `../web-qlcv` (Next + Prisma + MySQL, cùng nghiệp vụ).
 - **Dữ liệu nguồn:** `WM_New.xlsx` (16 sheet) — cách phòng đang quản lý bằng Excel.
 
