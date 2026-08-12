@@ -8,6 +8,7 @@ const LABELS: Record<string, string> = {
   manage: "Quản lý công việc",
   assign: "Giao việc",
   timesheet: "Timesheet",
+  smartsheet: "Smartsheet",
   reports: "Báo cáo",
   admin: "Quản trị",
   users: "Người dùng",
