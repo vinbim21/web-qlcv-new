@@ -81,7 +81,20 @@ async function getTokenOrThrow(userId: string) {
     select: { smartsheetToken: true, fullName: true },
   });
   if (!dbUser) throw new Error("Không tìm thấy tài khoản");
-  const own = dbUser.smartsheetToken ? decryptToken(dbUser.smartsheetToken) : null;
+
+  // Token riêng có thể thành RÁC nếu khóa mã hóa đã đổi kể từ lúc lưu (thêm SMARTSHEET_TOKEN_SECRET
+  // khi trước đó fallback AUTH_SECRET, hoặc xoay vòng một trong hai). Khi đó decrypt ném
+  // "Unsupported state or unable to authenticate data" — KHÔNG được để lỗi đó nổi lên làm chết
+  // nút Tải. Coi như chưa có token riêng, tự dọn bản ghi rác, rồi rơi về token mặc định.
+  let own: string | null = null;
+  if (dbUser.smartsheetToken) {
+    try {
+      own = decryptToken(dbUser.smartsheetToken);
+    } catch {
+      await prisma.user.update({ where: { id: userId }, data: { smartsheetToken: null } });
+    }
+  }
+
   const token = own ?? process.env.SMARTSHEET_DEFAULT_TOKEN ?? null;
   if (!token) {
     throw new Error("Chưa có token Smartsheet — bấm 'Cấu hình token' để nhập");

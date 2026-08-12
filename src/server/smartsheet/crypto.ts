@@ -17,6 +17,23 @@ export function encryptToken(plain: string): string {
   return [iv, tag, enc].map((b) => b.toString("base64")).join(".");
 }
 
+/**
+ * Token đã lưu có giải mã được bằng khóa HIỆN TẠI không.
+ * Khóa đổi (thêm `SMARTSHEET_TOKEN_SECRET` khi trước đó fallback `AUTH_SECRET`, hoặc xoay vòng
+ * một trong hai) thì token cũ thành rác — `decipher.final()` ném
+ * "Unsupported state or unable to authenticate data". Dùng hàm này để coi token rác như CHƯA CÓ
+ * thay vì để lỗi làm chết cả trang.
+ */
+export function isTokenUsable(stored: string | null | undefined): boolean {
+  if (!stored) return false;
+  try {
+    decryptToken(stored);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function decryptToken(stored: string): string {
   const parts = stored.split(".");
   if (parts.length !== 3) throw new Error("Token lưu trữ sai định dạng — hãy nhập lại token");
