@@ -83,7 +83,9 @@ y hệt.
 4. Smartsheet là mục **ngang cấp** trong sidebar.
 5. Nguồn chỉ có "Xong"/"Quá hạn"/trống → **"Sắp đến hạn" và phần "Quá hạn" còn thiếu được SUY RA từ
    Ngày phát hành PD**. Cột Tình trạng dùng chung quy tắc với KPI. DB **giữ nguyên** giá trị gốc.
-6. **KHÔNG làm quét ngầm ban đêm** — anh Toản đồng bộ thủ công (chốt 2026-08-12).
+6. **CÓ quét ngầm ban đêm** — GitHub Actions 03:00 giờ VN (chốt lại 2026-08-12, sau khi token mặc
+   định trong env gỡ được nút thắt "job không có session thì dùng token của ai"). Chọn Actions thay
+   vì Vercel Cron vì Hobby chỉ cho 1 cron/ngày, chạy không xong là kẹt tới hôm sau.
 
 ---
 
@@ -97,9 +99,13 @@ y hệt.
 - **Tách 2 bước KHÔNG làm nhanh hơn** (173s so với 172s). Nút thắt là thời gian đọc từng sheet +
   trần ~300 request/phút của Smartsheet (≈5 sheet/giây). Lợi ích thật là có phần trăm chính xác và
   giảm 22 lần tải cây xuống 1.
-- **Sáng nào lần bấm đầu tiên cũng mất ~3 phút.** 716/862 sheet cùng bị đánh dấu sửa lúc 01h sáng do
-  Smartsheet tính lại công thức theo ngày ("Số ngày còn lại", "Số ngày chậm") — không phải người sửa.
-  Câu "các lần sau chỉ 6 giây" chỉ đúng **trong cùng ngày**. Đã chốt chấp nhận, không làm cron.
+- **716/862 sheet cùng bị đánh dấu sửa lúc 01h sáng** do Smartsheet tính lại công thức theo ngày
+  ("Số ngày còn lại", "Số ngày chậm") — không phải người sửa. Vì vậy job đêm **phải chạy sau 01h VN**,
+  và câu "các lần sau chỉ 6 giây" chỉ đúng **trong cùng ngày**.
+- **Cron: `api/cron` phải nằm ngoài matcher của [src/proxy.ts](src/proxy.ts)** — không thì NextAuth
+  đá về `/login` và job im lặng không chạy. Đã vá.
+- **Chỉ gọi `runPrepare` khi hết sạch cờ `needsScan`.** Hàm đó tải lại cây workspace VÀ reset toàn bộ
+  cờ; gọi giữa chừng là mất tiến độ, lượt sau làm lại từ đầu, không bao giờ xong.
 - **React 19:** không được gọi `e.currentTarget.getBoundingClientRect()` **bên trong hàm cập nhật
   state** — React đã xóa `currentTarget` trước khi hàm đó chạy → crash trắng trang. Phải đo ngay
   trong handler.

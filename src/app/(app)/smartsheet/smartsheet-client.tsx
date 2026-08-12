@@ -75,6 +75,15 @@ type LastSync = {
   rowCount: number;
 } | null;
 
+/**
+ * Lần đồng bộ LỖI gần nhất, và chỉ khi nó MỚI HƠN lần thành công gần nhất — lỗi đã được một lượt
+ * chạy thành công sau đó khắc phục thì không báo nữa.
+ *
+ * Không có cảnh báo này thì job chạy ngầm ban đêm hỏng trong im lặng (token anh Nam hết hạn hoặc bị
+ * thu hồi là cả phòng dùng dữ liệu cũ mà không ai biết).
+ */
+type LastError = { at: string; userName: string | null; error: string | null } | null;
+
 // ---------- Trạng thái hiển thị ----------
 // Nguồn Smartsheet chỉ có "Xong" / "Quá hạn" / trống. "Sắp đến hạn" và phần "Quá hạn" còn thiếu
 // được SUY RA từ Ngày phát hành PD, đúng tinh thần effectiveStatus() của app (xem src/lib/task-status.ts).
@@ -295,12 +304,14 @@ function rowInPeriod(r: SmartsheetRowDTO, bounds: PeriodBounds | null): boolean 
 export function SmartsheetClient({
   rows,
   lastSync,
+  lastError,
   hasOwnToken,
   hasDefaultToken,
   todayISO,
 }: {
   rows: SmartsheetRowDTO[];
   lastSync: LastSync;
+  lastError: LastError;
   /** Người dùng đã cấu hình token RIÊNG (lưu mã hóa trong DB, chỉ áp cho họ). */
   hasOwnToken: boolean;
   /** Hệ thống có token MẶC ĐỊNH trong env — ai chưa có token riêng thì dùng chung cái này. */
@@ -878,6 +889,32 @@ export function SmartsheetClient({
               ? `Đang có ${sync.rows} dòng Bộ môn BIM trong dữ liệu`
               : "Chưa quét sheet nào"}
           </p>
+        </div>
+      ) : null}
+
+      {/* ---- Cảnh báo lần đồng bộ gần nhất bị lỗi ---- */}
+      {lastError ? (
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950 p-3 text-sm text-red-800 dark:text-red-200"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-semibold">
+              Đồng bộ lỗi lúc{" "}
+              {new Date(lastError.at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+              {" · "}
+              {new Date(lastError.at).toLocaleDateString("vi-VN")}
+              {lastError.userName ? ` · ${lastError.userName}` : ""}
+            </p>
+            {lastError.error ? (
+              <p className="mt-0.5 break-words opacity-90">{lastError.error}</p>
+            ) : null}
+            <p className="mt-1 text-xs opacity-80">
+              Dữ liệu đang hiển thị là của lần đồng bộ thành công trước đó. Nếu lỗi nhắc tới token,
+              kiểm tra token Smartsheet còn hiệu lực không.
+            </p>
+          </div>
         </div>
       ) : null}
 
