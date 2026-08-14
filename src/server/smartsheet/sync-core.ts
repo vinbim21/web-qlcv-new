@@ -11,7 +11,11 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/server/db/client";
-import { SMARTSHEET_BATCH_SIZE } from "@/lib/smartsheet";
+import {
+  SMARTSHEET_BATCH_SIZE,
+  type SyncBatchResult,
+  type SyncPrepareResult,
+} from "@/lib/smartsheet";
 import { fetchSheetBimRows, getWorkspaceSheetMap, mapWithConcurrency } from "./client";
 
 // Số sheet quét mỗi lượt gọi — giữ mỗi lượt < ~30s để né timeout serverless.
@@ -20,26 +24,6 @@ export const BATCH_SIZE = SMARTSHEET_BATCH_SIZE;
 export const CONCURRENCY = 5;
 // Phiên RUNNING không có nhịp tim mới hơn ngưỡng này coi như đã chết → không khóa nữa.
 export const STALE_LOCK_MS = 3 * 60 * 1000;
-
-export type SyncPrepareResult = {
-  logId: string;
-  /** Tổng số sheet phải quét trong phiên này = mẫu số của thanh phần trăm. */
-  total: number;
-  /** Tổng số sheet của workspace (để hiện "trong tổng N sheet"). */
-  workspaceSheets: number;
-  /** Số dòng BIM đang có trong DB trước khi quét. */
-  totalRows: number;
-};
-
-export type SyncBatchResult = {
-  done: boolean;
-  /** Số sheet đã quét trong lượt này. */
-  processed: number;
-  /** Số sheet còn chờ quét sau lượt này. */
-  remaining: number;
-  /** Tổng dòng BIM hiện có trong DB. */
-  totalRows: number;
-};
 
 /** Chặn 2 phiên chạy song song (phiên mất nhịp tim = crash/timeout thì bỏ qua). */
 export async function assertNoOtherRunning(exceptLogId?: string) {
@@ -78,6 +62,31 @@ export async function runPrepare(opts: {
   const { token, actorId, actorName, full = false } = opts;
   await assertNoOtherRunning();
 
+  // Mở log NGAY, TRƯỚC khi làm việc nặng. Trước đây log tạo ở bước cuối nên mọi lỗi trong lúc
+  // chuẩn bị (token hỏng, API 401/403, tải cây workspace fail) KHÔNG để lại vết nào trong DB —
+  // người dùng thấy toast đỏ còn người soi DB thì thấy sạch bong. Đã mất một lượt chẩn đoán vì
+  // chuyện này (12/08), phải mò log Vercel mới ra.
+  const log = await prisma.smartsheetSyncLog.create({
+    data: { userId: actorId, userName: actorName, status: "RUNNING" },
+  });
+
+  try {
+    return await prepareInner();
+  } catch (e) {
+    await prisma.smartsheetSyncLog
+      .update({
+        where: { id: log.id },
+        data: {
+          status: "ERROR",
+          finishedAt: new Date(),
+          error: e instanceof Error ? e.message : String(e),
+        },
+      })
+      .catch(() => {});
+    throw e;
+  }
+
+  async function prepareInner(): Promise<SyncPrepareResult> {
   const [tree, known] = await Promise.all([
     getWorkspaceSheetMap(token),
     prisma.smartsheetSheet.findMany(),
@@ -139,10 +148,6 @@ export async function runPrepare(opts: {
     prisma.smartsheetRow.count(),
   ]);
 
-  const log = await prisma.smartsheetSyncLog.create({
-    data: { userId: actorId, userName: actorName, status: "RUNNING" },
-  });
-
   // Không có sheet nào cần quét → đóng phiên luôn, client hiện "đã là mới nhất".
   if (total === 0) {
     await prisma.smartsheetSyncLog.update({
@@ -152,6 +157,7 @@ export async function runPrepare(opts: {
   }
 
   return { logId: log.id, total, workspaceSheets: tree.size, totalRows };
+  }
 }
 
 /**
