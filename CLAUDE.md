@@ -96,6 +96,14 @@ pnpm import:all          # extract Excel (python) + load vào DB (tsx)
 - **Cron:** `api/cron` PHẢI nằm ngoài matcher của [src/proxy.ts](src/proxy.ts) — job không có session
   nên NextAuth sẽ đá về `/login`. Và **chỉ gọi `runPrepare` khi hết sạch cờ `needsScan`**: hàm đó
   reset toàn bộ cờ, gọi giữa chừng là mất tiến độ và quay vòng vô tận.
+- **TUYỆT ĐỐI KHÔNG `export type { X }` (tái xuất) trong file có `"use server"`.** Turbopack bọc mọi
+  export thành tham chiếu server action lúc chạy, không nhận ra đó là type → `ReferenceError: X is
+  not defined`, **vỡ TOÀN BỘ action trong file**. `tsc`/`eslint`/`next build` đều PASS, chỉ chết lúc
+  chạy. Đã dính trên prod 12/08 (nút Tải + lưu/xóa token Smartsheet chết 1 ngày). Type dùng chung để
+  ở file trung lập như [src/lib/smartsheet.ts](src/lib/smartsheet.ts). Khai báo tại chỗ
+  (`export type Foo = {...}`) thì vẫn an toàn.
+- **Lỗi trên prod: chạy `vercel logs --environment production --level error --no-follow -x` TRƯỚC.**
+  Nhanh hơn soi DB nhiều — nhất là khi lỗi xảy ra trước lúc code kịp ghi log nghiệp vụ.
 
 ## Tham chiếu
 - **Bản đồ chi tiết:** [docs/PROJECT-MAP.md](docs/PROJECT-MAP.md) — kiến trúc đầy đủ, danh sách module/luồng.

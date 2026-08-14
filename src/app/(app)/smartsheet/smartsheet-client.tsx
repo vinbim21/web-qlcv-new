@@ -45,9 +45,8 @@ import {
   prepareSmartsheetSync,
   saveSmartsheetToken,
   syncSmartsheetBatch,
-  type SyncBatchResult,
-  type SyncPrepareResult,
 } from "@/server/actions/smartsheet";
+import type { SyncBatchResult, SyncPrepareResult } from "@/lib/smartsheet";
 
 // ---------- Kiểu dữ liệu từ server ----------
 

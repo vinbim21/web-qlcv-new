@@ -5,12 +5,8 @@ import { prisma } from "@/server/db/client";
 import { requireUser } from "@/server/auth/permissions";
 import { encryptToken, decryptToken } from "@/server/smartsheet/crypto";
 import { validateToken } from "@/server/smartsheet/client";
-import {
-  type SyncBatchResult,
-  type SyncPrepareResult,
-  runBatch,
-  runPrepare,
-} from "@/server/smartsheet/sync-core";
+import { runBatch, runPrepare } from "@/server/smartsheet/sync-core";
+import type { SyncBatchResult, SyncPrepareResult } from "@/lib/smartsheet";
 import {
   smartsheetBatchSchema,
   smartsheetPrepareSchema,
@@ -98,8 +94,12 @@ async function getTokenOrThrow(userId: string) {
 // ---------- Đồng bộ (2 bước: chuẩn bị → quét từng lô) ----------
 // Lõi thật nằm ở `@/server/smartsheet/sync-core` (không phụ thuộc session) để route cron dùng chung.
 // Hai action dưới đây chỉ làm đúng một việc: lấy session + token rồi ủy quyền cho lõi.
-
-export type { SyncPrepareResult, SyncBatchResult };
+//
+// ⚠️ KHÔNG tái xuất type từ đây (`export type { SyncPrepareResult }`). File này có `"use server"`
+// nên Turbopack bọc MỌI export thành tham chiếu server action lúc chạy và không nhận ra đó là tái
+// xuất type → `ReferenceError: SyncPrepareResult is not defined`, vỡ toàn bộ action trong file.
+// Đã dính đúng lỗi này trên production 12/08. Type để ở `@/lib/smartsheet`, ai cần thì import
+// thẳng từ đó.
 
 export async function prepareSmartsheetSync(input: unknown) {
   return runAction(async (): Promise<SyncPrepareResult> => {
